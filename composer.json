@@ -11,7 +11,7 @@
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "Wolfcharaa\\MessageBus\\": "src/"
+            "Wolfcharaa\\MessageBus\\": "src"
         }
     },
     "authors": [
