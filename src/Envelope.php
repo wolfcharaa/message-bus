@@ -1,0 +1,84 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\MessageBus;
+
+use DateTimeImmutable;
+use App\MessageBus\Message\Message;
+
+/**
+ * @api
+ * @template-covariant TResult = mixed
+ * @template-covariant TMessage of Message<TResult> = Message<mixed>
+ */
+final class Envelope implements \JsonSerializable
+{
+    /**
+     * @var TMessage $message
+     */
+    public Message $message;
+    /**
+     * @var non-empty-string $messageId
+     */
+    public string $messageId;
+    /**
+     * @var ?non-empty-string $causationId
+     */
+    public ?string $causationId = null;
+    /**
+     * @var ?non-empty-string $correlationId
+     */
+    public ?string $correlationId = null;
+    /**
+     * @var DateTimeImmutable|null $timestamp
+     */
+    public ?DateTimeImmutable $timestamp = null;
+    /**
+     * @var array<string, mixed> $headers
+     */
+    public array $headers = [];
+
+    public function __construct(
+        Message $message,
+        string $messageId,
+        ?string $causationId = null,
+        ?string $correlationId = null,
+        ?DateTimeImmutable $timestamp = null,
+        array $headers = []
+    ) {
+        $this->message = $message;
+        $this->messageId = $messageId;
+        $this->causationId = $causationId;
+        $this->correlationId = $correlationId;
+        $this->timestamp = $timestamp;
+        $this->headers = $headers;
+    }
+
+    public function jsonSerialize(): array
+    {
+        return [
+            'message' => [
+                'class' => get_class($this->message),
+                'values' => get_object_vars($this->message)
+            ],
+            'messageId' => $this->messageId,
+            'causationId' => $this->causationId,
+            'correlationId' => $this->correlationId,
+            'timestamp' => ($this->timestamp ?? new DateTimeImmutable())->format('Y-m-d H:i:s'),
+            'headers' => $this->headers,
+        ];
+    }
+
+    public static function restore(array $data): Envelope
+    {
+        return new self(
+            new $data['message']['class'](...$data['message']['values']),
+            $data['messageId'],
+            $data['causationId'],
+            $data['correlationId'],
+            DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $data['timestamp']),
+            $data['headers'],
+        );
+    }
+}
