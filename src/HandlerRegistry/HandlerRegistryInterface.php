@@ -24,17 +24,4 @@ interface HandlerRegistryInterface
      * @return ?Handler<TResult, TMessage>
      */
     public function find(string $messageClass): ?Handler;
-
-    /**
-     * @param class-string<Message> $messageClass
-     * @param Handler $handler
-     * @throws HandlerMessageExists
-     */
-    public function addHandler(string $messageClass, Handler $handler): HandlerRegistryInterface;
-
-    /**
-     * @param array<class-string<Message>, Handler> $handlers
-     * @throws HandlerMessageExists
-     */
-    public function addHandlers(array $handlers): HandlerRegistryInterface;
 }
