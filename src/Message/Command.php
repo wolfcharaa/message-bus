@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace App\MessageBus\Message;
 
 /**
- * @extends Message<void>
+ * @template-covariant TResult = void
+ * @extends Message<TResult>
  */
 interface Command extends Message
 {
