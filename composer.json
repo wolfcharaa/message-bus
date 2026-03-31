@@ -3,10 +3,10 @@
     "description": "A message handler with interceptor capabilities",
     "type": "library",
     "require": {
-        "php": "^7.4",
-        "psr/clock": "^1.0",
-        "psr/log": "^1.0",
-        "psr/container": "^1.1",
+        "php": "^7.4 | 8.*",
+        "psr/clock": "*",
+        "psr/log": "*",
+        "psr/container": "*",
         "ext-json": "*"
     },
     "license": "MIT",
