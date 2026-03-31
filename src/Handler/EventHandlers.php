@@ -14,16 +14,16 @@ use App\MessageBus\Message\Event;
 final class EventHandlers implements Handler
 {
     /**
-     * @var iterable<Handler> $handlers
+     * @var array<Handler> $handlers
      */
     private iterable $handlers;
     public function __construct(
-        iterable $handlers = []
+        array $handlers = []
     ) {
         $this->handlers = $handlers;
     }
 
-    public function withHandler(Handler ...$handler): EventHandlers
+    public function withHandler(Handler ...$handler): self
     {
         $clone = clone $this;
         $clone->handlers = [...$clone->handlers, ...$handler];

@@ -11,7 +11,7 @@ use App\MessageBus\Middleware\Middleware;
 
 /**
  * @template TResult
- * @template TMessage of Message|object<TResult>
+ * @template TMessage of Message<TResult>|object
  */
 final class MessageDefinition
 {

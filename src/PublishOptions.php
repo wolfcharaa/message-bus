@@ -12,14 +12,15 @@ final class PublishOptions
     public ?string $messageId;
 
     /**
-     * @var array<string, mixed> $headers
+     * @var Header $header
      */
-    public array $headers;
+    public Header $header;
+
     public function __construct(
         ?string $messageId = null,
-        array $headers = []
+        ?Header $header = null
     ) {
         $this->messageId = $messageId;
-        $this->headers = $headers;
+        $this->header = $header ?? new Header();
     }
 }

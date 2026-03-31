@@ -11,7 +11,7 @@ interface HandlerRegistryInterface
 {
     /**
      * @template TResult
-     * @template TMessage of Message<TResult>
+     * @template TMessage of Message<TResult>|object
      * @param class-string<TMessage> $messageClass
      * @return Handler<TResult, TMessage>
      */
@@ -19,7 +19,7 @@ interface HandlerRegistryInterface
 
     /**
      * @template TResult
-     * @template TMessage of Message<TResult>
+     * @template TMessage of Message<TResult>|object
      * @param class-string<TMessage> $messageClass
      * @return MessageDefinition
      */

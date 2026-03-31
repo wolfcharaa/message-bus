@@ -92,13 +92,8 @@ class Builder implements HandlerBuilderInterface
 
         $handler ??= new CallableHandler($target->getClosure());
 
-        return empty($this->middleware)
+        return \count($this->middleware) === 0
             ? $handler
-            : new HandlerWithMiddleware(
-                $handler,
-                array_map(function (Middleware $middleware) use ($target): Middleware {
-                    return $middleware;
-                }, $this->middleware),
-            );
+            : new HandlerWithMiddleware($handler, $this->middleware);
     }
 }
