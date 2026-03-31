@@ -35,9 +35,9 @@ final class Envelope implements \JsonSerializable
      */
     public ?DateTimeImmutable $timestamp = null;
     /**
-     * @var array<string, mixed> $headers
+     * @var Header $headers
      */
-    public array $headers = [];
+    public Header $header;
 
     public function __construct(
         Message $message,
@@ -45,14 +45,14 @@ final class Envelope implements \JsonSerializable
         ?string $causationId = null,
         ?string $correlationId = null,
         ?DateTimeImmutable $timestamp = null,
-        array $headers = []
+        ?Header $header = null
     ) {
         $this->message = $message;
         $this->messageId = $messageId;
         $this->causationId = $causationId;
         $this->correlationId = $correlationId;
         $this->timestamp = $timestamp;
-        $this->headers = $headers;
+        $this->header = $header ?? new Header();
     }
 
     public function jsonSerialize(): array
@@ -66,7 +66,7 @@ final class Envelope implements \JsonSerializable
             'causationId' => $this->causationId,
             'correlationId' => $this->correlationId,
             'timestamp' => ($this->timestamp ?? new DateTimeImmutable())->format('Y-m-d H:i:s'),
-            'headers' => $this->headers,
+            'headers' => $this->header->jsonSerialize(),
         ];
     }
 
@@ -78,7 +78,7 @@ final class Envelope implements \JsonSerializable
             $data['causationId'],
             $data['correlationId'],
             DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $data['timestamp']),
-            $data['headers'],
+            isset($data['headers']) ? Header::restore($data['headers']) : null,
         );
     }
 }

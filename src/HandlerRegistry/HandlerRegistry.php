@@ -13,30 +13,30 @@ abstract class HandlerRegistry implements HandlerRegistryInterface
 {
     /**
      * @template TResult
-     * @template TMessage of Message<TResult>
+     * @template TMessage of Message<TResult>|object
      * @param class-string<TMessage> $messageClass
      * @return Handler<TResult, TMessage>
      */
     final public function get(string $messageClass): Handler
     {
-        $handler = $this->find($messageClass);
+        $definition = $this->find($messageClass);
 
-        if ($handler !== null) {
-            return $handler;
+        if ($definition->getHandler() !== null) {
+            return $definition->getHandler();
         }
 
-        if (is_a($messageClass, Event::class, true)) {
-            return new EventHandlers();
+        if ($definition->isEvent() === false) {
+            throw new HandlerNotFound($definition->getMessageClass());
         }
 
-        throw new HandlerNotFound($messageClass);
+        return $definition->setHandler(new EventHandlers())->getHandler();
     }
 
     /**
      * @template TResult
-     * @template TMessage of Message<TResult>
+     * @template TMessage of Message<TResult>|object
      * @param class-string<TMessage> $messageClass
-     * @return ?Handler<TResult, TMessage>
+     * @return MessageDefinition<TResult, TMessage>
      */
-    abstract public function find(string $messageClass): ?Handler;
+    abstract public function find(string $messageClass): MessageDefinition;
 }

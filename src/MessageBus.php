@@ -48,7 +48,7 @@ final class MessageBus implements MessageBusInterface
             $causation !== null ? $causation->messageId : null,
             $causation !== null ? $causation->correlationId : $messageId,
             $this->clock->now(),
-            $options->headers,
+            $options->header,
         );
         $context = new Context(
             $this,
