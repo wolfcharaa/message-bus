@@ -21,7 +21,7 @@ interface HandlerRegistryInterface
      * @template TResult
      * @template TMessage of Message<TResult>
      * @param class-string<TMessage> $messageClass
-     * @return ?Handler<TResult, TMessage>
+     * @return MessageDefinition
      */
-    public function find(string $messageClass): ?Handler;
+    public function find(string $messageClass): MessageDefinition;
 }

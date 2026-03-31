@@ -7,7 +7,6 @@ namespace App\MessageBus\HandlerRegistry;
 use App\MessageBus\Builder\HandlerBuilderInterface;
 use App\MessageBus\Handler\EventHandlers;
 use App\MessageBus\Handler\Handler;
-use App\MessageBus\Message\Event;
 use App\MessageBus\Message\Message;
 use App\MessageBus\Middleware\Middleware;
 
@@ -21,14 +20,9 @@ final class LazyHandlerRegistry extends HandlerRegistry
     private HandlerBuilderInterface $builder;
 
     /**
-     * @var array<class-string<Message>, MessageDefinition> $handlerDefinitions Handler factory definitions
+     * @var array<class-string<Message|object>, MessageDefinition> $messageDefinitions Handler factory definitions
      */
-    private array $handlerDefinitions;
-
-    /**
-     * @var array<class-string, Handler> Cached handler instances
-     */
-    private array $handlers = [];
+    private array $messageDefinitions;
 
     /**
      * @var array<class-string<Middleware>> $defaultMiddleware
@@ -48,74 +42,55 @@ final class LazyHandlerRegistry extends HandlerRegistry
         $this->builder = $builder;
         $this->defaultMiddleware = $defaultMiddleware;
         foreach ($definitions as $definition) {
-            $this->handlerDefinitions[$definition->getMessageClass()] = $definition;
+            $this->messageDefinitions[$definition->getMessageClass()] = $definition;
         }
     }
 
-    public function find(string $messageClass): ?Handler
+    public function find(string $messageClass): MessageDefinition
     {
-        // Return cached handler if exists
-        if (isset($this->handlers[$messageClass])) {
-            return $this->handlers[$messageClass];
-        }
-
         // Check if factory exists
-        if (!isset($this->handlerDefinitions[$messageClass])) {
+        if (!isset($this->messageDefinitions[$messageClass])) {
             throw new HandlerNotFound($messageClass);
         }
 
         // Build handler using factory definition
-        try {
-            $definition = $this->handlerDefinitions[$messageClass];
-            $handlers = $definition->getHandlers();
+        $definition = $this->messageDefinitions[$messageClass];
 
-            if (($countHandlers = count($handlers)) === 0) {
-                throw new \LogicException(sprintf(
-                    'Message Class `%s` is not set handlers',
-                    $messageClass
-                ));
-            }
-
-            if (is_a($messageClass, Event::class, true)) {
-                $eventHandlers = [];
-                foreach ($handlers as $factoryHandler) {
-                    $eventHandlers[] = $this->buildHandler($definition, $factoryHandler);
-                }
-                $handler = new EventHandlers($eventHandlers);
-            } else {
-                if ($countHandlers > 1) {
-                    throw new \LogicException(sprintf(
-                        'This `%s` message has multiple handlers. Message class is not `%s`',
-                        $messageClass,
-                        Event::class
-                    ));
-                }
-
-                $handler = $this->buildHandler(
-                    $definition,
-                    $definition->getHandlers()[0]
-                );
-            }
-        } finally {
-            unset($this->handlerDefinitions[$messageClass]);
+        if ($definition->getHandler() !== null) {
+            return $definition;
         }
 
-        // Cache for future use
-        $this->handlers[$messageClass] = $handler;
+        $handlers = $definition->getFactoryHandlers();
 
-        return $handler;
+        if (\count($handlers) === 0) {
+            throw new \LogicException(sprintf(
+                'Message Class `%s` is not set handlers',
+                $messageClass
+            ));
+        }
+
+        $definition->isEvent() === true
+            ? $definition->setHandler(new EventHandlers(array_map(function (array $factory) use ($definition): Handler {
+                return $this->buildHandler($definition->getMiddleware(), $factory);
+            }, $handlers)))
+            : $definition->setHandler($this->buildHandler(
+                $definition->getMiddleware(),
+                $handlers[0]
+            ));
+
+        return $definition;
     }
 
     /**
-     * @param MessageDefinition $definition
+     * @param array<class-string<Middleware>> $middleware
      * @param array<class-string, array{0: class-string, 1: string}> $factory
      */
-    public function buildHandler(MessageDefinition $definition, array $factory): Handler
+    private function buildHandler(array $middleware, array $factory): Handler
     {
         return $this->builder
             ->withMiddleware(...array_merge(
                 $this->defaultMiddleware,
-                $definition->getMiddleware()
+                $middleware
             ))
             ->build($factory);
     }

@@ -4,54 +4,96 @@ declare(strict_types=1);
 
 namespace App\MessageBus\HandlerRegistry;
 
-use App\MessageBus\Handler\Handler;
+use App\MessageBus\Builder\HandlerBuilderInterface;
 use App\MessageBus\Handler\EventHandlers;
-use App\MessageBus\Message\Event;
+use App\MessageBus\Handler\Handler;
 use App\MessageBus\Message\Message;
+use App\MessageBus\Middleware\Middleware;
 
 final class ArrayHandlerRegistry extends HandlerRegistry
 {
+    private HandlerBuilderInterface $builder;
+
     /**
-     * @var array<class-string<Message>, Handler> $handlersByMessageClass
+     * @var array<class-string<Message|object>, MessageDefinition> $messageDefinitions Handler factory definitions
      */
-    private array $handlersByMessageClass;
+    private array $messageDefinitions;
+
+    /**
+     * @var array<class-string<Middleware>> $defaultMiddleware
+     */
+    private array $defaultMiddleware;
+
+    /**
+     * @param HandlerBuilderInterface $builder
+     * @param array<class-string<Middleware>> $defaultMiddleware
+     * @param MessageDefinition ...$definitions
+     */
     public function __construct(
-        $handlersByMessageClass = []
+        HandlerBuilderInterface $builder,
+        array $defaultMiddleware = [],
+        MessageDefinition ...$definitions
     ) {
-        $this->handlersByMessageClass = $handlersByMessageClass;
+        $this->builder = $builder;
+        $this->defaultMiddleware = $defaultMiddleware;
+        $this->addMessages($definitions);
+    }
+
+    public function find(string $messageClass): MessageDefinition
+    {
+        if (!isset($this->messageDefinitions[$messageClass])) {
+            throw new HandlerNotFound($messageClass);
+        }
+
+        return $this->messageDefinitions[$messageClass];
     }
 
     /**
-     * @template TResult
-     * @template TMessage of Message<TResult>
-     * @param class-string<TMessage> $messageClass
-     * @return ?Handler<TResult, TMessage>
+     * @param array<MessageDefinition> $definitions
      */
-    public function find(string $messageClass): ?Handler
+    public function addMessages(array $definitions): self
     {
-        return $this->handlersByMessageClass[$messageClass] ?? null;
-    }
-
-    public function addHandler(string $messageClass, Handler $handler): HandlerRegistryInterface
-    {
-        if (is_a($messageClass, Event::class, true)) {
-            $handler = ($this->handlers[$messageClass] ?? new EventHandlers())
-                ->withHandler($handler);
-        } elseif (isset($this->handlers[$messageClass])) {
-            throw new HandlerMessageExists($messageClass);
+        foreach ($definitions as $definition) {
+            $this->addMessage($definition);
         }
-
-        $this->handlersByMessageClass[$messageClass] = $handler;
 
         return $this;
     }
 
-    public function addHandlers(array $handlers): HandlerRegistryInterface
+    public function addMessage(MessageDefinition $definition): self
     {
-        foreach ($handlers as $messageClass => $handler) {
-            $this->addHandler($messageClass, $handler);
+        $handlers = $definition->getFactoryHandlers();
+
+        if (\count($handlers) === 0) {
+            throw new \LogicException(sprintf(
+                'Message Class `%s` is not set handlers',
+                $definition->getMessageClass()
+            ));
         }
 
+        $this->messageDefinitions[$definition->getMessageClass()] = $definition->isEvent() === true
+            ? $definition->setHandler(new EventHandlers(array_map(function (array $factory) use ($definition): Handler {
+                return $this->buildHandler($definition->getMiddleware(), $factory);
+            }, $handlers)))
+            : $definition->setHandler($this->buildHandler(
+                $definition->getMiddleware(),
+                $handlers[0]
+            ));
+
         return $this;
+    }
+
+    /**
+     * @param array<class-string<Middleware>> $middleware
+     * @param array<class-string, array{0: class-string, 1: string}> $factory
+     */
+    private function buildHandler(array $middleware, array $factory): Handler
+    {
+        return $this->builder
+            ->withMiddleware(...array_merge(
+                $this->defaultMiddleware,
+                $middleware
+            ))
+            ->build($factory);
     }
 }
