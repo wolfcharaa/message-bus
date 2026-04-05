@@ -73,7 +73,7 @@ final class Envelope implements \JsonSerializable
     public static function restore(array $data, ?Header $header = null): Envelope
     {
         return new self(
-            new $data['message']['class'](...$data['message']['values']),
+            new $data['message']['class'](...\array_values($data['message']['values'])),
             $data['messageId'],
             $data['causationId'],
             $data['correlationId'],
