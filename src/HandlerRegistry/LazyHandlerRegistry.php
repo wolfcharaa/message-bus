@@ -63,14 +63,14 @@ final class LazyHandlerRegistry extends HandlerRegistry
         $handlers = $definition->getFactoryHandlers();
 
         if (\count($handlers) === 0) {
-            throw new \LogicException(sprintf(
+            throw new \LogicException(\sprintf(
                 'Message Class `%s` is not set handlers',
                 $messageClass
             ));
         }
 
         $definition->isEvent() === true
-            ? $definition->setHandler(new EventHandlers(array_map(function (array $factory) use ($definition): Handler {
+            ? $definition->setHandler(new EventHandlers(\array_map(function (array $factory) use ($definition): Handler {
                 return $this->buildHandler($definition->getMiddleware(), $factory);
             }, $handlers)))
             : $definition->setHandler($this->buildHandler(
@@ -88,7 +88,7 @@ final class LazyHandlerRegistry extends HandlerRegistry
     private function buildHandler(array $middleware, array $factory): Handler
     {
         return $this->builder
-            ->withMiddleware(...array_merge(
+            ->withMiddleware(...\array_merge(
                 $this->defaultMiddleware,
                 $middleware
             ))

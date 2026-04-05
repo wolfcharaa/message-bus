@@ -25,7 +25,7 @@ class LoggingMiddleware implements Middleware
     public function handle(Context $context, Pipeline $pipeline)
     {
         $this->logger->debug('About to handle {message_class}', [
-            'message_class' => get_class($context->envelope->message),
+            'message_class' => \get_class($context->envelope->message),
             'envelope' => $context->envelope
         ]);
 
@@ -36,7 +36,7 @@ class LoggingMiddleware implements Middleware
                 'Failed to handle {message_class}',
                 [
                     'exception' => $exception,
-                    'message_class' => get_class($context->envelope->message),
+                    'message_class' => \get_class($context->envelope->message),
                     'envelope' => $context->envelope
                 ]
             );
@@ -45,7 +45,7 @@ class LoggingMiddleware implements Middleware
         }
 
         $this->logger->debug('Successfully handled {message_class}', [
-            'message_class' => get_class($context->envelope->message),
+            'message_class' => \get_class($context->envelope->message),
             'envelope' => $context->envelope
         ]);
 

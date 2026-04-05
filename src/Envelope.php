@@ -59,26 +59,26 @@ final class Envelope implements \JsonSerializable
     {
         return [
             'message' => [
-                'class' => get_class($this->message),
-                'values' => get_object_vars($this->message)
+                'class' => \get_class($this->message),
+                'values' => \get_object_vars($this->message)
             ],
             'messageId' => $this->messageId,
             'causationId' => $this->causationId,
             'correlationId' => $this->correlationId,
-            'timestamp' => ($this->timestamp ?? new DateTimeImmutable())->format('Y-m-d H:i:s'),
+            'timestamp' => ($this->timestamp ?? new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             'headers' => $this->header->jsonSerialize(),
         ];
     }
 
-    public static function restore(array $data): Envelope
+    public static function restore(array $data, ?Header $header = null): Envelope
     {
         return new self(
             new $data['message']['class'](...$data['message']['values']),
             $data['messageId'],
             $data['causationId'],
             $data['correlationId'],
-            DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $data['timestamp']),
-            isset($data['headers']) ? Header::restore($data['headers']) : null,
+            \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $data['timestamp']),
+            $header
         );
     }
 }

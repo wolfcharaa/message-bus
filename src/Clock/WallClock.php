@@ -11,6 +11,6 @@ class WallClock implements ClockInterface
 {
     public function now(): DateTimeImmutable
     {
-        return new DateTimeImmutable();
+        return new \DateTimeImmutable();
     }
 }

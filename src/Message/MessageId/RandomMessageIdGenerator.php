@@ -19,6 +19,6 @@ final class RandomMessageIdGenerator implements MessageIdGenerator
 
     public function generateMessageId(): string
     {
-        return bin2hex(random_bytes($this->bytes));
+        return \bin2hex(\random_bytes($this->bytes));
     }
 }

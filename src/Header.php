@@ -13,10 +13,10 @@ class Header implements \JsonSerializable
 
     public function __construct(\JsonSerializable ...$values)
     {
-        $this->values = array_reduce(
+        $this->values = \array_reduce(
             $values,
             static function (array $carry, object $value): array {
-                $carry[get_class($value)] = $value;
+                $carry[\get_class($value)] = $value;
 
                 return $carry;
             },
@@ -41,11 +41,11 @@ class Header implements \JsonSerializable
         $clone->values = array_reduce(
             $clone->values,
             static function (array $carry, object $value): array {
-                $carry[get_class($value)] = $value;
+                $carry[\get_class($value)] = $value;
 
                 return $carry;
             },
-            [get_class($value) => $value]
+            [\get_class($value) => $value]
         );
 
         return $clone;
@@ -53,25 +53,15 @@ class Header implements \JsonSerializable
 
     public function jsonSerialize(): array
     {
-        return array_reduce(
+        return \array_reduce(
             $this->values,
             static function (array $items, \JsonSerializable $object): array {
-                $items[get_class($object)] = $object->jsonSerialize();
+                $items[\lcfirst(\basename(\str_replace('\\', '/', \get_class($object))))]
+                    = $object->jsonSerialize();
 
                 return $items;
             },
             []
         );
-    }
-
-    public static function restore(array $headers): self
-    {
-        $headerOptions = [];
-
-        foreach ($headers as $class => $value) {
-            $headerOptions[] = new $class($value);
-        }
-
-        return new self(...$headerOptions);
     }
 }

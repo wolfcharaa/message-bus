@@ -43,8 +43,8 @@ class Builder implements HandlerBuilderInterface
         $clone = clone $this;
 
         foreach ($middleware as $class) {
-            if (!is_a($class, Middleware::class, true)) {
-                throw new InvalidArgumentException(sprintf(
+            if (!\is_a($class, Middleware::class, true)) {
+                throw new InvalidArgumentException(\sprintf(
                     'Middleware `%s` is not supported.',
                     $class
                 ));
@@ -68,6 +68,9 @@ class Builder implements HandlerBuilderInterface
             switch (true) {
                 case count($target) === 2:
                     $target = (new ReflectionClass($target[0]))->getMethod($target[1]);
+                    break;
+                case class_exists($target[0]) && is_callable($target[0], true):
+                    $target = (new ReflectionClass($target[0]))->getMethod('__invoke');
                     break;
                 case function_exists($target[0]):
                 case $target[0] instanceof Closure:
