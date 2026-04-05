@@ -55,6 +55,6 @@ final class MessageBus implements MessageBusInterface
             $envelope,
         );
 
-        return $this->handlerRegistry->get(get_class($message))->handle($context);
+        return $this->handlerRegistry->get(\get_class($message))->handle($context);
     }
 }

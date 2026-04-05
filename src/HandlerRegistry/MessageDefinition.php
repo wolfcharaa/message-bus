@@ -60,7 +60,7 @@ final class MessageDefinition
     public function setHandlerFactory(array $handlerFactory): self
     {
         if ($this->isEvent === false && \count($this->handlers) === 1) {
-            throw new \LogicException(sprintf(
+            throw new \LogicException(\sprintf(
                 'This `%s` message has multiple handlers. Message class is not `%s`'
                 . ' or does not inherit the logic of processing by multiple handlers',
                 $this->messageClass,

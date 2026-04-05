@@ -44,7 +44,7 @@ final class Pipeline
      */
     public function continue()
     {
-        $middleware = array_shift($this->middleware);
+        $middleware = \array_shift($this->middleware);
 
         if ($middleware !== null) {
             return $middleware->handle($this->context, $this);

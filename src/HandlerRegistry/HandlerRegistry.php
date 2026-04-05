@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\MessageBus\HandlerRegistry;
 
-use App\MessageBus\Message\Event;
 use App\MessageBus\Message\Message;
 use App\MessageBus\Handler\Handler;
 use App\MessageBus\Handler\EventHandlers;
