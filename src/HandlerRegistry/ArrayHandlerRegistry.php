@@ -24,6 +24,9 @@ final class ArrayHandlerRegistry extends HandlerRegistry
      */
     private array $defaultMiddleware;
 
+    /** @var array<string, class-string<Message|object>> $aliases */
+    private array $aliases = [];
+
     /**
      * @param HandlerBuilderInterface $builder
      * @param array<class-string<Middleware>> $defaultMiddleware
@@ -41,11 +44,13 @@ final class ArrayHandlerRegistry extends HandlerRegistry
 
     public function find(string $messageClass): MessageDefinition
     {
-        if (!isset($this->messageDefinitions[$messageClass])) {
-            throw new HandlerNotFound($messageClass);
+        $alias = $this->aliases[$messageClass] ?? $messageClass;
+
+        if (!isset($this->messageDefinitions[$alias])) {
+            throw new HandlerNotFound($alias);
         }
 
-        return $this->messageDefinitions[$messageClass];
+        return $this->messageDefinitions[$alias];
     }
 
     /**
@@ -79,6 +84,10 @@ final class ArrayHandlerRegistry extends HandlerRegistry
                 $definition->getMiddleware(),
                 $handlers[0]
             ));
+
+        if (($alias = $definition->getAlias()) !== null) {
+            $this->aliases[$alias] = $definition->getMessageClass();
+        }
 
         return $this;
     }

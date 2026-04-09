@@ -29,6 +29,9 @@ final class MessageDefinition
 
     private ?Handler $handler = null;
 
+    /** @var string|null $alias */
+    private ?string $alias = null;
+
     /**
      * @param TMessage $messageClass
      */
@@ -50,6 +53,13 @@ final class MessageDefinition
     public function setIsEvent(bool $value): self
     {
         $this->isEvent = $value;
+
+        return $this;
+    }
+
+    public function setAlias(string $alias): self
+    {
+        $this->alias = $alias;
 
         return $this;
     }
@@ -105,6 +115,11 @@ final class MessageDefinition
     public function isEvent(): bool
     {
         return $this->isEvent;
+    }
+
+    public function getAlias(): ?string
+    {
+        return $this->alias;
     }
 
     /**

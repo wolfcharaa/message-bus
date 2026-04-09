@@ -29,6 +29,9 @@ final class LazyHandlerRegistry extends HandlerRegistry
      */
     private array $defaultMiddleware;
 
+    /** @var array<string, class-string<Message|object>> $aliases */
+    private array $aliases = [];
+
     /**
      * @param HandlerBuilderInterface $builder
      * @param array<class-string<Middleware>> $defaultMiddleware
@@ -43,18 +46,24 @@ final class LazyHandlerRegistry extends HandlerRegistry
         $this->defaultMiddleware = $defaultMiddleware;
         foreach ($definitions as $definition) {
             $this->messageDefinitions[$definition->getMessageClass()] = $definition;
+
+            if (($alias = $definition->getAlias()) !== null) {
+                $this->aliases[$alias] = $definition->getMessageClass();
+            }
         }
     }
 
     public function find(string $messageClass): MessageDefinition
     {
+        $alias = $this->aliases[$messageClass] ?? $messageClass;
+
         // Check if factory exists
-        if (!isset($this->messageDefinitions[$messageClass])) {
-            throw new HandlerNotFound($messageClass);
+        if (!isset($this->messageDefinitions[$alias])) {
+            throw new HandlerNotFound($alias);
         }
 
         // Build handler using factory definition
-        $definition = $this->messageDefinitions[$messageClass];
+        $definition = $this->messageDefinitions[$alias];
 
         if ($definition->getHandler() !== null) {
             return $definition;
