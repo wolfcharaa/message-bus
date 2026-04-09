@@ -30,13 +30,13 @@ final class MessageBus implements MessageBusInterface
 
     /**
      * @template TResult
-     * @param Message<TResult> $message
+     * @param Message<TResult>|object $message
      * @param ?PublishOptions $options
      * @param Envelope|null $causation
      * @return TResult
      */
     public function dispatch(
-        Message $message,
+        object $message,
         ?PublishOptions $options = null,
         ?Envelope $causation = null
     ) {

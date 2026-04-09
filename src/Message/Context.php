@@ -10,7 +10,7 @@ use App\MessageBus\PublishOptions;
 
 /**
  * @template TResult = mixed
- * @template TMessage of Message<TResult> = Message<mixed>
+ * @template TMessage of Message<TResult>|object = Message<mixed>
  */
 final class Context
 {
@@ -30,10 +30,10 @@ final class Context
 
     /**
      * @template TDispatchResult
-     * @param Message<TDispatchResult> $message
+     * @param Message<TDispatchResult>|object $message
      * @return TDispatchResult
      */
-    public function dispatch(Message $message, ?PublishOptions $options = null)
+    public function dispatch(object $message, ?PublishOptions $options = null)
     {
         return $this->messageBus->dispatch($message, $options ?? new PublishOptions(), $this->envelope);
     }

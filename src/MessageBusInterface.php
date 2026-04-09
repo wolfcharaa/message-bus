@@ -10,11 +10,11 @@ interface MessageBusInterface
 {
     /**
      * @template TResult
-     * @param Message<TResult> $message
+     * @param Message<TResult>|object $message
      * @return TResult
      */
     public function dispatch(
-        Message $message,
+        object $message,
         ?PublishOptions $options = null,
         ?Envelope $causation = null
     );

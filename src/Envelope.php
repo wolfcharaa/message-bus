@@ -10,14 +10,14 @@ use App\MessageBus\Message\Message;
 /**
  * @api
  * @template-covariant TResult = mixed
- * @template-covariant TMessage of Message<TResult> = Message<mixed>
+ * @template-covariant TMessage of Message<TResult>|object = Message<mixed>
  */
 final class Envelope implements \JsonSerializable
 {
     /**
      * @var TMessage $message
      */
-    public Message $message;
+    public object $message;
     /**
      * @var non-empty-string $messageId
      */
@@ -40,7 +40,7 @@ final class Envelope implements \JsonSerializable
     public Header $header;
 
     public function __construct(
-        Message $message,
+        object $message,
         string $messageId,
         ?string $causationId = null,
         ?string $correlationId = null,
