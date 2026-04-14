@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Handler;
+namespace Wolfcharaa\MessageBus\Handler;
 
 use Closure;
-use App\MessageBus\Message\Message;
-use App\MessageBus\Message\Context;
+use Wolfcharaa\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Message\Context;
 
 /**
  * @template TResult

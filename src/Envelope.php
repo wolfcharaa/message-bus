@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus;
+namespace Wolfcharaa\MessageBus;
 
 use DateTimeImmutable;
-use App\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Message\Message;
 
 /**
  * @api

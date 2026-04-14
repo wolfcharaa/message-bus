@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus;
+namespace Wolfcharaa\MessageBus;
 
 use Psr\Clock\ClockInterface;
-use App\MessageBus\Clock\WallClock;
-use App\MessageBus\HandlerRegistry\HandlerRegistryInterface;
-use App\MessageBus\Message\Context;
-use App\MessageBus\Message\Message;
-use App\MessageBus\Message\MessageId\MessageIdGenerator;
-use App\MessageBus\Message\MessageId\RandomMessageIdGenerator;
+use Wolfcharaa\MessageBus\Clock\WallClock;
+use Wolfcharaa\MessageBus\HandlerRegistry\HandlerRegistryInterface;
+use Wolfcharaa\MessageBus\Message\Context;
+use Wolfcharaa\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Message\MessageId\MessageIdGenerator;
+use Wolfcharaa\MessageBus\Message\MessageId\RandomMessageIdGenerator;
 
 final class MessageBus implements MessageBusInterface
 {

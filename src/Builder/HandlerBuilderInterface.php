@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Builder;
+namespace Wolfcharaa\MessageBus\Builder;
 
-use App\MessageBus\Handler\Handler;
+use Wolfcharaa\MessageBus\Handler\Handler;
 
 interface HandlerBuilderInterface
 {

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Handler;
+namespace Wolfcharaa\MessageBus\Handler;
 
-use App\MessageBus\Message\Message;
-use App\MessageBus\Message\Context;
-use App\MessageBus\Middleware\Middleware;
-use App\MessageBus\Pipeline\Pipeline;
+use Wolfcharaa\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Message\Context;
+use Wolfcharaa\MessageBus\Middleware\Middleware;
+use Wolfcharaa\MessageBus\Pipeline\Pipeline;
 
 /**
  * @template TResult

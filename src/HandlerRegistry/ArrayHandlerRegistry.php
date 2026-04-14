@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\HandlerRegistry;
+namespace Wolfcharaa\MessageBus\HandlerRegistry;
 
-use App\MessageBus\Builder\HandlerBuilderInterface;
-use App\MessageBus\Handler\EventHandlers;
-use App\MessageBus\Handler\Handler;
-use App\MessageBus\Message\Message;
-use App\MessageBus\Middleware\Middleware;
+use Wolfcharaa\MessageBus\Builder\HandlerBuilderInterface;
+use Wolfcharaa\MessageBus\Handler\EventHandlers;
+use Wolfcharaa\MessageBus\Handler\Handler;
+use Wolfcharaa\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Middleware\Middleware;
 
 final class ArrayHandlerRegistry extends HandlerRegistry
 {

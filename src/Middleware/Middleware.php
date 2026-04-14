@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Middleware;
+namespace Wolfcharaa\MessageBus\Middleware;
 
-use App\MessageBus\Message\Message;
-use App\MessageBus\Message\Context;
-use App\MessageBus\Pipeline\Pipeline;
+use Wolfcharaa\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Message\Context;
+use Wolfcharaa\MessageBus\Pipeline\Pipeline;
 
 interface Middleware
 {

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\HandlerRegistry;
+namespace Wolfcharaa\MessageBus\HandlerRegistry;
 
-use App\MessageBus\Handler\Handler;
-use App\MessageBus\Message\Event;
-use App\MessageBus\Message\Message;
-use App\MessageBus\Middleware\Middleware;
+use Wolfcharaa\MessageBus\Handler\Handler;
+use Wolfcharaa\MessageBus\Message\Event;
+use Wolfcharaa\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Middleware\Middleware;
 
 /**
  * @template TResult

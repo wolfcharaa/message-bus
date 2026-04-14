@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Builder;
+namespace Wolfcharaa\MessageBus\Builder;
 
 use Closure;
 use InvalidArgumentException;
@@ -13,10 +13,10 @@ use ReflectionClass;
 use ReflectionException;
 use ReflectionFunction;
 use ReflectionMethod;
-use App\MessageBus\Handler\CallableHandler;
-use App\MessageBus\Handler\Handler;
-use App\MessageBus\Handler\HandlerWithMiddleware;
-use App\MessageBus\Middleware\Middleware;
+use Wolfcharaa\MessageBus\Handler\CallableHandler;
+use Wolfcharaa\MessageBus\Handler\Handler;
+use Wolfcharaa\MessageBus\Handler\HandlerWithMiddleware;
+use Wolfcharaa\MessageBus\Middleware\Middleware;
 
 use function count;
 

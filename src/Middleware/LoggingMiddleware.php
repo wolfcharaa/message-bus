@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Middleware;
+namespace Wolfcharaa\MessageBus\Middleware;
 
 use Psr\Log\LoggerInterface;
 use Throwable;
-use App\MessageBus\Message\Context;
-use App\MessageBus\Pipeline\Pipeline;
+use Wolfcharaa\MessageBus\Message\Context;
+use Wolfcharaa\MessageBus\Pipeline\Pipeline;
 
 class LoggingMiddleware implements Middleware
 {

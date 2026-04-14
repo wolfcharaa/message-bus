@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus;
+namespace Wolfcharaa\MessageBus;
 
 final class PublishOptions
 {

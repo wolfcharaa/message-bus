@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Message;
+namespace Wolfcharaa\MessageBus\Message;
 
-use App\MessageBus\Envelope;
-use App\MessageBus\MessageBusInterface;
-use App\MessageBus\PublishOptions;
+use Wolfcharaa\MessageBus\Envelope;
+use Wolfcharaa\MessageBus\MessageBusInterface;
+use Wolfcharaa\MessageBus\PublishOptions;
 
 /**
  * @template TResult = mixed

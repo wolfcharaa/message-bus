@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\Handler;
+namespace Wolfcharaa\MessageBus\Handler;
 
-use App\MessageBus\Message\Context;
-use App\MessageBus\Message\Event;
+use Wolfcharaa\MessageBus\Message\Context;
+use Wolfcharaa\MessageBus\Message\Event;
 
 /**
  * @template TEvent of Event

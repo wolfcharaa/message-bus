@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\HandlerRegistry;
+namespace Wolfcharaa\MessageBus\HandlerRegistry;
 
-use App\MessageBus\Message\Message;
+use Wolfcharaa\MessageBus\Message\Message;
 use Exception;
 use Throwable;
 

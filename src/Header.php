@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus;
+namespace Wolfcharaa\MessageBus;
 
 class Header implements \JsonSerializable
 {

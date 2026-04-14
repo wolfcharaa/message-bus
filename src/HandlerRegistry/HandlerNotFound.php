@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\MessageBus\HandlerRegistry;
+namespace Wolfcharaa\MessageBus\HandlerRegistry;
 
 use LogicException;
 use Throwable;
