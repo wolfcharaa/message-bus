@@ -54,12 +54,18 @@ final class MessageBus implements MessageBusInterface
             $this->clock->now(),
             $this->buildHeader($definition, $options->header),
         );
+
+        return $this->dispatchEnvelope($envelope);
+    }
+
+    public function dispatchEnvelope(Envelope $envelope)
+    {
         $context = new Context(
             $this,
             $envelope,
         );
 
-        return $this->handlerRegistry->get($messageClass)->handle($context);
+        return $this->handlerRegistry->get(\get_class($envelope->message))->handle($context);
     }
 
     private function buildHeader(MessageDefinition $definition, Header $header): Header

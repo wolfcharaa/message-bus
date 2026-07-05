@@ -18,4 +18,12 @@ interface MessageBusInterface
         ?PublishOptions $options = null,
         ?Envelope $causation = null
     );
+
+    /**
+     * @template TResult
+     * @template TMessage of Message<TResult>|object
+     * @param Envelope<TResult, TMessage> $envelope
+     * @return TResult
+     */
+    public function dispatchEnvelope(Envelope $envelope);
 }

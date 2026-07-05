@@ -2,12 +2,11 @@
     "name": "romanfedorskij/message-bus",
     "description": "A message handler with interceptor capabilities",
     "type": "library",
-    "version": "3.0.0",
     "require": {
         "php": "^7.4 | 8.*",
-        "psr/clock": "*",
-        "psr/log": "*",
-        "psr/container": "*",
+        "psr/clock": "^1.0",
+        "psr/log": "^1.1 || ^2.0 || ^3.0",
+        "psr/container": "^1.1 || ^2.0",
         "ext-json": "*"
     },
     "license": "MIT",
@@ -16,11 +15,17 @@
             "Wolfcharaa\\MessageBus\\": "src"
         }
     },
+    "scripts": {
+        "test": "vendor/bin/phpunit"
+    },
     "authors": [
         {
             "name": "romanfedorskij",
             "email": "markaryanroma@mail.ru"
         }
     ],
-    "minimum-stability": "stable"
+    "minimum-stability": "stable",
+    "require-dev": {
+        "phpunit/phpunit": "^9.6"
+    }
 }
