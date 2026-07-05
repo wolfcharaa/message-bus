@@ -38,15 +38,15 @@ class Header implements \JsonSerializable
     public function with(\JsonSerializable $value): self
     {
         $clone = clone $this;
-        $clone->values = array_reduce(
-            $clone->values,
-            static function (array $carry, object $value): array {
-                $carry[\get_class($value)] = $value;
+        $clone->values[\get_class($value)] = $value;
 
-                return $carry;
-            },
-            [\get_class($value) => $value]
-        );
+        return $clone;
+    }
+
+    public function merge(self $header): self
+    {
+        $clone = clone $this;
+        $clone->values = \array_merge($clone->values, $header->values);
 
         return $clone;
     }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Wolfcharaa\MessageBus\HandlerRegistry;
 
+use Wolfcharaa\MessageBus\Header;
 use Wolfcharaa\MessageBus\Handler\Handler;
 use Wolfcharaa\MessageBus\Message\Event;
 use Wolfcharaa\MessageBus\Message\Message;
@@ -31,6 +32,8 @@ final class MessageDefinition
 
     /** @var string|null $alias */
     private ?string $alias = null;
+    private bool $shouldQueue = false;
+    private ?Header $defaultHeader = null;
 
     /**
      * @param TMessage $messageClass
@@ -60,6 +63,20 @@ final class MessageDefinition
     public function setAlias(string $alias): self
     {
         $this->alias = $alias;
+
+        return $this;
+    }
+
+    public function setShouldQueue(bool $value = true): self
+    {
+        $this->shouldQueue = $value;
+
+        return $this;
+    }
+
+    public function setDefaultHeader(Header $header): self
+    {
+        $this->defaultHeader = $header;
 
         return $this;
     }
@@ -120,6 +137,16 @@ final class MessageDefinition
     public function getAlias(): ?string
     {
         return $this->alias;
+    }
+
+    public function shouldQueue(): bool
+    {
+        return $this->shouldQueue;
+    }
+
+    public function getDefaultHeader(): ?Header
+    {
+        return $this->defaultHeader;
     }
 
     /**

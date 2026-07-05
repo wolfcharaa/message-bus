@@ -10,6 +10,8 @@ interface HandlerBuilderInterface
 {
     public function withMiddleware(string ...$middleware): HandlerBuilderInterface;
 
+    public function wrap(Handler $handler): Handler;
+
     /**
      * @param array{0: class-string|string, 1: ?string} $target
      */

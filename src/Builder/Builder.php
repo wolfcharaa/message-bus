@@ -56,6 +56,13 @@ class Builder implements HandlerBuilderInterface
         return $clone;
     }
 
+    public function wrap(Handler $handler): Handler
+    {
+        return \count($this->middleware) === 0
+            ? $handler
+            : new HandlerWithMiddleware($handler, $this->middleware);
+    }
+
     /**
      * @param array{0: class-string|string, 1: ?string} $target
      * @throws ReflectionException
@@ -95,8 +102,6 @@ class Builder implements HandlerBuilderInterface
 
         $handler ??= new CallableHandler($target->getClosure());
 
-        return \count($this->middleware) === 0
-            ? $handler
-            : new HandlerWithMiddleware($handler, $this->middleware);
+        return $this->wrap($handler);
     }
 }

@@ -77,9 +77,7 @@ final class ArrayHandlerRegistry extends HandlerRegistry
         }
 
         $this->messageDefinitions[$definition->getMessageClass()] = $definition->isEvent() === true
-            ? $definition->setHandler(new EventHandlers(\array_map(function (array $factory) use ($definition): Handler {
-                return $this->buildHandler($definition->getMiddleware(), $factory);
-            }, $handlers)))
+            ? $definition->setHandler($this->buildEventHandler($definition->getMiddleware(), $handlers))
             : $definition->setHandler($this->buildHandler(
                 $definition->getMiddleware(),
                 $handlers[0]
@@ -104,5 +102,23 @@ final class ArrayHandlerRegistry extends HandlerRegistry
                 $middleware
             ))
             ->build($factory);
+    }
+
+    /**
+     * @param array<class-string<Middleware>> $middleware
+     * @param array<array{0: class-string, 1: string}> $factories
+     */
+    private function buildEventHandler(array $middleware, array $factories): Handler
+    {
+        $handler = new EventHandlers(\array_map(function (array $factory): Handler {
+            return $this->builder->build($factory);
+        }, $factories));
+
+        return $this->builder
+            ->withMiddleware(...\array_merge(
+                $this->defaultMiddleware,
+                $middleware
+            ))
+            ->wrap($handler);
     }
 }

@@ -6,11 +6,13 @@ namespace Wolfcharaa\MessageBus;
 
 use Psr\Clock\ClockInterface;
 use Wolfcharaa\MessageBus\Clock\WallClock;
+use Wolfcharaa\MessageBus\HandlerRegistry\MessageDefinition;
 use Wolfcharaa\MessageBus\HandlerRegistry\HandlerRegistryInterface;
 use Wolfcharaa\MessageBus\Message\Context;
 use Wolfcharaa\MessageBus\Message\Message;
 use Wolfcharaa\MessageBus\Message\MessageId\MessageIdGenerator;
 use Wolfcharaa\MessageBus\Message\MessageId\RandomMessageIdGenerator;
+use Wolfcharaa\MessageBus\Queue\QueueHeader;
 
 final class MessageBus implements MessageBusInterface
 {
@@ -41,6 +43,8 @@ final class MessageBus implements MessageBusInterface
         ?Envelope $causation = null
     ) {
         $options ??= new PublishOptions();
+        $messageClass = \get_class($message);
+        $definition = $this->handlerRegistry->find($messageClass);
         $messageId = $options->messageId ?? $this->messageIdGenerator->generateMessageId();
         $envelope = new Envelope(
             $message,
@@ -48,13 +52,26 @@ final class MessageBus implements MessageBusInterface
             $causation !== null ? $causation->messageId : null,
             $causation !== null ? $causation->correlationId : $messageId,
             $this->clock->now(),
-            $options->header,
+            $this->buildHeader($definition, $options->header),
         );
         $context = new Context(
             $this,
             $envelope,
         );
 
-        return $this->handlerRegistry->get(\get_class($message))->handle($context);
+        return $this->handlerRegistry->get($messageClass)->handle($context);
+    }
+
+    private function buildHeader(MessageDefinition $definition, Header $header): Header
+    {
+        if (($defaultHeader = $definition->getDefaultHeader()) !== null) {
+            $header = $defaultHeader->merge($header);
+        }
+
+        if ($definition->shouldQueue() === true && $header->get(QueueHeader::class) === null) {
+            $header = $header->with(new QueueHeader());
+        }
+
+        return $header;
     }
 }
