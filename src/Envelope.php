@@ -87,7 +87,7 @@ final class Envelope implements \JsonSerializable
         return [
             'class' => \get_class($class),
             'values' => \get_object_vars($class),
-            'serialize' => base64_encode(serialize($class))
+            'serialize' => \base64_encode(\serialize($class))
         ];
     }  
 
@@ -97,9 +97,9 @@ final class Envelope implements \JsonSerializable
      */
     public static function resolveClass(array $message):object {
         if (!empty($message['serialize'])) {
-            $rawClass = base64_decode($message['serialize']);
-            $class = unserialize($rawClass, ['allowed_classes' => true]);
-            if (is_object($class)) {
+            $rawClass = \base64_decode($message['serialize']);
+            $class = \unserialize($rawClass, ['allowed_classes' => true]);
+            if (\is_object($class)) {
                 return $class;
             }
         }
