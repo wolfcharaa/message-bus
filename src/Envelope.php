@@ -60,7 +60,8 @@ final class Envelope implements \JsonSerializable
         return [
             'message' => [
                 'class' => \get_class($this->message),
-                'values' => \get_object_vars($this->message)
+                'values' => \get_object_vars($this->message),
+                'serialize' => base64_encode(serialize($this->message))
             ],
             'messageId' => $this->messageId,
             'causationId' => $this->causationId,
@@ -73,12 +74,28 @@ final class Envelope implements \JsonSerializable
     public static function restore(array $data, ?Header $header = null): Envelope
     {
         return new self(
-            new $data['message']['class'](...\array_values($data['message']['values'])),
+            self::resolveClass($data['message']),
             $data['messageId'],
             $data['causationId'],
             $data['correlationId'],
             \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $data['timestamp']),
             $header
         );
+    }
+
+    /**
+     * Восстанавивает класс из сериализованного состояния. 
+     * @param array{serialize: string, class: string, values: array} $message
+     */
+    public static function resolveClass(array $message):object {
+        if (!empty($message['serialize'])) {
+            $rawClass = base64_decode($message['serialize']);
+            $class = unserialize($rawClass, ['allowed_classes' => true]);
+            if (is_object($class)) {
+                return $class;
+            }
+        }
+        $class = new $message['class'](...\array_values($message['values']));
+        return $class;
     }
 }
