@@ -58,11 +58,7 @@ final class Envelope implements \JsonSerializable
     public function jsonSerialize(): array
     {
         return [
-            'message' => [
-                'class' => \get_class($this->message),
-                'values' => \get_object_vars($this->message),
-                'serialize' => base64_encode(serialize($this->message))
-            ],
+            'message' => self::serializeClass($this->message),
             'messageId' => $this->messageId,
             'causationId' => $this->causationId,
             'correlationId' => $this->correlationId,
@@ -82,6 +78,18 @@ final class Envelope implements \JsonSerializable
             $header
         );
     }
+
+    /**
+     * Отдельно вынесенная функция сериализации класса
+     * @return array{serialize: string, class: string, values: array}
+     */
+    public static function serializeClass(object $class):array {
+        return [
+            'class' => \get_class($class),
+            'values' => \get_object_vars($class),
+            'serialize' => base64_encode(serialize($class))
+        ];
+    }  
 
     /**
      * Восстанавивает класс из сериализованного состояния. 
