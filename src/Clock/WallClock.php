@@ -7,10 +7,10 @@ namespace Wolfcharaa\MessageBus\Clock;
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 
-class WallClock implements ClockInterface
+final class WallClock implements ClockInterface
 {
     public function now(): DateTimeImmutable
     {
-        return new \DateTimeImmutable();
+        return new DateTimeImmutable();
     }
 }

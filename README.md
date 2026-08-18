@@ -1,261 +1,437 @@
 # MessageBus
 
-Lightweight PHP message bus with handler registry, middleware pipeline, event subscribers, message envelopes, headers, and optional queue dispatching.
+`romanfedorskij/message-bus` — PHP 8.3+ библиотека для явной обработки команд, запросов и событий через attributes, flows, compiled registry и переносимый queue payload без `serialize()`.
 
-The library is intended for applications that keep business actions behind small command, query, and event messages, while still needing per-message middleware and lazy handler construction through a PSR container.
+## Требования
 
-This project follows an idea inspired by [vudaltsov](https://github.com/vudaltsov), who laid the conceptual foundation for this style of message bus design.
-
-## Requirements
-
-- PHP `^7.4 | 8.*`
+- PHP `^8.3`
 - `psr/container`
 - `psr/clock`
-- `psr/log`
+- `symfony/var-exporter`
 - `ext-json`
 
-## Installation
+## Установка
 
 ```bash
 composer require romanfedorskij/message-bus
 ```
 
-## Messages
+## Примеры
 
-Messages are plain PHP objects. A message may implement `Message`, `Command`, `Query`, or `Event`, but ordinary objects are also supported.
+Подробные сценарии подключения вынесены в `docs/examples`:
 
-```php
-use Wolfcharaa\MessageBus\Message\Command;
+- [Sync command/query](docs/examples/01-basic-sync.md)
+- [Compiled registry для production](docs/examples/02-compiled-registry.md)
+- [Async queue и worker](docs/examples/03-async-queue-worker.md)
+- [Custom context](docs/examples/04-custom-context.md)
+- [Middleware](docs/examples/05-middleware.md)
 
-final class CreateUserMessage implements Command
-{
-    public string $email;
+## Основная идея
 
-    public function __construct(string $email)
-    {
-        $this->email = $email;
-    }
-}
+В v4 регистрация строится не как ручной список `MessageDefinition`, а как индекс binding-ов:
+
+```text
+message -> bindings -> flow -> pipeline -> action
 ```
 
-## Handlers
-
-Handlers can be invokable classes or callable methods. The callable receives the message and the current context.
+Action объявляет связь с message через attribute:
 
 ```php
-use Wolfcharaa\MessageBus\Message\Context;
+use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 
+final class CreateUserMessage
+{
+    public function __construct(
+        public readonly string $email,
+    ) {}
+}
+
+final class CreateUserResult
+{
+    public function __construct(
+        public readonly int $userId,
+    ) {}
+}
+
+#[CommandHandler(message: CreateUserMessage::class)]
 final class CreateUserAction
 {
-    public function __invoke(CreateUserMessage $message, Context $context): int
+    public function __invoke(CreateUserMessage $message, MessageContextInterface $context): CreateUserResult
     {
-        return 123;
+        return new CreateUserResult(123);
     }
 }
 ```
 
-## Registry
-
-Register message definitions with their handlers. `LazyHandlerRegistry` builds handlers only when a message is dispatched.
+Handler всегда принимает два аргумента:
 
 ```php
-use Wolfcharaa\MessageBus\Builder\Builder;
-use Wolfcharaa\MessageBus\HandlerRegistry\LazyHandlerRegistry;
-use Wolfcharaa\MessageBus\HandlerRegistry\MessageDefinition;
+public function __invoke(Message $message, MessageContextInterface $context): mixed
+```
 
-$registry = new LazyHandlerRegistry(
-    new Builder($container),
-    [],
-    (new MessageDefinition(CreateUserMessage::class))
-        ->setHandlerFactory([CreateUserAction::class])
+`Context` передаётся всегда, но использовать его внутри action не обязательно.
+
+## Attributes
+
+Для разных сценариев есть разные attributes:
+
+```php
+#[CommandHandler(message: CreateUserMessage::class)]
+final class CreateUserAction {}
+
+#[QueryHandler(message: FindUserMessage::class)]
+final class FindUserAction {}
+
+#[EventSubscriber(message: UserCreatedEvent::class, flow: 'notifications', bindingId: 'user.created.email')]
+final class SendWelcomeEmailAction {}
+```
+
+`CommandHandler`, `QueryHandler`, `EventSubscriber` внутри приводятся к единому `HandlerBindingDefinition`, поэтому discovery остаётся простым, а публичный API читается явно.
+
+## MessageAlias
+
+Alias не живёт на handler. Alias относится к message contract:
+
+```php
+use Wolfcharaa\MessageBus\Attribute\MessageAlias;
+
+#[MessageAlias('user.created')]
+final class UserCreatedEvent
+{
+    public function __construct(
+        public readonly int $userId,
+    ) {}
+}
+```
+
+Правила:
+
+- sync-only message может быть без alias;
+- async/transport message обязан иметь alias;
+- alias должен быть уникальным;
+- если message попадает в queue payload, alias обязателен.
+- compiler читает alias с message-класса по binding, поэтому class provider может находить только action-классы, если message-классы автозагружаются.
+
+## Flow
+
+Flow описывает context, strategy, middleware и transport.
+
+```php
+use Wolfcharaa\MessageBus\Flow\FlowDefinition;
+use Wolfcharaa\MessageBus\Flow\FlowRegistry;
+use Wolfcharaa\MessageBus\Queue\QueueDeliveryOptions;
+
+$flows = new FlowRegistry(
+    FlowDefinition::sync('default'),
+
+    FlowDefinition::async('notifications')
+        ->transport('database', 'notifications')
+        ->delivery(new QueueDeliveryOptions(priority: 0, retryPolicy: 'fast-notification'))
 );
 ```
 
-## Dispatch
+Если flows не переданы, библиотека создаёт default sync flow:
 
 ```php
-use Wolfcharaa\MessageBus\MessageBus;
-
-$bus = new MessageBus($registry, null, null);
-
-$userId = $bus->dispatch(new CreateUserMessage('user@example.com'));
+FlowDefinition::sync('default')
 ```
 
-Nested dispatches are available through `Context`; causation and correlation ids are propagated automatically.
+Async flows всегда объявляются явно.
+
+## Context
+
+Для простых случаев используется базовый `MessageContextInterface`.
+
+Для кастомного flow можно подменить context через factory:
 
 ```php
-final class CreateUserAction
-{
-    public function __invoke(CreateUserMessage $message, Context $context): int
-    {
-        $context->dispatch(new UserCreatedEvent($message->email));
+use Wolfcharaa\MessageBus\Context\MessageContextFactoryInterface;
 
-        return 123;
+FlowDefinition::sync('reports')
+    ->context(ReportContextInterface::class, ReportContextFactory::class);
+
+final class ReportContextFactory implements MessageContextFactoryInterface
+{
+    public function create(MessageBusInterface $bus, Envelope $envelope, FlowDefinition $flow): MessageContextInterface
+    {
+        return new ReportContext($bus, $envelope);
     }
 }
 ```
 
-## Events
+Context immutable. Middleware не может подменить context в середине pipeline.
 
-Events may have multiple subscribers. Middleware is applied once around the whole event dispatch, not once per subscriber.
+## Discovery и compiled registry
+
+Для dev/test можно собрать registry runtime reflection-ом:
 
 ```php
-use Wolfcharaa\MessageBus\Message\Event;
+use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
+use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
+use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 
-final class UserCreatedEvent implements Event
-{
-    public string $email;
+$definition = (new MessageRegistryCompiler())->compile(
+    new ClassListProvider([
+        CreateUserMessage::class,
+        CreateUserAction::class,
+    ]),
+    $flows,
+    libraryVersion: '4.0.0',
+);
 
-    public function __construct(string $email)
-    {
-        $this->email = $email;
-    }
-}
-
-$definition = (new MessageDefinition(UserCreatedEvent::class))
-    ->setIsEvent(true)
-    ->setHandlerFactory([SendWelcomeEmailAction::class])
-    ->setHandlerFactory([WriteAuditLogAction::class]);
+$registry = new CompiledMessageRegistry($definition);
 ```
 
-## Headers
-
-Headers carry metadata alongside the message envelope.
+Для production рекомендуется compiled PHP artifact:
 
 ```php
-use Wolfcharaa\MessageBus\Header;
-use Wolfcharaa\MessageBus\PublishOptions;
+use Wolfcharaa\MessageBus\Dumper\SymfonyVarExporterRegistryDumper;
 
-final class RequestHeader implements JsonSerializable
-{
-    public string $requestId;
+$php = (new SymfonyVarExporterRegistryDumper())->dump($definition);
+file_put_contents(__DIR__ . '/var/cache/message_bus_registry.php', $php);
+```
 
-    public function __construct(string $requestId)
-    {
-        $this->requestId = $requestId;
-    }
+Runtime загрузка:
 
-    public function jsonSerialize(): array
-    {
-        return get_object_vars($this);
-    }
-}
+```php
+$registry = CompiledMessageRegistry::fromFile(__DIR__ . '/var/cache/message_bus_registry.php');
+```
 
-$bus->dispatch(
-    new CreateUserMessage('user@example.com'),
-    new PublishOptions(null, new Header(new RequestHeader('request-1')))
+Artifact содержит:
+
+- `schemaVersion`
+- `libraryVersion`
+- `generatedAt`
+- `sourceHash`
+- `flows`
+- `messages`
+- `bindings`
+- `aliases`
+- `messageNames`
+
+Loader падает, если `schemaVersion` не поддерживается.
+
+## Class providers
+
+Библиотека не требует готовый список классов. Можно комбинировать providers:
+
+```php
+use Wolfcharaa\MessageBus\Discovery\ChainClassProvider;
+use Wolfcharaa\MessageBus\Discovery\ComposerClassMapProvider;
+use Wolfcharaa\MessageBus\Discovery\Psr4DirectoryClassProvider;
+
+$provider = new ChainClassProvider(
+    new ComposerClassMapProvider(
+        classMapFile: __DIR__ . '/vendor/composer/autoload_classmap.php',
+        namespacePrefixes: ['App\\Feature\\', 'App\\Gateway\\']
+    ),
+    new Psr4DirectoryClassProvider([
+        'App\\Feature\\' => __DIR__ . '/src/Feature',
+        'App\\Gateway\\' => __DIR__ . '/src/Gateway',
+    ])
 );
 ```
 
-Default headers can be attached to a message definition:
+## Dispatch API
 
 ```php
-(new MessageDefinition(CreateUserMessage::class))
-    ->setDefaultHeader(new Header(new RequestHeader('default-request')))
-    ->setHandlerFactory([CreateUserAction::class]);
+$result = $bus->dispatch(new CreateUserMessage('user@example.com'));
 ```
 
-Runtime headers override default headers of the same class.
-
-## Queue Dispatch
-
-Queue support is intentionally transport-agnostic. The library provides:
-
-- `QueueProviderInterface` for application-specific enqueue logic.
-- `QueueMiddleware` for intercepting queued messages.
-- `QueueHeader` for marking whether the message is being enqueued or already executed by a worker.
-
-Register the middleware globally or for selected messages:
+`dispatch()` выполняет primary sync binding и возвращает основной результат.
 
 ```php
-use Wolfcharaa\MessageBus\Middleware\QueueMiddleware;
-
-$registry = new LazyHandlerRegistry(
-    new Builder($container),
-    [QueueMiddleware::class],
-    (new MessageDefinition(CreateUserMessage::class))
-        ->setShouldQueue()
-        ->setHandlerFactory([CreateUserAction::class])
-);
+$result = $bus->dispatchAll($message);
 ```
 
-Implement a provider in the application:
+`dispatchAll()` выполняет все sync bindings и возвращает `HandlerExecutionResultInterface`.
 
 ```php
-use Wolfcharaa\MessageBus\Envelope;
+$bus->publish(new UserCreatedEvent(123));
+```
+
+`publish()` ставит async bindings в очередь и не возвращает бизнес-результат.
+
+Для debug/admin:
+
+```php
+$bus->dispatchPublishedSync(new UserCreatedEvent(123));
+
+$bus->dispatchBindingSync(new UserCreatedEvent(123), 'user.created.email');
+```
+
+Worker/internal:
+
+```php
+$bus->dispatchEnvelopeToBinding($envelope);
+```
+
+## Очереди
+
+Async job создаётся по конкретному binding, а не по всему `message + flow`.
+
+```php
+#[EventSubscriber(
+    message: UserCreatedEvent::class,
+    flow: 'notifications',
+    bindingId: 'user.created.send_welcome_email'
+)]
+final class SendWelcomeEmailAction {}
+```
+
+Для async binding `bindingId` обязателен. Он должен быть стабильным и не зависеть от FQCN класса.
+
+Delivery settings собираются последовательно:
+
+```text
+flow defaults -> binding override -> PublishOptions override
+```
+
+Если binding задаёт только `delaySeconds`, он не сбрасывает `priority`, заданный на flow.
+
+Producer side:
+
+```php
 use Wolfcharaa\MessageBus\Queue\QueueProviderInterface;
+use Wolfcharaa\MessageBus\Queue\QueueMessage;
+use Wolfcharaa\MessageBus\Queue\QueueEnqueueResult;
 
 final class DatabaseQueueProvider implements QueueProviderInterface
 {
-    public function enqueue(Envelope $envelope): void
+    public function enqueue(QueueMessage $message): QueueEnqueueResult
     {
-        $payload = json_encode($envelope, JSON_THROW_ON_ERROR);
+        // сохранить $message->envelope, transport, queue, bindingId, priority, availableAt
 
-        // Save $payload to the application queue storage.
+        return new QueueEnqueueResult('queue-message-id');
     }
 }
 ```
 
-When `setShouldQueue()` is enabled, `MessageBus` adds `QueueHeader(false)` to the envelope. `QueueMiddleware` sees the header, sends the envelope to `QueueProviderInterface`, and stops synchronous execution.
-
-## Worker Execution
-
-The worker should restore the message and dispatch it with `QueueHeader::started()`. This tells `QueueMiddleware` that the job is already running in a worker and must continue to the real handler.
+Consumer side опционален:
 
 ```php
-use Wolfcharaa\MessageBus\Envelope;
-use Wolfcharaa\MessageBus\Header;
-use Wolfcharaa\MessageBus\Queue\QueueHeader;
-
-$data = json_decode($payload, true, 512, JSON_THROW_ON_ERROR);
-$envelope = Envelope::restore(
-    $data,
-    new Header(QueueHeader::started())
-);
-
-$bus->dispatchEnvelope($envelope);
-```
-
-If the application has custom headers, reconstruct them in the `Header` object passed to `Envelope::restore()`.
-
-For queued events, only one queue job is created. In the worker, all event subscribers are executed.
-
-## Middleware
-
-Middleware receives the current `Context` and `Pipeline`.
-
-```php
-use Wolfcharaa\MessageBus\Message\Context;
-use Wolfcharaa\MessageBus\Middleware\Middleware;
-use Wolfcharaa\MessageBus\Pipeline\Pipeline;
-
-final class TransactionMiddleware implements Middleware
+interface MessageConsumerInterface
 {
-    public function handle(Context $context, Pipeline $pipeline)
-    {
-        // begin transaction
+    public function next(ConsumerOptions $options): ?ReceivedQueueMessage;
 
-        try {
-            $result = $pipeline->continue();
-            // commit transaction
+    public function ack(ReceivedQueueMessage $message): void;
 
-            return $result;
-        } catch (Throwable $e) {
-            // rollback transaction
-            throw $e;
-        }
-    }
+    public function retry(ReceivedQueueMessage $message, Throwable $reason): void;
+
+    public function reject(ReceivedQueueMessage $message, Throwable $reason): void;
 }
 ```
 
-## Testing
+Если lifecycle уже управляется CakeJob, Symfony Messenger или Kafka consumer, adapter может вызывать только:
+
+```php
+$worker->handle($serializedEnvelope);
+```
+
+## Envelope и headers
+
+Transport передаёт envelope, а не голый message.
+
+Envelope хранит системные поля:
+
+- `messageId`
+- `correlationId`
+- `causationId`
+- `flow`
+- `bindingId`
+- `createdAt`
+- `headers`
+
+Вложенный dispatch сохраняет текущую механику:
+
+```text
+root:
+messageId = generated
+causationId = null
+correlationId = messageId
+
+nested:
+messageId = generated
+causationId = current envelope.messageId
+correlationId = current envelope.correlationId
+```
+
+Headers используют string keys:
+
+```php
+use Wolfcharaa\MessageBus\Envelope\Headers;
+
+enum HeaderKey: string
+{
+    case RequestId = 'request_id';
+    case Actor = 'actor';
+}
+
+$headers = Headers::empty()
+    ->with(HeaderKey::RequestId, 'request-1')
+    ->with(HeaderKey::Actor, ['id' => 10]);
+```
+
+Значения headers: только `scalar|array|null`. Объекты не поддерживаются.
+
+## Сериализация
+
+PHP `serialize()` не используется.
+
+Базовый serializer:
+
+```php
+JsonMessageSerializer
+```
+
+Он поддерживает только переносимые значения:
+
+```text
+scalar|array|null
+```
+
+Message должен быть простым immutable DTO:
+
+```php
+#[MessageAlias('report.build')]
+final class BuildReportMessage
+{
+    public function __construct(
+        public readonly int $reportId,
+        public readonly string $reportType,
+        public readonly string $createdAt,
+    ) {}
+}
+```
+
+Enum и DateTime передаются явными значениями:
+
+```php
+public readonly string $reportType;
+public readonly string $createdAt;
+```
+
+Восстановление enum/date делается внутри handler.
+
+## Validation
+
+Compiler валит registry на этапе discovery/compile, если:
+
+- flow не зарегистрирован;
+- async flow без transport;
+- async binding без `bindingId`;
+- async message без `MessageAlias`;
+- duplicate binding id;
+- duplicate primary;
+- query имеет больше одного handler;
+- query handler возвращает `void`;
+- handler signature не принимает ожидаемые `message, context`;
+- middleware signature не принимает `context, pipeline`;
+- payload содержит объекты/resources/closures.
+
+## Тесты
 
 ```bash
 composer test
 ```
-
-The test suite covers:
-
-- Header replacement and merging.
-- Queue middleware enqueue/continue behavior.
-- Queued event behavior for both lazy and array registries.

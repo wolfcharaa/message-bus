@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Message;
 
 /**
- * @template-covariant TResult
- * @extends Message<TResult>
+ * @template TResult = mixed
  */
-interface Query extends Message
+interface Query
 {
 }

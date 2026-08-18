@@ -4,23 +4,15 @@ declare(strict_types=1);
 
 namespace Wolfcharaa\MessageBus;
 
+use Wolfcharaa\MessageBus\Envelope\Headers;
+use Wolfcharaa\MessageBus\Queue\QueueDeliveryOptions;
+
 final class PublishOptions
 {
-    /**
-     * @var ?non-empty-string $messageId
-     */
-    public ?string $messageId;
-
-    /**
-     * @var Header $header
-     */
-    public Header $header;
-
     public function __construct(
-        ?string $messageId = null,
-        ?Header $header = null
+        public readonly ?string $messageId = null,
+        public readonly Headers $headers = new Headers(),
+        public readonly ?QueueDeliveryOptions $delivery = null,
     ) {
-        $this->messageId = $messageId;
-        $this->header = $header ?? new Header();
     }
 }

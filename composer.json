@@ -1,12 +1,12 @@
 {
     "name": "romanfedorskij/message-bus",
-    "description": "A message handler with interceptor capabilities",
+    "description": "Attribute-driven PHP message bus with flows, compiled registry, queue transport contracts, and immutable envelopes",
     "type": "library",
     "require": {
-        "php": "^7.4 | 8.*",
+        "php": "^8.3",
         "psr/clock": "^1.0",
-        "psr/log": "^1.1 || ^2.0 || ^3.0",
         "psr/container": "^1.1 || ^2.0",
+        "symfony/var-exporter": "^6.4 || ^7.0",
         "ext-json": "*"
     },
     "license": "MIT",
@@ -26,6 +26,6 @@
     ],
     "minimum-stability": "stable",
     "require-dev": {
-        "phpunit/phpunit": "^9.6"
+        "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0"
     }
 }
