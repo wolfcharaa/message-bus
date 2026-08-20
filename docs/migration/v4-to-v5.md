@@ -1,183 +1,147 @@
-# Migration v4 -> v5
+# Миграция с v4 на v5
 
-`v5` intentionally changes publish, queue, worker runtime and DI contracts.
+v5 - новая мажорная версия. Она не пытается сохранять runtime/schema совместимость с v4.
 
-## Main breaking changes
+Главное правило миграции: не запускайте v4 producers/workers и v5 producers/workers на одной и той же queue schema, если у вас нет собственной compatibility-прослойки. Встроенную PostgreSQL schema v5 нужно считать новой инфраструктурой.
 
-- `MessageBusInterface::publish()` returns `PublishResult` instead of `void`.
-- `MessageContextInterface::publish()` returns `PublishResult`.
-- `publishMany()` is added for batch publish.
-- Async publish without matching async bindings returns an empty `PublishResult`, not an error.
-- `MessageBus` requires `Psr\Container\ContainerInterface`.
-- `ServiceResolverInterface`, `InstantiatingServiceResolver` and `PsrContainerServiceResolver` are removed.
-- `QueueMessage` includes retry policy key and resolved retry policy snapshot.
-- `SerializedEnvelope` includes explicit `schemaVersion`.
-- `MessageConsumerInterface` includes `cancel()`.
-- `symfony/console` and `psr/simple-cache` are package dependencies.
-- `psr/log` is a package dependency because core `LoggingMiddleware` uses PSR-3.
-- `MESSAGE_BUS_FORCE_SYNC=1` replaces project-level `QUEUE_SYNC` as the library debug override.
+## Что изменилось на верхнем уровне
 
-## DI migration
+- PSR-11 container стал явным integration contract.
+- Zero-config/service-resolver подход нужно заменить реальными registrations в container.
+- Schema version registry повышена до `5`.
+- Compiled registry cache из v4 нужно пересобрать.
+- Async events требуют стабильный `MessageAlias`.
+- Async handlers требуют стабильный `bindingId`.
+- Queue storage использует v5 naming convention `message_bus__...`.
+- Queue job lifecycle явно поддерживает status/polling/control сценарии.
+- Worker runtime поддерживает `single` и `pcntl auto` режимы.
+- Worker control plane добавляет pause/resume/drain/stop/kill/restart/status.
+- Handler context поддерживает cooperative cancellation и heartbeat через `CancellableMessageContextInterface` и `HeartbeatAwareMessageContextInterface`.
+- Payload serialization стала явной: JSON по умолчанию, PHP serialize для PHP-only payload, custom serializer для protobuf/binary/custom encodings.
 
-Before:
+## Что нужно изменить в приложении
+
+## 1. Зарегистрируйте PSR-11 container
+
+Все handlers, middleware, context factories и strategies должны быть доступны через container.
 
 ```php
-use Wolfcharaa\MessageBus\Invoker\PsrContainerServiceResolver;
+$container->set(CreateUserAction::class, fn () => new CreateUserAction($repository));
+$container->set(DefaultMessageContextFactory::class, fn () => new DefaultMessageContextFactory());
+$container->set(SequentialExecutionStrategy::class, fn () => new SequentialExecutionStrategy());
+```
 
-$resolver = new PsrContainerServiceResolver($container);
+## 2. Пересоберите registry
 
-$bus = new MessageBus(
-    $registry,
+Не используйте compiled registry cache из v4. v5 использует schema version `5`.
+
+```php
+$definition = (new MessageRegistryCompiler())->compile(
+    new ClassListProvider($classes),
     $flows,
-    queueProvider: $queueProvider,
-    resolver: $resolver,
+    '5.0.0',
 );
 ```
 
-After:
+## 3. Создайте PostgreSQL schema для v5
 
-```php
-use Psr\Container\ContainerInterface;
-use Wolfcharaa\MessageBus\MessageBus;
-
-assert($container instanceof ContainerInterface);
-
-$bus = new MessageBus(
-    registry: $registry,
-    flows: $flows,
-    container: $container,
-    queueProvider: $queueProvider,
-);
-```
-
-Before/after table:
-
-| Before | After |
-| --- | --- |
-| `ServiceResolverInterface` | Removed. Use `Psr\Container\ContainerInterface`. |
-| `InstantiatingServiceResolver` | Removed. MessageBus does not ship a zero-config container. |
-| `PsrContainerServiceResolver` | Removed. Pass PSR-11 container directly. |
-| `ReflectionCallableInvoker($resolver)` | `ReflectionCallableInvoker($container)` |
-| `new MessageBus($registry, $flows)` | `new MessageBus(registry: $registry, flows: $flows, container: $container)` |
-
-Container lookup order for infrastructure fallback:
-
-| Role | FQCN/interface id | Alias |
-| --- | --- | --- |
-| Queue provider | `QueueProviderInterface::class` | `message_bus.queue_provider` |
-| Envelope serializer | `EnvelopeSerializerInterface::class` | `message_bus.envelope_serializer` |
-| Invoker | `CallableInvokerInterface::class` | `message_bus.invoker` |
-| Message id generator | `MessageIdGenerator::class` | `message_bus.message_id_generator` |
-| Clock | `ClockInterface::class` | `message_bus.clock` |
-| Retry policy registry | `RetryPolicyRegistryInterface::class` | `message_bus.retry_policy_registry` |
-
-Handlers, middleware, context factories and execution strategies must be resolvable from the same PSR-11 container by FQCN.
-
-## Publish migration
-
-Before:
-
-```php
-$bus->publish(new UserCreatedEvent($userId));
-```
-
-After:
-
-```php
-$result = $bus->publish(new UserCreatedEvent($userId));
-
-foreach ($result->executions() as $execution) {
-    // queued execution exposes queueMessageId for polling
-}
-```
-
-If enqueue fails, `PublishFailed` is thrown and contains partial `PublishResult`:
-
-```php
-try {
-    $result = $bus->publishMany($messages);
-} catch (PublishFailed $e) {
-    $partial = $e->result();
-}
-```
-
-## Retry migration
-
-Retry policy is no longer only a runtime key. Queue jobs store:
-
-- `retryPolicyKey`;
-- resolved `RetryPolicySnapshot`;
-- `maxAttempts`.
-
-Default policy:
-
-- key: `default`;
-- max attempts: `3`;
-- exponential backoff: `30s`, multiplier `2`, max `300s`.
-
-## Queue worker migration
-
-Adapters implementing `MessageConsumerInterface` must add:
-
-```php
-public function cancel(ReceivedQueueMessage $message, Throwable $reason): void;
-```
-
-Framework workers should prefer `QueueWorkerRunner` over hand-written loops.
-
-## PostgreSQL runtime
-
-The built-in PostgreSQL transport uses:
-
-- transport: `postgres`;
-- default queue: `default`;
-- default table: `message_bus__queue_jobs`.
-
-Runtime helper now requires container:
-
-```php
-$runtime = MessageBusRuntime::postgres(
-    pdo: $pdo,
-    registry: $registry,
-    container: $container,
-    flows: $flows,
-);
-```
-
-Generate schema:
+Для чистой установки v5:
 
 ```bash
-vendor/bin/message-bus queue:schema:postgres --table=message_bus__queue_jobs
+vendor/bin/message-bus schema:postgres --with=all
 ```
 
-Run worker:
+Команда генерирует queue и worker-control таблицы:
+
+- `message_bus__queue_jobs`;
+- `message_bus__worker_commands`;
+- `message_bus__worker_desired_states`;
+- `message_bus__worker_instances`;
+- `message_bus__worker_child_instances`;
+- `message_bus__worker_command_acknowledgements`.
+
+Для существующей v4 installation самый безопасный production-путь:
+
+- остановить или drain-нуть v4 producers;
+- дать v4 workers завершить старые jobs;
+- архивировать или удалить старые queue tables согласно вашей retention policy;
+- применить v5 schema;
+- задеплоить v5 producers и workers вместе;
+- пересобрать registry cache;
+- запустить v5 workers.
+
+Если нужно сохранить pending jobs из v4, напишите application-level migration, которая преобразует старые rows в v5 `SerializedEnvelope` и v5 `bindingId` semantics. Библиотека намеренно не предоставляет автоматическую миграцию данных v4-to-v5.
+
+## 4. Добавьте aliases и binding ids для async работы
+
+```php
+#[MessageAlias('user.created')]
+final class UserCreatedEvent
+{
+}
+
+#[EventSubscriber(
+    message: UserCreatedEvent::class,
+    flow: 'async',
+    bindingId: 'user.created.send_welcome_email',
+)]
+final class SendWelcomeEmail
+{
+}
+```
+
+`MessageAlias` - стабильное serialized name сообщения. `bindingId` - стабильная identity конкретной handler job. Эти значения должны переживать переименование PHP classes.
+
+## 5. Выберите payload serialization
+
+Используйте JSON, если jobs должны быть понятны вне PHP или их нужно удобно инспектировать.
+
+Используйте `PhpSerializeMessageSerializer`, если payload строго PHP-only и содержит value objects, которые не хочется вручную приводить к JSON.
+
+Используйте custom serializer для protobuf/binary форматов и задавайте точный content type, например `application/x-protobuf`.
+
+## 6. Обновите long-running handlers
+
+Для долгих jobs используйте cooperative cancellation и heartbeat:
+
+```php
+use Wolfcharaa\MessageBus\Context\CancellableMessageContextInterface;
+use Wolfcharaa\MessageBus\Context\HeartbeatAwareMessageContextInterface;
+
+public function __invoke(BuildReport $message, CancellableMessageContextInterface $context): void
+{
+    foreach ($this->builder->steps($message->reportId) as $step) {
+        $context->throwIfCancellationRequested();
+
+        $this->builder->runStep($step);
+
+        if ($context instanceof HeartbeatAwareMessageContextInterface) {
+            $context->heartbeat();
+        }
+    }
+}
+```
+
+## 7. Обновите worker deployment
+
+Single worker:
 
 ```bash
 vendor/bin/message-bus worker:run --bootstrap=config/message_bus_runtime.php
 ```
 
-## Payload serializer changes
+Auto worker с child processes:
 
-`SerializedMessage` now has an optional fifth constructor argument: `payloadEncoding`. Existing code that passes four arguments continues to use `SerializedMessage::PAYLOAD_ENCODING_PLAIN`.
+```bash
+vendor/bin/message-bus worker:run \
+  --bootstrap=config/message_bus_runtime.php \
+  --mode=auto \
+  --workers=4 \
+  --worker-name=emails-worker \
+  --worker-group=emails
+```
 
-PostgreSQL queue storage now delegates envelope conversion to `SerializedEnvelopeNormalizer`. New stored envelopes are written in camelCase and include `message.payloadEncoding`. The default normalizer can still read legacy snake_case envelope keys.
+Для supervisor/docker/systemd restart behavior используйте `worker:restart`. Auto runner после graceful drain завершится с настроенным restart exit code.
 
-Use `JsonMessageSerializer` for portable cross-language messages. Use `PhpSerializeMessageSerializer` when a PHP-only application needs to preserve PHP objects that cannot be represented as JSON constructor payloads.
+Это краткая сводка правил, по которым проектируется приложение на MessageBus.
 
-## Cache result migration
-
-`MessageCacheMiddleware` still uses JSON result serialization by default. PHP-only projects can use `PhpSerializeResultSerializer` to cache richer PHP result objects.
-
-The middleware now accepts `CacheResultPolicyInterface`. Existing constructor calls are compatible because the default policy caches all results, matching the previous behavior.
-
-Cache keys use a sha256 fingerprint based on the message class, optional identity key, serialized message and vary headers. This removes the previous JSON-only limitation from cache key generation.
-
-## Registry compile migration
-
-Use `CompiledRegistryFileWriter` instead of manual `file_put_contents()` when dumping compiled registry files. It writes to a temporary file in the target directory and then renames it atomically.
-
-Use `RegistryRuntimeLoader` when the application should prefer a compiled registry file but still be able to compile from a class provider in dev/test.
-
-## Logging middleware
-
-`LoggingMiddleware` is available in core and requires a PSR-3 logger. Default mode logs failures only. More verbose lifecycle logging is opt-in through `LoggingMiddlewareMode`.

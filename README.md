@@ -1,115 +1,246 @@
 # MessageBus
 
-`romanfedorskij/message-bus` - PHP 8.3+ библиотека для запуска бизнес-действий через сообщения.
+Attribute-driven PHP message bus для command/query/event сценариев, async очередей, worker-ов, cache result и понятного runtime control.
 
-Она помогает отделить код, который принимает запрос пользователя, cron, webhook или queue job, от кода, который реально выполняет бизнес-операцию.
-
-Вместо прямого вызова сервиса из controller:
-
-```php
-$result = $createUserAction->handle($email);
-```
-
-вы отправляете сообщение:
-
-```php
-$result = $bus->dispatch(new CreateUserMessage('user@example.com'));
-```
-
-А библиотека сама находит нужный handler, создаёт execution context, сохраняет `messageId/correlationId`, применяет middleware и, если нужно, кладёт задачу в очередь.
+Библиотека помогает вынести правила выполнения сообщений из application code в явный registry: какие сообщения есть, какие handlers их обрабатывают, какие flows используются, что выполняется sync, что уходит в queue, как это сериализуется, кешируется, ретраится и контролируется в production.
 
 ## Зачем это ставить
 
-MessageBus полезен, если в проекте есть хотя бы одна из этих задач:
+MessageBus полезен, когда в приложении появляются такие проблемы:
 
-- Нужно одинаково запускать бизнес-действия из controller, CLI, cron, worker и тестов.
-- Нужно явно разделить command, query и event.
-- Нужно отправлять часть работы в очередь, но оставить тот же handler-код.
-- Нужно возвращать frontend `queueMessageId`, чтобы он мог polling-ом смотреть состояние async задач.
-- Нужно централизованно добавить retry, cache, logging, custom context или middleware.
-- Нужно заранее собрать registry handlers для production без runtime reflection.
+- controller/service начинает напрямую знать слишком много handlers;
+- sync command/query и async events смешаны в одном application code;
+- события надо отправлять в очередь и потом показывать frontend статус выполнения;
+- нужны стабильные message aliases и handler binding ids, чтобы refactoring PHP classes не ломал очередь;
+- нужны retry, delay, priority, cancellation и polling задач;
+- long-running workers надо ставить на pause, drain, restart или emergency kill;
+- нужен один подход для Symfony, Laravel, Spiral, Yii, Mezzio, Slim или standalone PHP.
 
-MessageBus не заменяет DI container, framework routing, ORM или queue server. Он связывает ваши сообщения, handlers, middleware и queue runtime в один предсказуемый workflow.
+## Что предоставляет библиотека
 
-## Базовая идея
+| Возможность | Для чего нужна | Подробности |
+| --- | --- | --- |
+| `dispatch()` | Выполнить command/query синхронно и получить result | [Quick start](docs/guides/quick-start.md) |
+| `publish()` | Опубликовать event в один или несколько handlers | [Event guide](docs/guides/events.md) |
+| Flows | Разделить sync, async, queue, middleware и execution strategy | [Core concepts](docs/reference/core-concepts.md) |
+| Compiled registry | Получить стабильную карту messages/handlers/aliases/bindings | [Core concepts](docs/reference/core-concepts.md) |
+| Payload serialization | Выбрать JSON, PHP serialize, protobuf или custom payload | [Payload serialization](docs/guides/payload-serialization.md) |
+| PostgreSQL queue | Поставить async jobs в БД и запускать workers | [Async queue](docs/guides/async-queue.md) |
+| Queue status/control | Вернуть frontend `queueMessageId`, polling status и cancel | [Queue and worker](docs/reference/queue-and-worker.md) |
+| Worker control plane | Управлять long-running workers через pause/resume/drain/stop/kill/restart | [Worker control plane](docs/reference/worker-control-plane.md) |
+| Cache result | Кешировать результат query/command handler-а | [Cache result](docs/guides/cache-result.md) |
+| PSR-11 integration | Подключить handlers и infrastructure через container | [Container contract](docs/reference/container-contract.md) |
+| Framework integration | Подключить библиотеку в популярные frameworks | [Framework integration](docs/guides/framework-integration.md) |
 
-В библиотеке есть три основных понятия:
+## Общая модель
 
-- `Message` - обычный immutable DTO, который описывает намерение.
-- `Handler` - класс, который выполняет это намерение.
-- `MessageBus` - объект, который принимает message и вызывает подходящий handler.
+MessageBus строится вокруг простой цепочки:
 
-Типы сообщений:
+```text
+message -> envelope -> registry -> flow -> handler -> result / queue job
+```
 
-- `Command` - сделать действие и вернуть результат, например `CreateUserMessage`.
-- `Query` - прочитать данные и вернуть результат, например `FindUserMessage`.
-- `Event` - сообщить, что что-то произошло, например `UserCreatedEvent`.
+Что делает каждая часть:
+
+| Часть | Простыми словами | Зачем нужна |
+| --- | --- | --- |
+| Message | DTO с намерением или фактом | Отделить business request/event от framework/controller кода |
+| Handler | Service, который выполняет работу | Держать business logic в явной точке обработки |
+| Registry | Скомпилированная карта messages, handlers, aliases и bindings | Не искать handlers в runtime магией и не держать wiring в голове |
+| Envelope | Message плюс metadata | Передавать correlationId, causationId, headers, flow и bindingId |
+| Flow | Правило “как выполнять” | Разделить sync, async, middleware, queue и strategy |
+| Queue job | SerializedEnvelope в transport | Выполнить handler позже, в worker-е, с retry/status/cancel |
+| Worker | Runtime для queue jobs | Надёжно брать задачи, выполнять handlers и обновлять lifecycle |
+| Control plane | Команды управления workers | Pause, resume, drain, stop, kill, restart и status для production |
+
+Главная идея: application code публикует messages, а библиотека по registry и flow решает, какой handler выполнить сейчас, какой поставить в queue, как сохранить metadata, как вернуть результат и как дать backend/frontend наблюдать состояние.
+
+## Какие проблемы закрывает
+
+### 1. Controller не должен знать все handlers
+
+Без message bus controller часто напрямую вызывает services, events, queues и side effects.
+
+С MessageBus controller отправляет один message:
+
+```php
+$result = $bus->dispatch(new CreateUserMessage($email, $name));
+```
+
+Дальше registry определяет, какой handler является primary, какой flow используется и какой result вернуть.
+
+### 2. Events должны быть fan-out, а не цепочкой ручных вызовов
+
+Один event может иметь несколько subscribers:
+
+```php
+$bus->publish(new UserCreatedEvent($userId));
+```
+
+Каждый subscriber получает свой `bindingId`, поэтому email, audit, webhook и analytics jobs становятся независимыми. Если один subscriber упал, остальные не обязаны падать вместе с ним.
+
+### 3. Async job должен быть наблюдаемым
+
+`publish()` возвращает `PublishResult`. Из него можно получить `queueMessageId` и вернуть его frontend.
+
+Frontend может polling-ом спрашивать backend:
+
+```php
+$status = $runtime->queueStatus()?->get($queueMessageId);
+```
+
+Это закрывает обычный UX: “мы приняли задачу, она выполняется, вот её статус”.
+
+### 4. Долгие jobs должны уметь отменяться
+
+Для running job можно запросить cancellation:
+
+```php
+$runtime->queueControl()?->requestCancellation($queueMessageId);
+```
+
+Handler проверяет отмену кооперативно:
+
+```php
+$context->throwIfCancellationRequested();
+```
+
+Так задача завершается контролируемо, а runner переводит её в `cancelled`.
+
+### 5. Workers должны управляться в production
+
+Long-running workers нельзя просто “запустить и забыть”. Им нужны диагностика и управляющие команды.
+
+```bash
+vendor/bin/message-bus worker:status --bootstrap=config/message_bus_runtime.php --children
+vendor/bin/message-bus worker:pause --bootstrap=config/message_bus_runtime.php --group=emails
+vendor/bin/message-bus worker:drain --bootstrap=config/message_bus_runtime.php --group=emails --reason="deploy"
+vendor/bin/message-bus worker:restart --bootstrap=config/message_bus_runtime.php --worker-name=emails-worker
+```
+
+Это позволяет безопасно делать deploy, maintenance, emergency stop и restart через supervisor/docker/systemd.
+
+### 6. Queue payload не должен зависеть от PHP class name
+
+Для async сообщений используется `MessageAlias`, а для handler job - `bindingId`.
+
+```php
+#[MessageAlias('user.created')]
+final class UserCreatedEvent {}
+
+#[EventSubscriber(
+    message: UserCreatedEvent::class,
+    flow: 'async',
+    bindingId: 'user.created.send_welcome_email',
+)]
+final class SendWelcomeEmail {}
+```
+
+Если PHP class переименуют, старые queue jobs всё ещё можно восстановить по alias и binding id.
+
+### 7. Библиотека не заменяет container и framework
+
+MessageBus не пытается быть DI container, framework queue или application kernel.
+
+Она ожидает PSR-11 container и использует его для:
+
+- handlers;
+- middleware;
+- context factories;
+- execution strategies;
+- queue/runtime infrastructure.
+
+Это делает интеграцию одинаковой для Symfony, Laravel, Spiral, Yii, Mezzio, Slim и standalone PHP.
+
+## Что остаётся на стороне приложения
+
+Библиотека предоставляет runtime и contracts, но не забирает у приложения business decisions.
+
+Приложение отвечает за:
+
+- какие messages существуют;
+- какие handlers выполняют business logic;
+- какие dependencies нужны handlers;
+- какой container использовать;
+- какие flows и queues нужны для нагрузки;
+- как frontend показывает status/progress;
+- как supervisor/docker/systemd перезапускает workers;
+- какую serialization strategy выбрать для конкретного проекта.
+
+MessageBus отвечает за:
+
+- dispatch/publish API;
+- envelope metadata;
+- handler registry;
+- sync/async execution flows;
+- queue job lifecycle;
+- retry/cancel/status contracts;
+- worker runtime;
+- worker control plane;
+- serializer contracts.
+
+## Как читать документацию
+
+Если вы впервые открыли библиотеку, читайте в таком порядке:
+
+1. README до конца, чтобы понять общую модель.
+2. [Quick start](docs/guides/quick-start.md), чтобы собрать первый sync command.
+3. [Event guide](docs/guides/events.md), если нужны events и fan-out.
+4. [Async queue](docs/guides/async-queue.md), если нужны queue jobs и workers.
+5. [Worker control plane](docs/reference/worker-control-plane.md), если workers будут жить в production.
+6. [Migration v4 to v5](docs/migration/v4-to-v5.md), если обновляетесь с предыдущей версии.
 
 ## Install
 
-Для standalone PHP установите библиотеку и любой PSR-11 container. Например PHP-DI:
-
 ```bash
-composer require romanfedorskij/message-bus php-di/php-di
+composer require romanfedorskij/message-bus
 ```
-
-В framework-проекте отдельный container обычно не нужен. Используйте container framework, если он доступен как `Psr\Container\ContainerInterface`.
 
 ## Requirements
 
-Обязательные:
+Обязательно:
 
-- PHP `^8.3`
-- `psr/container`
-- `psr/clock`
-- `psr/log`
-- `psr/simple-cache`
-- `symfony/console`
-- `symfony/var-exporter`
-- `ext-json`
-- PSR-11 compatible container implementation in application runtime
+- PHP `^8.3`;
+- `psr/container`;
+- `psr/clock`;
+- `psr/simple-cache`;
+- `psr/log`;
+- `symfony/console`;
+- `symfony/var-exporter`;
+- `ext-json`.
 
-Опциональные:
+Опционально:
 
-- `ext-pcntl` для `worker:run --mode=auto`
-- `ext-pdo_pgsql` для PostgreSQL queue transport
-- `ext-pgsql` для PostgreSQL diagnostics/native support
+- `ext-pdo_pgsql` - для PostgreSQL queue transport;
+- `ext-pcntl` - для `worker:run --mode=auto`;
+- `ext-pgsql` - для PostgreSQL diagnostics/native support.
 
-Подходящие container implementations:
+Container не входит в библиотеку намеренно. Используйте любой PSR-11 compatible container, например:
 
-- [PHP-DI](https://php-di.org/) для standalone PHP.
-- [Symfony DependencyInjection](https://symfony.com/doc/current/components/dependency_injection.html) container.
-- [Laravel container](https://laravel.com/docs/container), если используется как PSR-11 container.
-- [Spiral container](https://spiral.dev/docs/container-overview/current/en).
-- [Yii DI container](https://www.yiiframework.com/doc/guide/3.0/en/concept-di-container).
-- [DIC](https://github.com/thesis-php/dic).
-- другой container через PSR-11 adapter.
+- [PHP-DI](https://php-di.org/);
+- [Symfony DependencyInjection](https://symfony.com/doc/current/components/dependency_injection.html);
+- [thesis-php/dic](https://github.com/thesis-php/dic);
 
-## Quick Start
+## Quick start
 
-Этот пример показывает самый короткий путь: создать command, handler, registry и выполнить command синхронно.
+Минимальный sync command состоит из message, handler, container, registry и `MessageBus`.
 
-### 1. Создайте message
-
-Message - это DTO с данными, которые нужны handler-у.
+### 1. Message
 
 ```php
 final class CreateUserMessage
 {
-    public function __construct(public readonly string $email) {}
-}
-
-final class CreateUserResult
-{
-    public function __construct(public readonly int $userId) {}
+    public function __construct(
+        public readonly string $email,
+        public readonly string $name,
+    ) {
+    }
 }
 ```
 
-Result - это обычный объект, который вернётся из `dispatch()`.
+Message - это DTO. Он описывает намерение или факт и не содержит business logic, database connection или framework request.
 
-### 2. Создайте handler
-
-Handler помечается attribute-ом. Так registry понимает, какое сообщение обрабатывает этот класс.
+### 2. Handler
 
 ```php
 use Wolfcharaa\MessageBus\Attribute\CommandHandler;
@@ -118,83 +249,31 @@ use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 #[CommandHandler(message: CreateUserMessage::class)]
 final class CreateUserAction
 {
-    public function __invoke(CreateUserMessage $message, MessageContextInterface $context): CreateUserResult
+    public function __invoke(CreateUserMessage $message, MessageContextInterface $context): string
     {
-        return new CreateUserResult(10);
+        return 'created:' . $message->email;
     }
 }
 ```
 
-Handler всегда принимает два аргумента:
+Handler должен быть service в PSR-11 container. Dependencies передавайте через constructor, а не через message.
 
-- `CreateUserMessage $message` - входные данные.
-- `MessageContextInterface $context` - context текущего выполнения.
-
-Context можно не использовать сразу, но он нужен для вложенного `dispatch()`, `publish()` и доступа к metadata envelope.
-
-### 3. Подготовьте PSR-11 container
-
-MessageBus не создаёт handlers сам. Он просит ваш container вернуть handler по имени класса.
-
-Пример с PHP-DI:
-
+### 3. Container
 
 ```php
-use DI\ContainerBuilder;
-use Psr\Container\ContainerInterface;
+use Wolfcharaa\MessageBus\Context\DefaultMessageContextFactory;
+use Wolfcharaa\MessageBus\Execution\SequentialExecutionStrategy;
 
-$container = (new ContainerBuilder())
-    ->useAutowiring(true)
-    ->build();
-
-assert($container instanceof ContainerInterface);
+$container->set(CreateUserAction::class, fn () => new CreateUserAction());
+$container->set(DefaultMessageContextFactory::class, fn () => new DefaultMessageContextFactory());
+$container->set(SequentialExecutionStrategy::class, fn () => new SequentialExecutionStrategy());
 ```
 
-В Symfony, Laravel, Spiral, Yii и других framework-ах обычно используется container самого framework.
-
-### 4. Соберите registry
-
-Registry - это карта “какое сообщение каким handler-ом обрабатывается”.
-
-MessageBus не сканирует весь проект на каждый `dispatch()`. Вместо этого на старте приложения один раз собирается registry:
-
-- какие классы являются messages;
-- какие classes являются handlers;
-- какой handler обрабатывает какой message;
-- какой method надо вызвать;
-- какой flow используется: sync или async;
-- какой `bindingId` у handler-а;
-- какой `MessageAlias` используется для сериализации async message;
-- какие middleware подключены к flow или конкретному binding;
-- какие cache/retry настройки заданы через attributes.
-
-Registry нужен, чтобы во время выполнения MessageBus работал быстро и предсказуемо. Когда вы вызываете:
-
-```php
-$bus->dispatch(new CreateUserMessage('user@example.com'));
-```
-
-MessageBus не ищет handler reflection-ом заново. Он берёт из registry готовую запись:
-
-```text
-CreateUserMessage -> CreateUserAction::__invoke()
-```
-
-После этого он просит PSR-11 container вернуть `CreateUserAction` и вызывает нужный method.
-
-Почему registry собирается явно:
-
-- Ошибки в attributes находятся на старте, а не в production во время обработки запроса.
-- Можно проверить, что command имеет primary handler.
-- Можно проверить, что async messages имеют стабильный alias.
-- Можно проверить, что async handlers имеют стабильный `bindingId`.
-- Можно заранее собрать registry в PHP-файл и не использовать reflection в production.
-- Framework integration становится проще: container отвечает за services, registry отвечает за message routing.
-
-В dev/test registry можно собрать прямо из списка классов:
+### 4. Registry
 
 ```php
 use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
+use Wolfcharaa\MessageBus\Flow\FlowRegistry;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 
@@ -203,64 +282,36 @@ $definition = (new MessageRegistryCompiler())->compile(
         CreateUserMessage::class,
         CreateUserAction::class,
     ]),
+    new FlowRegistry(),
+    '5.0.0',
 );
 
 $registry = new CompiledMessageRegistry($definition);
 ```
 
-`ClassListProvider` в примере получает список классов явно. В реальном проекте этот список обычно формируется вашим framework bootstrap-ом, composer classmap-ом или собственной discovery-логикой.
+Registry отвечает на вопросы: какие messages есть, какие handlers к ним привязаны, какие flows используются, какой binding является primary.
 
-Важно: handler всё равно создаётся container-ом. Registry не заменяет DI container и не хранит готовые объекты. Registry хранит только metadata о том, что и как нужно вызвать.
-
-В production registry лучше заранее сохранить в PHP-файл. Это описано ниже в разделе `Registry`.
-
-### 5. Создайте MessageBus
+### 5. MessageBus
 
 ```php
 use Wolfcharaa\MessageBus\MessageBus;
 
 $bus = new MessageBus(
     registry: $registry,
-    flows: $definition->flows,
+    flows: $registry->definition()->flows,
     container: $container,
 );
+
+$result = $bus->dispatch(new CreateUserMessage('user@example.com', 'Roman'));
 ```
 
-### 6. Выполните command
+`dispatch()` возвращает business result primary sync handler-а.
 
-```php
-$result = $bus->dispatch(new CreateUserMessage('user@example.com'));
-
-assert($result instanceof CreateUserResult);
-echo $result->userId;
-```
-
-`dispatch()` выполняет primary sync handler и возвращает бизнес-результат handler-а.
-
-### 7. Что произошло внутри
-
-В этом примере библиотека сделала такие шаги:
-
-- Нашла binding для `CreateUserMessage`.
-- Получила `CreateUserAction` из PSR-11 container.
-- Создала envelope с `messageId`, `correlationId`, `createdAt` и headers.
-- Запустила middleware pipeline.
-- Вызвала handler.
-- Вернула `CreateUserResult`.
+Подробный разбор quick start: [docs/guides/quick-start.md](docs/guides/quick-start.md).
 
 ## Event quick start
 
-Event нужен, когда действие уже произошло, а несколько независимых handlers могут на него подписаться.
-
-Например, пользователь создан. После этого можно независимо:
-
-- отправить welcome email;
-- записать audit log;
-- синхронизировать данные с CRM;
-- пересчитать аналитику;
-- запустить долгую background задачу.
-
-Event handler не должен быть частью основного command handler-а, если его можно выполнить отдельно или позже.
+Для events используйте `MessageAlias` и стабильный `bindingId`.
 
 ```php
 use Wolfcharaa\MessageBus\Attribute\EventSubscriber;
@@ -269,924 +320,7 @@ use Wolfcharaa\MessageBus\Attribute\MessageAlias;
 #[MessageAlias('user.created')]
 final class UserCreatedEvent
 {
-    public function __construct(public readonly int $userId) {}
-}
-
-#[EventSubscriber(
-    message: UserCreatedEvent::class,
-    flow: 'async',
-    bindingId: 'user.created.send_welcome_email',
-)]
-final class SendWelcomeEmailAction
-{
-    public function __invoke(UserCreatedEvent $event, MessageContextInterface $context): void
-    {
-        // send email
-    }
-}
-```
-
-Async message обязан иметь `MessageAlias`, а async handler обязан иметь стабильный `bindingId`.
-
-### Зачем нужен MessageAlias
-
-`MessageAlias` - это стабильное публичное имя message.
-
-Для sync dispatch библиотека может работать с PHP class name напрямую:
-
-```text
-App\Message\UserCreatedEvent
-```
-
-Но async message попадает в очередь и хранится там как serialized envelope. Очередь может жить дольше текущего deploy-а. Class name в коде можно переименовать, перенести в другой namespace или заменить во время refactoring-а.
-
-Если в очереди хранить только PHP class name, старые задачи могут перестать десериализоваться после изменения кода.
-
-Поэтому для async messages используется alias:
-
-```php
-#[MessageAlias('user.created')]
-final class UserCreatedEvent
-{
-    public function __construct(public readonly int $userId) {}
-}
-```
-
-В serialized envelope будет сохранено стабильное имя:
-
-```json
-{
-  "message": {
-    "name": "user.created",
-    "contentType": "application/json",
-    "payload": "{\"userId\":10}",
-    "payloadEncoding": "plain"
-  }
-}
-```
-
-За что отвечает `MessageAlias`:
-
-- стабильное имя message в очереди;
-- безопасная десериализация после refactoring-а PHP class name;
-- интеграция с внешними producers/consumers;
-- переносимость envelope между процессами;
-- читаемые сообщения в базе/логах/diagnostics.
-
-Практическое правило: если message может попасть в очередь, добавьте ему `MessageAlias`.
-
-### Зачем нужен bindingId
-
-`bindingId` - это стабильный идентификатор конкретной подписки handler-а на message.
-
-Один event может иметь несколько subscribers:
-
-```php
-#[EventSubscriber(
-    message: UserCreatedEvent::class,
-    flow: 'async',
-    bindingId: 'user.created.send_welcome_email',
-)]
-final class SendWelcomeEmailAction {}
-
-#[EventSubscriber(
-    message: UserCreatedEvent::class,
-    flow: 'async',
-    bindingId: 'user.created.write_audit_log',
-)]
-final class WriteAuditLogAction {}
-```
-
-Для MessageBus это две разные async задачи. Им нужен стабильный id, чтобы понимать не только “какой event произошёл”, но и “какая именно подписка должна быть выполнена”.
-
-За что отвечает `bindingId`:
-
-- какая именно async подписка будет выполнена worker-ом;
-- какой handler надо вызвать после чтения задачи из очереди;
-- какой retry policy применяется к этой подписке;
-- какой cache/logging/middleware metadata относится к этому binding;
-- какой queue job показывать frontend при polling-е;
-- какую задачу можно cancel/retry/recover;
-- как не потерять задачу после переименования handler class или method.
-
-Почему нельзя полагаться только на class name handler-а:
-
-- handler можно переименовать;
-- handler можно разделить на несколько классов;
-- один action class может иметь несколько methods и несколько bindings;
-- разные handlers одного event-а должны иметь разные retry/status lifecycle;
-- очередь хранит задачу дольше одного request-а и иногда дольше одного deploy-а.
-
-Практическое правило: `bindingId` должен быть человекочитаемым и стабильным. Хороший формат:
-
-```text
-<message>.<action>
-```
-
-Примеры:
-
-```text
-user.created.send_welcome_email
-user.created.write_audit_log
-report.requested.build_pdf
-order.paid.sync_crm
-```
-
-Для sync event можно выполнить:
-
-```php
-$result = $bus->publish(new UserCreatedEvent(10));
-```
-
-`publish()` возвращает `PublishResult`, где видно, какие bindings были выполнены, поставлены в очередь или завершились ошибкой.
-
-## Payload serialization
-
-Serialization нужна не для обычного sync `dispatch()`. Sync handler получает PHP object напрямую.
-
-Serialization нужна там, где message пересекает границу процесса или времени:
-
-- async queue;
-- worker после другого deploy-а;
-- retry отложенной задачи;
-- внешние producers/consumers;
-- сохранение envelope в PostgreSQL;
-- диагностика serialized jobs.
-
-MessageBus разделяет три уровня:
-
-- `MessageSerializerInterface` превращает PHP message object в `SerializedMessage`.
-- `EnvelopeSerializerInterface` превращает `Envelope` в `SerializedEnvelope`.
-- Queue storage сохраняет `SerializedEnvelope` в backend, например PostgreSQL.
-
-### SerializedMessage
-
-`SerializedMessage` хранит не PHP object, а переносимое представление message:
-
-```php
-new SerializedMessage(
-    name: 'user.created',
-    contentType: 'application/json',
-    payload: '{"userId":10}',
-    headers: [],
-    payloadEncoding: SerializedMessage::PAYLOAD_ENCODING_PLAIN,
-);
-```
-
-Поля:
-
-- `name` - стабильное имя message, обычно из `MessageAlias`.
-- `contentType` - формат payload.
-- `payload` - строка с данными.
-- `headers` - metadata serializer-а.
-- `payloadEncoding` - как payload строка положена в envelope.
-
-Важно: `contentType` и `payloadEncoding` отвечают за разные вещи.
-
-`contentType` говорит, как интерпретировать payload:
-
-- `application/json`;
-- `application/vnd.php.serialized`;
-- `application/x-protobuf`;
-- любой custom media type.
-
-`payloadEncoding` говорит, как payload физически записан в envelope:
-
-- `plain` - payload уже безопасная строка.
-- `base64` - payload был binary и перед сохранением закодирован в base64.
-
-### JSON serializer по умолчанию
-
-`JsonMessageSerializer` используется по умолчанию.
-
-Он подходит, когда message payload должен быть переносимым:
-
-- между PHP process-ами;
-- между разными версиями приложения;
-- между backend и внешними consumers;
-- между разными языками программирования.
-
-JSON serializer хранит payload как `application/json`.
-
-```json
-{
-  "message": {
-    "name": "user.created",
-    "contentType": "application/json",
-    "payload": "{\"userId\":10}",
-    "payloadEncoding": "plain"
-  }
-}
-```
-
-Ограничение JSON serializer-а: message должен раскладываться в простые данные.
-
-Подходят:
-
-- `string`;
-- `int`;
-- `float`;
-- `bool`;
-- `array`;
-- `null`;
-- простые DTO, которые можно восстановить через constructor.
-
-Не подходят без custom serializer-а:
-
-- `DateTimeImmutable` как object property;
-- enum object property;
-- value objects без ручного преобразования;
-- resources;
-- closures;
-- binary data.
-
-Практическое правило: если message может уйти за пределы PHP-приложения, начинайте с JSON.
-
-### PHP serialize serializer
-
-Если проект PHP-only и нужно сохранить richer PHP object graph, используйте `PhpSerializeMessageSerializer`.
-
-```php
-use Wolfcharaa\MessageBus\Envelope\DefaultEnvelopeSerializer;
-use Wolfcharaa\MessageBus\Serialization\PhpSerializeMessageSerializer;
-
-$messageSerializer = new PhpSerializeMessageSerializer(
-    $registry,
-    allowedClasses: true,
-);
-
-$envelopeSerializer = new DefaultEnvelopeSerializer($messageSerializer);
-```
-
-После этого serializer можно передать в runtime:
-
-```php
-$runtime = MessageBusRuntime::postgres(
-    pdo: $pdo,
-    registry: $registry,
-    container: $container,
-    flows: $flows,
-    envelopeSerializer: $envelopeSerializer,
-);
-```
-
-`PhpSerializeMessageSerializer` хранит payload как `application/vnd.php.serialized`.
-
-Плюсы:
-
-- сохраняет PHP value objects;
-- сохраняет `DateTimeImmutable`;
-- сохраняет enum properties;
-- удобен для PHP-only monolith/service;
-- не требует писать mapping для каждого DTO.
-
-Минусы:
-
-- payload понятен только PHP;
-- class names становятся частью serialized payload;
-- refactoring class structure требует аккуратности;
-- нельзя безопасно принимать такой payload от недоверенных внешних producers.
-
-Для безопасности можно ограничить allowed classes:
-
-```php
-$messageSerializer = new PhpSerializeMessageSerializer(
-    $registry,
-    allowedClasses: [
-        App\Message\CreateOrder::class,
-        App\Message\OrderPaidEvent::class,
-        App\ValueObject\OrderId::class,
-    ],
-);
-```
-
-Практическое правило: `allowedClasses: true` допустим внутри доверенного приложения. Для публичных boundaries лучше использовать allow-list или JSON/custom serializer.
-
-### Protobuf и binary payload
-
-Библиотека не добавляет built-in protobuf serializer, потому что protobuf schema, generated classes и mapping в каждом проекте свои.
-
-Но библиотека не блокирует protobuf. Нужно реализовать свой `MessageSerializerInterface`.
-
-Идея serializer-а:
-
-```php
-use Wolfcharaa\MessageBus\Serialization\MessageSerializerInterface;
-use Wolfcharaa\MessageBus\Serialization\SerializedMessage;
-
-final class ProtobufMessageSerializer implements MessageSerializerInterface
-{
-    public function serialize(object $message): SerializedMessage
-    {
-        $binary = $message->serializeToString();
-
-        return new SerializedMessage(
-            name: $this->names->nameOf($message),
-            contentType: 'application/x-protobuf',
-            payload: base64_encode($binary),
-            payloadEncoding: SerializedMessage::PAYLOAD_ENCODING_BASE64,
-        );
-    }
-
-    public function deserialize(SerializedMessage $message): object
-    {
-        $binary = base64_decode($message->payload, true);
-
-        if ($binary === false) {
-            throw new InvalidArgumentException('Invalid protobuf payload encoding.');
-        }
-
-        $class = $this->names->classOf($message->name);
-        $object = new $class();
-        $object->mergeFromString($binary);
-
-        return $object;
-    }
-}
-```
-
-Почему нужен `base64`: serialized envelope хранится как JSON/document-like структура, а raw binary небезопасно класть прямо в JSON string.
-
-### Как выбрать serializer
-
-Используйте JSON, если:
-
-- payload должен быть читаемым;
-- возможны внешние consumers;
-- важна переносимость между языками;
-- message DTO простые;
-- вы хотите меньше рисков при refactoring-е PHP classes.
-
-Используйте PHP serialize, если:
-
-- приложение полностью PHP-only;
-- очередь не читается внешними consumers;
-- payload содержит PHP value objects;
-- вы контролируете producers и consumers;
-- скорость разработки важнее cross-language переносимости.
-
-Используйте custom serializer, если:
-
-- нужен protobuf;
-- нужен Avro/MessagePack/другой формат;
-- есть legacy payload format;
-- нужно сохранить строгую backward-compatible wire schema;
-- message class не совпадает один-в-один с wire payload.
-
-### Result serialization отдельно
-
-Message payload serialization и cache result serialization - разные вещи.
-
-Для queued messages используются:
-
-- `JsonMessageSerializer`;
-- `PhpSerializeMessageSerializer`;
-- custom `MessageSerializerInterface`.
-
-Для `MessageCacheMiddleware` используются:
-
-- `JsonResultSerializer`;
-- `PhpSerializeResultSerializer`;
-- custom `ResultSerializerInterface`.
-
-Это разделение нужно, потому что message и handler result имеют разные lifecycle и разные требования к совместимости.
-
-## Async queue quick path
-
-Async queue нужна, когда handler не должен выполняться прямо в HTTP request или CLI command.
-
-Типичные причины:
-
-- работа долгая;
-- работу можно повторить при ошибке;
-- frontend должен получить id задачи и смотреть её состояние;
-- несколько handlers одного event-а должны выполняться независимо;
-- часть handlers должна выполняться сейчас, а часть позже worker-ом;
-- нужно ограничить concurrency через worker processes.
-
-В async режиме `publish()` не вызывает handler сразу. Он сериализует message в envelope, создаёт queue job и возвращает `PublishResult` с `queueMessageId`.
-
-Дальше отдельный worker читает queue job, восстанавливает envelope, находит handler по `bindingId` и выполняет его.
-
-Общий путь:
-
-```text
-producer process
-  -> $bus->publish($event)
-  -> MessageBus находит async bindings в registry
-  -> EnvelopeSerializer сериализует message
-  -> QueueProvider создаёт jobs в PostgreSQL
-  -> frontend получает queueMessageId
-
-worker process
-  -> MessageConsumer читает pending job
-  -> QueueWorker восстанавливает envelope
-  -> MessageBus выполняет конкретный binding
-  -> Queue storage ставит status succeeded, failed, pending retry или cancelled
-```
-
-### 1. Flows
-
-Flow отвечает за способ выполнения handler-а.
-
-В минимальной конфигурации обычно есть два flow:
-
-- `default` - sync flow, handler выполняется сразу.
-- `async` - async flow, handler кладётся в очередь.
-
-```php
-use Wolfcharaa\MessageBus\Flow\FlowDefinition;
-use Wolfcharaa\MessageBus\Flow\FlowRegistry;
-
-$flows = new FlowRegistry(
-    FlowDefinition::sync('default'),
-    FlowDefinition::async('async')->transport('postgres', 'default'),
-);
-```
-
-Что здесь происходит:
-
-- `FlowDefinition::sync('default')` создаёт обычный синхронный flow.
-- `FlowDefinition::async('async')` создаёт async flow.
-- `transport('postgres', 'default')` говорит, что async jobs надо писать в PostgreSQL transport и queue `default`.
-
-`transport` и `queue` нужны, чтобы later можно было разделить разные типы задач:
-
-```php
-FlowDefinition::async('emails')->transport('postgres', 'emails');
-FlowDefinition::async('reports')->transport('postgres', 'reports');
-FlowDefinition::async('crm')->transport('postgres', 'integrations');
-```
-
-### 2. Пометьте handler как async subscriber
-
-Async handler должен быть привязан к async flow:
-
-```php
-#[EventSubscriber(
-    message: UserCreatedEvent::class,
-    flow: 'async',
-    bindingId: 'user.created.send_welcome_email',
-)]
-final class SendWelcomeEmailAction
-{
-    public function __invoke(UserCreatedEvent $event, MessageContextInterface $context): void
-    {
-        // send email
-    }
-}
-```
-
-В этом примере:
-
-- `message` говорит, какой event слушает handler.
-- `flow: 'async'` говорит, что handler надо поставить в очередь.
-- `bindingId` говорит, какая именно подписка будет выполнена worker-ом.
-
-Если у event-а два async subscribers, `publish()` создаст две queue jobs:
-
-```php
-#[EventSubscriber(
-    message: UserCreatedEvent::class,
-    flow: 'async',
-    bindingId: 'user.created.send_welcome_email',
-)]
-final class SendWelcomeEmailAction {}
-
-#[EventSubscriber(
-    message: UserCreatedEvent::class,
-    flow: 'async',
-    bindingId: 'user.created.write_audit_log',
-)]
-final class WriteAuditLogAction {}
-```
-
-Это две независимые задачи. У каждой будет свой `queueMessageId`, свой retry lifecycle и свой status.
-
-### 3. Создайте PostgreSQL runtime
-
-`MessageBusRuntime::postgres()` собирает готовую инфраструктуру для producer и worker.
-
-```php
-use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
-
-$runtime = MessageBusRuntime::postgres(
-    pdo: $pdo,
-    registry: $registry,
-    container: $container,
-    flows: $flows,
-);
-
-$bus = $runtime->bus();
-```
-
-Что создаёт runtime:
-
-- `MessageBus` для `dispatch()` и `publish()`.
-- `PostgresQueueStorage` для записи и чтения queue jobs.
-- `PostgresQueueProvider` для producer-side enqueue.
-- `PostgresMessageConsumer` для worker-side чтения jobs.
-- `MessageBusQueueWorker` для выполнения handler-а из serialized envelope.
-- `QueueWorkerRunner` для worker loop.
-- `QueueStatusRepositoryInterface` для polling статусов.
-- `QueueJobControlInterface` для cancel/cancellation request.
-
-Producer обычно использует только:
-
-```php
-$bus = $runtime->bus();
-```
-
-Backend endpoint для polling может использовать:
-
-```php
-$statusRepository = $runtime->queueStatus();
-```
-
-Admin endpoint или cancel endpoint может использовать:
-
-```php
-$queueControl = $runtime->queueControl();
-```
-
-### 4. Создайте таблицы очереди и worker control
-
-Если нужен только queue storage:
-
-```bash
-vendor/bin/message-bus queue:schema:postgres --table=message_bus__queue_jobs
-```
-
-Если нужен полный PostgreSQL runtime с worker control/status:
-
-```bash
-vendor/bin/message-bus schema:postgres --with=all
-```
-
-Можно сразу записать SQL в файл миграции:
-
-```bash
-vendor/bin/message-bus schema:postgres \
-  --with=queue,worker-control \
-  --output=database/migrations/message_bus.sql
-```
-
-Таблица называется `message_bus__queue_jobs`, чтобы было явно видно, что она принадлежит message-bus. Двойное `__` оставляет удобный namespace для будущих таблиц библиотеки.
-
-Что хранится в queue job:
-
-- `id` - `queueMessageId`, внутренний id задачи.
-- `status` - `pending`, `running`, `succeeded`, `failed`, `cancelled`.
-- `message_id` - id исходного message envelope.
-- `correlation_id` - id всей цепочки сообщений.
-- `flow` - async flow, например `async`.
-- `binding_id` - конкретная подписка handler-а.
-- `transport` и `queue` - где задача должна исполняться.
-- `attempts` и `max_attempts` - retry state.
-- `available_at` - когда задача может быть взята worker-ом.
-- `serialized_envelope` - message, headers и metadata для восстановления handler execution.
-- `last_error` и `last_error_details` - последняя ошибка worker-а.
-
-### 5. Опубликуйте event
-
-Producer code:
-
-```php
-$result = $bus->publish(new UserCreatedEvent(10));
-
-foreach ($result->executions() as $execution) {
-    // $execution is PublishedExecution
-    // $execution->mode          queued
-    // $execution->queueMessageId id задачи в PostgreSQL
-    // $execution->messageId      id message envelope
-    // $execution->correlationId  id всей цепочки
-    // $execution->bindingId      какая подписка поставлена в очередь
-    // $execution->status         pending
-}
-```
-
-Пример ответа HTTP endpoint-а для frontend:
-
-```php
-$result = $bus->publish(new UserCreatedEvent($userId));
-
-return [
-    'tasks' => \array_map(
-        static fn ($execution): array => [
-            'queueMessageId' => $execution->queueMessageId,
-            'messageId' => $execution->messageId,
-            'correlationId' => $execution->correlationId,
-            'bindingId' => $execution->bindingId,
-            'status' => $execution->status?->value,
-        ],
-        $result->executions(),
-    ),
-];
-```
-
-Если event имеет два async subscribers, frontend получит два элемента в `tasks`.
-
-`publish()` возвращает `PublishResult`:
-
-```php
-$result->executions(); // successful sync executions or queued async executions
-$result->failures();   // failures collected during publish
-$result->hasFailures();
-$result->isEmpty();
-```
-
-Если enqueue одной из задач упал, будет выброшен `PublishFailed` с partial result. Это нужно, чтобы backend мог понять, какие задачи уже попали в очередь, а какие нет.
-
-### 6. Сделайте endpoint для polling статуса
-
-Frontend обычно получает `queueMessageId` после `publish()` и периодически спрашивает backend:
-
-```http
-GET /message-bus/tasks/{queueMessageId}
-```
-
-Backend endpoint:
-
-```php
-use Wolfcharaa\MessageBus\Queue\QueueJobState;
-
-$status = $runtime->queueStatus()?->get($queueMessageId);
-
-if ($status === null) {
-    return ['found' => false];
-}
-
-return [
-    'found' => true,
-    'queueMessageId' => $status->queueMessageId,
-    'status' => $status->status->value,
-    'messageId' => $status->messageId,
-    'correlationId' => $status->correlationId,
-    'flow' => $status->flow,
-    'bindingId' => $status->bindingId,
-    'transport' => $status->transport,
-    'queue' => $status->queue,
-    'attempts' => $status->attempts,
-    'maxAttempts' => $status->maxAttempts,
-    'availableAt' => $status->availableAt->format(DATE_ATOM),
-    'startedAt' => $status->startedAt?->format(DATE_ATOM),
-    'finishedAt' => $status->finishedAt?->format(DATE_ATOM),
-    'lastError' => $status->lastError,
-    'isFinished' => \in_array($status->status, [
-        QueueJobState::Succeeded,
-        QueueJobState::Failed,
-        QueueJobState::Cancelled,
-    ], true),
-];
-```
-
-Статусы:
-
-- `pending` - задача ждёт выполнения.
-- `running` - worker взял задачу и выполняет handler.
-- `succeeded` - handler успешно завершился.
-- `failed` - retry попытки закончились или задача была rejected.
-- `cancelled` - задача отменена.
-
-### 7. Сделайте cancel endpoint, если frontend должен уметь отменять задачи
-
-Для pending задачи можно отменить выполнение:
-
-```php
-$runtime->queueControl()?->cancel($queueMessageId);
-```
-
-Для running задачи можно запросить отмену:
-
-```php
-$runtime->queueControl()?->requestCancellation($queueMessageId);
-```
-
-Важно: `requestCancellation()` только ставит флаг. Длинный handler должен сам периодически проверять cancellation state через context.
-
-```php
-use Wolfcharaa\MessageBus\Context\CancellableMessageContextInterface;
-use Wolfcharaa\MessageBus\Context\HeartbeatAwareMessageContextInterface;
-
-public function __invoke(BuildReport $message, CancellableMessageContextInterface $context): void
-{
-    foreach ($this->builder->steps($message->reportId) as $step) {
-        if ($context instanceof HeartbeatAwareMessageContextInterface) {
-            $context->heartbeat();
-        }
-
-        $context->throwIfCancellationRequested();
-
-        $this->builder->runStep($step);
-    }
-}
-```
-
-`throwIfCancellationRequested()` выбрасывает cancellation exception. Встроенный runner поймает его и переведёт queue job в `cancelled`.
-
-### 8. Подготовьте bootstrap для worker
-
-Worker запускается отдельным процессом. Ему нужен bootstrap file, который возвращает runtime.
-
-Пример `config/message_bus_runtime.php`:
-
-```php
-<?php
-
-declare(strict_types=1);
-
-use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
-
-require dirname(__DIR__) . '/vendor/autoload.php';
-
-$container = require __DIR__ . '/container.php';
-$pdo = $container->get(PDO::class);
-$registry = $container->get(CompiledMessageRegistry::class);
-$flows = $container->get(FlowRegistry::class);
-
-return MessageBusRuntime::postgres(
-    pdo: $pdo,
-    registry: $registry,
-    container: $container,
-    flows: $flows,
-);
-```
-
-Bootstrap может вернуть:
-
-- `MessageBusRuntime` - полный runtime, лучший вариант для встроенного worker-а.
-- `QueueWorkerRunner` - если runner собран приложением вручную.
-- PSR-11 container - если в нём зарегистрирован `MessageBusInterface` и нужные queue services.
-
-### 9. Запустите worker
-
-Single-process mode:
-
-```bash
-vendor/bin/message-bus worker:run --bootstrap=config/message_bus_runtime.php
-```
-
-Полезные параметры:
-
-```bash
-vendor/bin/message-bus worker:run \
-  --bootstrap=config/message_bus_runtime.php \
-  --transport=postgres \
-  --queue=default \
-  --worker-name=emails-worker \
-  --worker-group=emails \
-  --max-messages=100 \
-  --stop-when-empty
-```
-
-Auto mode через `pcntl` master/child processes:
-
-```bash
-vendor/bin/message-bus worker:run \
-  --bootstrap=config/message_bus_runtime.php \
-  --mode=auto \
-  --workers=4 \
-  --worker-name=emails-worker \
-  --worker-group=emails
-```
-
-Что делает worker:
-
-- ищет `pending` job по `transport`, `queue` и `available_at`;
-- блокирует строку через PostgreSQL locking;
-- переводит job в `running`;
-- восстанавливает `SerializedEnvelope`;
-- по `bindingId` находит конкретный handler binding в registry;
-- получает handler из PSR-11 container;
-- выполняет handler через middleware pipeline;
-- ставит `succeeded`, если handler завершился без exception;
-- ставит `pending` с новым `available_at`, если нужна retry попытка;
-- ставит `failed`, если попытки закончились;
-- ставит heartbeat для контроля зависших worker-ов.
-
-В auto mode главный процесс создаёт child processes. Каждый child заново загружает bootstrap, поэтому database connection и container resources создаются внутри child process.
-
-Worker control команды работают через тот же bootstrap:
-
-```bash
-vendor/bin/message-bus worker:pause --bootstrap=config/message_bus_runtime.php --group=emails
-vendor/bin/message-bus worker:resume --bootstrap=config/message_bus_runtime.php --group=emails
-vendor/bin/message-bus worker:drain --bootstrap=config/message_bus_runtime.php --group=emails --reason="deploy"
-vendor/bin/message-bus worker:restart --bootstrap=config/message_bus_runtime.php --worker-name=emails-worker
-vendor/bin/message-bus worker:status --bootstrap=config/message_bus_runtime.php --children
-```
-
-### 10. Как MessageAlias и bindingId участвуют в async очереди
-
-`MessageAlias` сохраняется в serialized envelope как `message.name`. Он нужен, чтобы worker мог восстановить PHP class даже после refactoring-а class name.
-
-`bindingId` сохраняется в queue job отдельно. Он нужен, чтобы worker выполнил именно ту подписку, которая была поставлена в очередь.
-
-Пример:
-
-```text
-message.name = user.created
-binding_id = user.created.send_welcome_email
-```
-
-Это значит:
-
-- восстановить message class по alias `user.created`;
-- найти binding `user.created.send_welcome_email`;
-- вызвать handler, который привязан к этому binding.
-
-### 11. Как временно выполнить async синхронно
-
-Для debug/local разработки можно принудительно выполнить async bindings в текущем процессе:
-
-```bash
-MESSAGE_BUS_FORCE_SYNC=1
-```
-
-В этом режиме задачи не попадут в queue provider, а `PublishResult` будет содержать executions с sync mode. Это удобно для отладки handler-а без worker-а и PostgreSQL очереди.
-
-## Core concepts
-
-## Migration from v4 to v5
-
-v5 is a new major version and does not try to keep runtime/schema compatibility with v4.
-
-The main migration rule: do not run v4 producers/workers and v5 producers/workers against the same queue schema unless you own a custom compatibility layer. The built-in PostgreSQL schema should be treated as new v5 infrastructure.
-
-### What changed at a high level
-
-- PSR-11 container is now the explicit integration contract.
-- Zero-config/service-resolver style wiring should be replaced with real container registrations.
-- Message registry schema version is bumped to `5`.
-- Compiled registry cache generated by v4 must be rebuilt.
-- Async events require stable `MessageAlias`.
-- Async handlers require stable `bindingId`.
-- Queue storage uses the v5 `message_bus__...` table naming convention.
-- Queue job lifecycle now exposes status/polling/control use cases more explicitly.
-- Worker runtime includes `single` and `pcntl auto` execution paths.
-- Worker control plane adds pause/resume/drain/stop/kill/restart/status.
-- Handler context can support cooperative cancellation and heartbeat through `CancellableMessageContextInterface` and `HeartbeatAwareMessageContextInterface`.
-- Payload serialization is explicit: JSON by default, PHP serialize available for PHP-only payloads, custom serializer for protobuf/binary/custom encodings.
-
-### Required application changes
-
-1. Register a PSR-11 container.
-
-Every handler, middleware, context factory and strategy must be resolvable from the container.
-
-```php
-$container->set(CreateUserAction::class, fn () => new CreateUserAction($repository));
-$container->set(DefaultMessageContextFactory::class, fn () => new DefaultMessageContextFactory());
-$container->set(SequentialExecutionStrategy::class, fn () => new SequentialExecutionStrategy());
-```
-
-2. Recompile registry.
-
-Do not reuse v4 compiled registry cache. v5 uses schema version `5`.
-
-```php
-$definition = (new MessageRegistryCompiler())->compile(
-    new ClassListProvider($classes),
-    $flows,
-    '5.0.0',
-);
-```
-
-3. Create v5 PostgreSQL schema.
-
-For a fresh v5 installation:
-
-```bash
-vendor/bin/message-bus schema:postgres --with=all
-```
-
-This generates queue and worker-control tables:
-
-- `message_bus__queue_jobs`;
-- `message_bus__worker_commands`;
-- `message_bus__worker_desired_states`;
-- `message_bus__worker_instances`;
-- `message_bus__worker_child_instances`;
-- `message_bus__worker_command_acknowledgements`.
-
-For an existing v4 installation, the safest production path is:
-
-- stop or drain v4 producers;
-- let v4 workers finish old jobs;
-- archive or drop old queue tables according to your retention policy;
-- apply v5 schema;
-- deploy v5 producers and workers together;
-- recompile registry cache;
-- start v5 workers.
-
-If you need to preserve pending v4 jobs, write an application-level migration that converts old rows into v5 `SerializedEnvelope` and v5 `bindingId` semantics. The library intentionally does not provide an automatic v4-to-v5 data migration.
-
-4. Add aliases and binding ids for async work.
-
-```php
-#[MessageAlias('user.created')]
-final class UserCreatedEvent
-{
+    public function __construct(public readonly string $userId) {}
 }
 
 #[EventSubscriber(
@@ -1196,50 +330,44 @@ final class UserCreatedEvent
 )]
 final class SendWelcomeEmail
 {
-}
-```
-
-`MessageAlias` is the stable serialized name of the message. `bindingId` is the stable identity of the handler job. These values must survive PHP class renames.
-
-5. Decide payload serialization.
-
-Use JSON when jobs may be inspected or consumed outside PHP.
-
-Use `PhpSerializeMessageSerializer` when payloads are PHP-only and contain value objects that should not be flattened into JSON manually.
-
-Use a custom serializer for protobuf/binary formats and set a precise content type, for example `application/x-protobuf`.
-
-6. Update long-running handlers.
-
-For long jobs, use cooperative cancellation and heartbeat:
-
-```php
-use Wolfcharaa\MessageBus\Context\CancellableMessageContextInterface;
-use Wolfcharaa\MessageBus\Context\HeartbeatAwareMessageContextInterface;
-
-public function __invoke(BuildReport $message, CancellableMessageContextInterface $context): void
-{
-    foreach ($this->builder->steps($message->reportId) as $step) {
-        $context->throwIfCancellationRequested();
-
-        $this->builder->runStep($step);
-
-        if ($context instanceof HeartbeatAwareMessageContextInterface) {
-            $context->heartbeat();
-        }
+    public function __invoke(UserCreatedEvent $event): void
+    {
     }
 }
 ```
 
-7. Update worker deployment.
+`MessageAlias` нужен для стабильного serialized name сообщения. `bindingId` нужен для стабильной identity конкретной handler job в queue.
 
-Single worker:
+Подробности: [docs/guides/events.md](docs/guides/events.md).
+
+## Async queue и workers
+
+Встроенный PostgreSQL runtime закрывает producer, queue storage, consumer, worker и status/control repositories.
+
+```php
+use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
+
+$runtime = MessageBusRuntime::postgres(
+    pdo: $pdo,
+    registry: $registry,
+    container: $container,
+    flows: $flows,
+);
+```
+
+Создать schema:
+
+```bash
+vendor/bin/message-bus schema:postgres --with=all
+```
+
+Запустить single worker:
 
 ```bash
 vendor/bin/message-bus worker:run --bootstrap=config/message_bus_runtime.php
 ```
 
-Auto worker with child processes:
+Запустить auto worker с child processes:
 
 ```bash
 vendor/bin/message-bus worker:run \
@@ -1250,943 +378,79 @@ vendor/bin/message-bus worker:run \
   --worker-group=emails
 ```
 
-For supervisor/docker/systemd restart behavior, use `worker:restart`; the auto runner exits with the configured restart exit code after graceful drain.
-
-Это краткая сводка правил, по которым проектируется приложение на MessageBus.
-
-### Message
-
-Message описывает намерение или факт, но не содержит бизнес-логику.
-
-Правила:
-
-- Message должен быть небольшим immutable DTO.
-- Message не должен зависеть от container, database connection, logger или framework request.
-- Для JSON serializer payload должен состоять из `scalar`, `array`, `null` и простых DTO.
-- Для PHP-only payload можно использовать `PhpSerializeMessageSerializer`.
-- Для binary/custom payload можно использовать custom serializer и `payloadEncoding: base64`.
-
-Практический смысл: message должен быть безопасно передаваем между process boundary, HTTP request, CLI command и worker.
-
-### Handler binding
-
-Binding - это связь message с конкретным handler method.
-
-Binding отвечает за:
-
-- message class;
-- handler class;
-- handler method;
-- flow;
-- `bindingId`;
-- primary flag для command/query;
-- middleware;
-- retry/cache metadata.
-
-Для sync command/query binding может быть почти невидимым. Для async handler `bindingId` становится обязательной публичной идентичностью задачи.
-
-### Handler
-
-Handler выполняет бизнес-операцию.
-
-Обязательная форма:
-
-```php
-public function __invoke(Message $message, MessageContextInterface $context): mixed
-```
-
-Правила:
-
-- Handler должен быть service в PSR-11 container.
-- Handler dependencies передаются через constructor container-ом.
-- Handler method принимает только message и context.
-- Handler может вернуть result для command/query.
-- Event handler обычно возвращает `void`.
-- Handler может вызывать nested `dispatch()` или `publish()` через context.
-
-### Envelope
-
-Envelope - это message плюс metadata выполнения.
-
-Envelope содержит:
-
-- `messageId` - id конкретного message.
-- `correlationId` - id всей цепочки связанных сообщений.
-- `causationId` - id message, который породил текущий message.
-- `flow` - выбранный execution flow.
-- `bindingId` - конкретный handler binding.
-- `createdAt` - время создания envelope.
-- `headers` - application metadata.
-
-Практический смысл:
-
-- `messageId` нужен для точечной диагностики.
-- `correlationId` связывает request, nested dispatch, events и queue jobs.
-- `causationId` показывает причинно-следственную связь.
-- `headers` позволяют передать tenant, locale, auth subject id, cache hints или tracing metadata.
-
-### Flow
-
-Flow определяет не “что выполнить”, а “как выполнить”.
-
-Flow управляет:
-
-- sync или async режимом;
-- context interface и context factory;
-- execution strategy;
-- middleware chain;
-- transport и queue для async;
-- delivery options.
-
-Рекомендация:
-
-- `default` держать sync flow для command/query.
-- Для разных классов async нагрузки заводить отдельные flows: `emails`, `reports`, `integrations`.
-- Не смешивать долгие heavy jobs и быстрые notification jobs в одной queue, если им нужны разные worker limits.
-
-### Registry
-
-Registry - это compiled metadata графа сообщений и handlers.
-
-Registry не создаёт services и не заменяет container. Он отвечает только на вопросы:
-
-- какие bindings есть у message;
-- какой binding является primary;
-- какой alias соответствует message class;
-- какой class соответствует alias;
-- какие flows и middleware участвуют в выполнении.
-
-Production правило: registry лучше компилировать заранее и грузить из PHP-файла.
-
-```php
-(new CompiledRegistryFileWriter())->write(
-    $definition,
-    __DIR__ . '/var/cache/message_bus_registry.php',
-);
-
-$registry = CompiledMessageRegistry::fromFile(__DIR__ . '/var/cache/message_bus_registry.php');
-```
-
-Если нужно dev/prod поведение в одном месте, используйте `RegistryRuntimeLoader`.
-
-### Serialization
-
-Serialization используется там, где message/result пересекает boundary:
-
-- async queue;
-- cache result;
-- внешние producers/consumers;
-- long-running worker после deploy-а.
-
-Built-in serializers:
-
-- `JsonMessageSerializer` - дефолт для переносимого JSON payload.
-- `PhpSerializeMessageSerializer` - PHP-only message payload.
-- `JsonResultSerializer` - дефолт для cache result.
-- `PhpSerializeResultSerializer` - PHP-only cache result.
-
-Правило выбора:
-
-- Если payload должен быть понятен не только PHP, используйте JSON или custom serializer.
-- Если payload строго внутри PHP приложения и содержит value objects, можно использовать PHP serialize.
-- Если payload binary, храните его как base64 и задавайте свой `contentType`.
-
-### PublishResult
-
-`dispatch()` возвращает business result одного primary sync handler-а.
-
-`publish()` возвращает технический результат публикации:
-
-- какие bindings выполнены sync;
-- какие bindings поставлены в очередь;
-- какие enqueue/execution failures произошли;
-- какие `queueMessageId` можно вернуть frontend.
-
-Для event fan-out это принципиально: один event может породить несколько независимых executions.
-
-### Queue lifecycle
-
-Async queue job проходит состояния:
-
-- `pending` - ждёт worker-а.
-- `running` - выполняется worker-ом.
-- `succeeded` - успешно выполнена.
-- `failed` - завершилась ошибкой без дальнейших retry.
-- `cancelled` - отменена.
-
-Retry работает на уровне конкретного queue job и конкретного `bindingId`. Если один subscriber упал, это не означает, что остальные subscribers того же event-а тоже упали.
-
-### Debug force sync
-
-Для local/debug можно выполнить async bindings синхронно:
-
-```bash
-MESSAGE_BUS_FORCE_SYNC=1
-```
-
-Это не production mode. Он нужен, чтобы проверить handler logic без worker-а и очереди.
-
-## Container contract
-
-`MessageBus` использует PSR-11 container для:
-
-- handlers/actions;
-- middleware;
-- context factories;
-- execution strategies;
-- optional infrastructure fallback.
-
-Явные constructor arguments имеют приоритет над container services.
-
-Fallback lookup order:
-
-| Role | FQCN/interface id | Alias |
-| --- | --- | --- |
-| Queue provider | `QueueProviderInterface::class` | `message_bus.queue_provider` |
-| Envelope serializer | `EnvelopeSerializerInterface::class` | `message_bus.envelope_serializer` |
-| Invoker | `CallableInvokerInterface::class` | `message_bus.invoker` |
-| Message id generator | `MessageIdGenerator::class` | `message_bus.message_id_generator` |
-| Clock | `ClockInterface::class` | `message_bus.clock` |
-| Retry policy registry | `RetryPolicyRegistryInterface::class` | `message_bus.retry_policy_registry` |
-
-Container lookup errors:
-
-- `ContainerServiceNotFound`
-- `ContainerServiceInvalid`
-
-Сообщения содержат service ids, role, bindingId, flow и expected type, если они применимы.
-
-## Queue and worker
-
-Этот раздел описывает queue contracts. Он нужен, если вы используете встроенный PostgreSQL adapter глубже, пишете свой transport adapter или интегрируете библиотеку с framework worker.
-
-Queue слой разделён на несколько ролей:
-
-- `QueueProviderInterface` - producer-side запись задач.
-- `MessageConsumerInterface` - worker-side чтение и lifecycle задач.
-- `QueueWorkerInterface` - выполнение одного serialized envelope.
-- `QueueWorkerRunner` - loop, который связывает consumer и worker.
-- `QueueStatusRepositoryInterface` - чтение статуса задач для API/polling.
-- `QueueJobControlInterface` - cancel/request cancellation/heartbeat/cancellation state.
-
-### Producer side: QueueProviderInterface
-
-Producer side используется внутри async execution strategy, когда `publish()` должен поставить handler в очередь.
-
-```php
-interface QueueProviderInterface
-{
-    public function enqueue(QueueMessage $message): QueueEnqueueResult;
-}
-```
-
-`QueueMessage` содержит уже подготовленную задачу:
-
-- `transport` - backend transport, например `postgres`.
-- `queue` - имя очереди внутри transport.
-- `envelope` - serialized message + metadata.
-- `messageId` - id исходного envelope.
-- `correlationId` - id всей цепочки.
-- `flow` - async flow.
-- `bindingId` - конкретный handler binding.
-- `availableAt` - когда задачу можно брать в работу.
-- `priority` - приоритет.
-- `retryPolicyKey` - имя retry policy.
-- `retryPolicySnapshot` - зафиксированные retry настройки на момент enqueue.
-
-Почему retry snapshot хранится в задаче: если policy изменится после enqueue, старая задача должна продолжить жить по правилам, которые были выбраны при публикации.
-
-`QueueEnqueueResult` возвращает:
-
-- `queueMessageId` - id задачи, который можно вернуть frontend.
-- `backendId` - id backend-а, если transport использует отдельный id.
-- `status` - обычно `pending`.
-- `createdAt` - время создания.
-- `metadata` - дополнительные данные adapter-а.
-
-### Batch producer: BatchQueueProviderInterface
-
-Если transport умеет пачечную запись, он может реализовать batch interface:
-
-```php
-interface BatchQueueProviderInterface extends QueueProviderInterface
-{
-    public function enqueueMany(iterable $messages): QueueBatchEnqueueResult;
-}
-```
-
-MessageBus использует batch provider для `publishMany()` и fan-out событий, где один publish может создать несколько queue jobs.
-
-Практическое правило: если backend поддерживает transaction/batch insert, adapter должен реализовать `BatchQueueProviderInterface`, чтобы не получать частично записанные fan-out задачи без явной ошибки.
-
-### Consumer side: MessageConsumerInterface
-
-Consumer side используется worker-ом. Он отвечает за то, чтобы безопасно взять задачу, изменить её status и не дать двум worker-ам выполнить одну строку одновременно.
-
-```php
-interface MessageConsumerInterface
-{
-    public function next(ConsumerOptions $options): ?ReceivedQueueMessage;
-    public function ack(ReceivedQueueMessage $message): void;
-    public function retry(ReceivedQueueMessage $message, Throwable $reason): void;
-    public function reject(ReceivedQueueMessage $message, Throwable $reason): void;
-    public function cancel(ReceivedQueueMessage $message, Throwable $reason): void;
-}
-```
-
-Методы lifecycle:
-
-- `next()` - найти и заблокировать следующую задачу.
-- `ack()` - подтвердить успешное выполнение и поставить `succeeded`.
-- `retry()` - вернуть задачу в `pending` с новым `availableAt`.
-- `reject()` - завершить задачу как `failed`.
-- `cancel()` - завершить задачу как `cancelled`.
-
-`ReceivedQueueMessage` содержит:
-
-- `queueMessageId` - id задачи в queue storage.
-- `message` - исходный `QueueMessage`.
-- `attempts` - сколько попыток уже было сделано.
-- `raw` - adapter-specific row/message, если нужен низкоуровневый доступ.
-
-### ConsumerOptions
-
-Worker передаёт consumer-у фильтры и limits:
-
-```php
-new ConsumerOptions(
-    transport: 'postgres',
-    queue: 'default',
-    timeoutSeconds: 5,
-    limit: 1,
-    workerId: 'message-bus-worker-1',
-    lockTtlSeconds: 300,
-    flows: [],
-    bindingIds: [],
-    bindingPatterns: [],
-);
-```
-
-Поля:
-
-- `transport` и `queue` выбирают очередь.
-- `timeoutSeconds` задаёт ожидание задачи, если adapter это поддерживает.
-- `limit` задаёт максимум задач за один read cycle.
-- `workerId` сохраняется в storage для диагностики.
-- `lockTtlSeconds` нужен для восстановления зависших `running` задач.
-- `flows` ограничивает worker конкретными flows.
-- `bindingIds` ограничивает worker конкретными bindings.
-- `bindingPatterns` позволяет запускать worker по маске binding id.
-
-Примеры:
-
-```php
-// Worker только для email задач.
-new ConsumerOptions(
-    transport: 'postgres',
-    queue: 'default',
-    bindingPatterns: ['*.send_email', '*.send_welcome_email'],
-);
-```
-
-```php
-// Worker только для одного heavy binding.
-new ConsumerOptions(
-    transport: 'postgres',
-    queue: 'reports',
-    bindingIds: ['report.requested.build_pdf'],
-);
-```
-
-### QueueWorkerInterface
-
-Worker получает не PHP message object, а `SerializedEnvelope`.
-
-```php
-$worker->handle($serializedEnvelope);
-```
-
-Встроенный `MessageBusQueueWorker` делает:
-
-- десериализует message через `EnvelopeSerializerInterface`;
-- восстанавливает envelope metadata;
-- находит binding по `bindingId`;
-- запускает handler через MessageBus pipeline;
-- возвращает result или выбрасывает exception.
-
-Если lifecycle уже управляется внешним framework worker, можно использовать только `QueueWorkerInterface` и отдать ему serialized envelope из своего queue backend.
-
-### QueueWorkerRunner
-
-`QueueWorkerRunner` - это готовый loop:
-
-```php
-$result = $runner->run(
-    new ConsumerOptions('postgres', 'default'),
-    new QueueWorkerRunnerOptions(
-        maxMessages: 100,
-        maxRuntimeSeconds: 300,
-        idleTimeoutSeconds: 30,
-        stopWhenEmpty: false,
-        memoryLimitBytes: 256 * 1024 * 1024,
-    ),
-);
-```
-
-Runner делает:
-
-- вызывает `consumer->next()`;
-- создаёт scoped runtime control для текущего queue job, если runner получил `QueueJobControlInterface`;
-- передаёт envelope в `worker->handle()`;
-- вызывает `ack()` при успехе;
-- вызывает `retry()` при retryable exception;
-- вызывает `reject()` при non-retryable exception или исчерпании попыток;
-- вызывает `cancel()` при cancellation exception;
-- останавливается по limits, signal provider, idle timeout или memory limit.
-
-`QueueWorkerRunResult` возвращает counters:
-
-- `handled`;
-- `succeeded`;
-- `retried`;
-- `rejected`;
-- `cancelled`.
-
-### Retry behavior
-
-Retry решение принимает runner:
-
-- если handler завершился успешно, вызывается `ack()`;
-- если exception реализует `NonRetryableMessageExceptionInterface`, вызывается `reject()`;
-- если попытки закончились, вызывается `reject()`;
-- иначе вызывается `retry()`;
-- если exception реализует `MessageCancellationExceptionInterface`, вызывается `cancel()`.
-
-Retry delay рассчитывает queue storage/adapter на основе `RetryPolicySnapshot`.
-
-Default snapshot:
-
-- max attempts: `3`;
-- strategy: `exponential`;
-- initial delay: `30` seconds;
-- multiplier: `2.0`;
-- max delay: `300` seconds.
-
-### Status and polling
-
-Для frontend/API polling используется `QueueStatusRepositoryInterface`:
-
-```php
-interface QueueStatusRepositoryInterface
-{
-    public function get(string $queueMessageId): ?QueueJobStatus;
-    public function listByMessageId(string $messageId): array;
-    public function listByCorrelationId(string $correlationId): array;
-}
-```
-
-Использование:
-
-```php
-$status = $runtime->queueStatus()?->get($queueMessageId);
-```
-
-`listByCorrelationId()` полезен, когда один пользовательский request породил несколько events и несколько queue jobs. Так можно показать frontend общий progress всей цепочки.
-
-### Job control
-
-Для управления задачами используется `QueueJobControlInterface`:
-
-```php
-interface QueueJobControlInterface
-{
-    public function cancel(string $queueMessageId): void;
-    public function requestCancellation(string $queueMessageId): void;
-    public function heartbeat(string $queueMessageId): void;
-    public function isCancellationRequested(string $queueMessageId): bool;
-}
-```
-
-Разница:
-
-- `cancel()` отменяет pending задачу.
-- `requestCancellation()` просит running задачу остановиться.
-- `heartbeat()` обновляет признак живого выполнения задачи.
-- `isCancellationRequested()` возвращает флаг cooperative cancellation для handler context.
-
-Running handler не прерывается магически. Если нужна cooperative cancellation, handler должен периодически проверять флаг отмены через `CancellableMessageContextInterface`.
-
-```php
-use Wolfcharaa\MessageBus\Context\CancellableMessageContextInterface;
-use Wolfcharaa\MessageBus\Context\HeartbeatAwareMessageContextInterface;
-
-public function __invoke(LongImport $message, CancellableMessageContextInterface $context): void
-{
-    foreach ($this->reader->chunks($message->file) as $chunk) {
-        $context->throwIfCancellationRequested();
-
-        $this->importer->import($chunk);
-
-        if ($context instanceof HeartbeatAwareMessageContextInterface) {
-            $context->heartbeat();
-        }
-    }
-}
-```
-
-Встроенный `DefaultMessageContext` реализует оба интерфейса. Вне worker-а `isCancellationRequested()` вернёт `false`, а `heartbeat()` будет no-op. Внутри worker-а runner прокидывает scoped control текущей queue job.
-
-### PostgreSQL adapter
-
-Встроенный PostgreSQL adapter закрывает полный lifecycle:
-
-- enqueue;
-- batch enqueue;
-- next with locking;
-- ack;
-- retry;
-- reject;
-- cancel;
-- heartbeat;
-- stale running recovery;
-- status polling;
-- cancellation request.
-
-PostgreSQL storage использует `FOR UPDATE SKIP LOCKED`, чтобы несколько worker-ов могли безопасно читать одну таблицу без выполнения одной задачи дважды.
-
-### Когда писать свой queue adapter
-
-Свой adapter нужен, если вы хотите использовать:
-
-- RabbitMQ;
-- Redis streams;
-- SQS;
-- Kafka;
-- framework queue;
-- существующую таблицу задач приложения.
-
-Минимум для producer-only adapter:
-
-- реализовать `QueueProviderInterface`;
-- сохранить `SerializedEnvelope`;
-- вернуть стабильный `queueMessageId`.
-
-Минимум для полноценного worker adapter:
-
-- реализовать `MessageConsumerInterface`;
-- обеспечить exclusive claim задачи в `next()`;
-- корректно реализовать `ack/retry/reject/cancel`;
-- хранить attempts/max attempts или совместимый retry state;
-- вернуть `ReceivedQueueMessage` с исходным `QueueMessage`.
-
-Если нужен polling frontend-а, добавьте `QueueStatusRepositoryInterface`. Если нужна отмена задач, добавьте `QueueJobControlInterface`.
-
-Для полноценного cooperative cancellation adapter должен реализовать все методы `QueueJobControlInterface`: отмену pending задач, запрос отмены running задач, heartbeat running job и чтение cancellation flag.
+Подробности: [docs/guides/async-queue.md](docs/guides/async-queue.md) и [docs/reference/queue-and-worker.md](docs/reference/queue-and-worker.md).
 
 ## Worker control plane
 
 Worker control plane нужен для эксплуатации long-running workers.
 
-Он отвечает не за выполнение бизнес-handler-а, а за управление worker runtime:
-
-- показать живые master/child processes;
-- поставить worker pool на pause;
-- вернуть worker pool через resume;
-- сделать graceful drain перед deploy;
-- остановить workers;
-- force kill зависшие child processes;
-- graceful restart через exit code для supervisor/docker/systemd;
-- показать audit команд управления;
-- показать acknowledgements, какие worker-ы применили command.
-
-### Архитектура
-
-Control plane имеет несколько входов:
-
-- CLI command;
-- HTTP controller;
-- admin UI action;
-- framework console command;
-- maintenance script.
-
-Все входы должны использовать один service:
-
-```php
-use Wolfcharaa\MessageBus\Worker\WorkerControlServiceInterface;
-use Wolfcharaa\MessageBus\Worker\WorkerTarget;
-
-$control->pause(new WorkerTarget(workerGroup: 'emails'), reason: 'maintenance');
-$control->drain(new WorkerTarget(workerGroup: 'reports'), reason: 'deploy');
-$control->restart(new WorkerTarget(workerName: 'emails-worker'), reason: 'config reload');
-```
-
-CLI является thin wrapper над этим service.
-
-### PostgreSQL tables
-
-Worker control PostgreSQL schema состоит из пяти таблиц:
-
-- `message_bus__worker_commands` - append-only command log.
-- `message_bus__worker_desired_states` - active desired state для `pause/resume`.
-- `message_bus__worker_instances` - materialized state master worker-ов.
-- `message_bus__worker_child_instances` - materialized state child processes.
-- `message_bus__worker_command_acknowledgements` - какой worker применил какую command.
-
-Сгенерировать только worker control schema:
+Самые частые команды:
 
 ```bash
-vendor/bin/message-bus worker:schema:postgres
+vendor/bin/message-bus worker:status --bootstrap=config/message_bus_runtime.php --children
+vendor/bin/message-bus worker:pause --bootstrap=config/message_bus_runtime.php --group=emails --reason="maintenance"
+vendor/bin/message-bus worker:resume --bootstrap=config/message_bus_runtime.php --group=emails
+vendor/bin/message-bus worker:drain --bootstrap=config/message_bus_runtime.php --group=emails --reason="deploy"
+vendor/bin/message-bus worker:restart --bootstrap=config/message_bus_runtime.php --worker-name=emails-worker --reason="config reload"
+vendor/bin/message-bus worker:kill --bootstrap=config/message_bus_runtime.php --worker-instance-id=emails-app-01-1 --reason="stuck child"
 ```
 
-Сгенерировать все таблицы библиотеки:
+Коротко:
 
-```bash
-vendor/bin/message-bus schema:postgres --with=all
-```
+- `status` - посмотреть живые workers и children;
+- `pause` - временно не брать новые jobs;
+- `resume` - вернуть paused workers в работу;
+- `drain` - перестать брать jobs, дождаться running children и выйти;
+- `stop` - штатно остановить worker;
+- `kill` - аварийно завершить children через signals;
+- `restart` - graceful drain и exit code для supervisor/docker/systemd.
 
-### Worker identity
+Подробности и сценарии: [docs/reference/worker-control-plane.md](docs/reference/worker-control-plane.md).
 
-Worker instance имеет identity:
+## Payload serialization
 
-- `workerName` - человекочитаемое имя worker-а.
-- `workerInstanceId` - уникальный id конкретного запуска.
-- `workerGroup` - pool/group.
-- `host` - host/container.
-- `pid` - PID master process.
-- `mode` - `single` или `auto`.
-- `transport` и `queue`.
-- `flows`, `bindingIds`, `bindingPatterns`.
+По умолчанию используется JSON payload. Для PHP-only проектов можно использовать PHP serialize. Для protobuf/binary форматов используйте custom serializer с явным `contentType`.
 
-CLI пример:
+Подробности: [docs/guides/payload-serialization.md](docs/guides/payload-serialization.md).
 
-```bash
-vendor/bin/message-bus worker:run \
-  --bootstrap=config/message_bus_runtime.php \
-  --mode=auto \
-  --workers=4 \
-  --worker-name=emails-worker \
-  --worker-group=emails \
-  --worker-instance-id=emails-app-01-1 \
-  --host=app-01
-```
+## Миграция с v4 на v5
 
-Если `worker-instance-id` не передан, auto runner генерирует его сам.
+v5 не сохраняет совместимость registry/schema с v4.
 
-### Targeting
+Минимальный safe path:
 
-Control commands поддерживают фильтры:
+- остановить или drain-нуть v4 producers/workers;
+- дать v4 workers завершить старые jobs;
+- применить v5 schema;
+- пересобрать compiled registry cache;
+- задеплоить v5 producers/workers вместе;
+- запустить v5 workers.
 
-- `--worker-id`;
-- `--worker-name`;
-- `--worker-instance-id`;
-- `--group`;
-- `--transport`;
-- `--queue`;
-- `--flow`;
-- `--binding-id`;
-- `--binding-pattern`;
-- `--mode`;
-- `--host`;
-- `--all`.
-
-Global command требует явный `--all`.
-
-Примеры:
-
-```bash
-vendor/bin/message-bus worker:pause --bootstrap=config/message_bus_runtime.php --group=emails
-vendor/bin/message-bus worker:drain --bootstrap=config/message_bus_runtime.php --queue=reports
-vendor/bin/message-bus worker:stop --bootstrap=config/message_bus_runtime.php --worker-instance-id=emails-app-01-1
-vendor/bin/message-bus worker:kill --bootstrap=config/message_bus_runtime.php --all
-```
-
-### Commands
-
-Команды:
-
-- `pause` - master перестаёт брать новые задачи, running children продолжают работу.
-- `resume` - master снова берёт задачи.
-- `drain` - master перестаёт брать новые задачи, ждёт running children и завершает работу.
-- `stop` - graceful stop.
-- `kill` - master отправляет `SIGTERM` children, ждёт timeout и затем `SIGKILL`.
-- `restart` - graceful drain и exit с restart exit code.
-
-### Handler context внутри worker-а
-
-Во время выполнения queue job runner создаёт scoped `WorkerRuntimeControlInterface` для текущей задачи.
-
-Default context использует этот control и даёт handler-ам два дополнительных контракта:
-
-- `CancellableMessageContextInterface` - проверить или выбросить отмену.
-- `HeartbeatAwareMessageContextInterface` - явно обновить heartbeat долгой операции.
-
-```php
-use Wolfcharaa\MessageBus\Context\CancellableMessageContextInterface;
-use Wolfcharaa\MessageBus\Context\HeartbeatAwareMessageContextInterface;
-
-final class GenerateReportHandler
-{
-    public function __invoke(GenerateReport $message, CancellableMessageContextInterface $context): void
-    {
-        foreach ($this->generator->pages($message->reportId) as $page) {
-            $context->throwIfCancellationRequested();
-
-            $this->renderer->render($page);
-
-            if ($context instanceof HeartbeatAwareMessageContextInterface) {
-                $context->heartbeat();
-            }
-        }
-    }
-}
-```
-
-Что происходит под капотом:
-
-- `QueueWorkerRunner` создаёт control для текущего `queueMessageId`.
-- `PcntlAutoWorkerRunner` создаёт control для `queueMessageId` и `childInstanceId`.
-- `MessageBus` передаёт этот control в `MessageContextFactoryInterface`.
-- `DefaultMessageContext` вызывает `QueueJobControlInterface::isCancellationRequested()`.
-- `DefaultMessageContext::heartbeat()` обновляет queue heartbeat и, в auto mode, child heartbeat.
-
-Если вы пишете custom context factory, передайте четвёртый аргумент `?WorkerRuntimeControlInterface` в свой context или используйте его внутри factory.
-
-Friendly CLI:
-
-```bash
-vendor/bin/message-bus worker:pause --group=emails
-vendor/bin/message-bus worker:resume --group=emails
-vendor/bin/message-bus worker:drain --group=emails
-vendor/bin/message-bus worker:stop --group=emails
-vendor/bin/message-bus worker:kill --worker-instance-id=...
-vendor/bin/message-bus worker:restart --worker-name=emails-worker
-```
-
-Universal CLI:
-
-```bash
-vendor/bin/message-bus worker:control \
-  --command=restart \
-  --group=emails \
-  --created-by=root \
-  --source=cli \
-  --reason=\"deploy\"
-```
-
-### Status
-
-```bash
-vendor/bin/message-bus worker:status --bootstrap=config/message_bus_runtime.php
-vendor/bin/message-bus worker:status --bootstrap=config/message_bus_runtime.php --group=emails --children
-```
-
-Status показывает:
-
-- worker instance id;
-- name/group/host/pid;
-- mode;
-- lifecycle state;
-- activity;
-- children count;
-- transport/queue;
-- heartbeat time.
-
-Child status показывает:
-
-- child instance id;
-- pid;
-- state;
-- queueMessageId;
-- messageId;
-- correlationId;
-- bindingId;
-- heartbeat time.
-
-### Pause/resume desired state
-
-`pause/resume` отличаются от one-shot commands.
-
-`pause` создаёт desired state для target-а. Новый worker при старте проверит desired states и сразу перейдёт в paused, если matching target.
-
-`resume` снимает или переопределяет pause по тем же targeting rules.
-
-Если несколько desired states подходят worker-у:
-
-- побеждает более конкретный target;
-- при одинаковой специфичности побеждает более свежий state;
-- `resume --override` может явно переопределить менее конкретный pause.
-
-### One-shot commands
-
-`drain`, `stop`, `kill`, `restart` являются one-shot commands.
-
-У них есть TTL через `expiresAt`. Если worker увидел команду слишком поздно, она не применяется.
-
-Default TTL:
-
-- `kill` - 60 секунд;
-- `drain`, `stop`, `restart` - 300 секунд.
-
-### Auto worker integration
-
-В `--mode=auto` master process:
-
-- регистрирует себя в worker registry;
-- пишет heartbeat;
-- читает control commands не чаще `--control-poll-interval`;
-- применяет desired pause/resume state;
-- регистрирует child при fork;
-- обновляет child lifecycle при reap;
-- heartbeat-ит children из master loop;
-- применяет `drain/stop/kill/restart`.
-
-Полезные параметры:
-
-```bash
-vendor/bin/message-bus worker:run \
-  --mode=auto \
-  --workers=4 \
-  --control-poll-interval=1000 \
-  --heartbeat-interval=1000 \
-  --force-kill-timeout=5 \
-  --restart-exit-code=75
-```
-
-`restart` не делает self-exec по умолчанию. Master завершает работу с restart exit code, а supervisor/docker/systemd/application wrapper должен поднять новый процесс.
-
-## Cache result
-
-Handler result можно кешировать через `#[CacheResult]` и `MessageCacheMiddleware`.
-
-```php
-#[CacheResult(ttlSeconds: 60, identityKey: 'user-report', varyHeaders: ['tenant'])]
-#[QueryHandler(message: BuildReportQuery::class, bindingId: 'report.build')]
-final class BuildReportHandler
-{
-    public function __invoke(BuildReportQuery $query, MessageContextInterface $context): ReportDto
-    {
-        // expensive query
-    }
-}
-```
-
-Подробный пример: [CacheResult middleware](docs/examples/07-cache-result.md).
-
-По умолчанию cache result использует JSON serializer. Для PHP-only result DTO можно подключить PHP serializer:
-
-```php
-use Wolfcharaa\MessageBus\Cache\PhpSerializeResultSerializer;
-use Wolfcharaa\MessageBus\Middleware\MessageCacheMiddleware;
-
-$middleware = new MessageCacheMiddleware(
-    cache: $cache,
-    policies: $policyRegistry,
-    serializer: new PhpSerializeResultSerializer(allowedClasses: true),
-);
-```
-
-Если надо не кешировать часть результатов, реализуйте `CacheResultPolicyInterface` и передайте его в middleware.
-
-## Logging middleware
-
-Core middleware пишет структурные события через PSR-3 logger и не логирует payload сообщения.
-
-```php
-use Wolfcharaa\MessageBus\Middleware\LoggingMiddleware;
-use Wolfcharaa\MessageBus\Middleware\LoggingMiddlewareMode;
-
-$middleware = new LoggingMiddleware(
-    logger: $logger,
-    mode: LoggingMiddlewareMode::FailuresOnly,
-);
-```
-
-Доступные режимы:
-
-- `FailuresOnly` - только ошибки, режим по умолчанию.
-- `StartedAndFailed` - старт и ошибки.
-- `StartedFinishedAndFailed` - старт, успешное завершение и ошибки.
+Подробная инструкция: [docs/migration/v4-to-v5.md](docs/migration/v4-to-v5.md).
 
 ## Framework integration
 
-### Generic PSR-11
+Библиотека не навязывает framework. Основной контракт - PSR-11 container.
 
-```php
-$container->set(MessageBusInterface::class, fn (ContainerInterface $c) => new MessageBus(
-    registry: $c->get(CompiledMessageRegistry::class),
-    flows: $c->get(FlowRegistry::class),
-    container: $c,
-));
-```
+Подключение для Generic PSR-11, Symfony, Laravel, Spiral и Yii3 вынесено в [docs/guides/framework-integration.md](docs/guides/framework-integration.md).
 
-Полный пример: [Generic PSR-11](docs/examples/frameworks/generic-psr11.md).
+## Документация по разделам
 
-### Symfony
-
-```php
-$services->set(MessageBusInterface::class, MessageBus::class)
-    ->arg('$registry', service(CompiledMessageRegistry::class))
-    ->arg('$flows', service(FlowRegistry::class))
-    ->arg('$container', service('service_container'));
-```
-
-Полный пример: [Symfony DI](docs/examples/frameworks/symfony-di.md).
-
-### Laravel
-
-```php
-$this->app->singleton(MessageBusInterface::class, fn ($app) => new MessageBus(
-    registry: $app->make(CompiledMessageRegistry::class),
-    flows: $app->make(FlowRegistry::class),
-    container: $app,
-));
-```
-
-Полный пример: [Laravel](docs/examples/frameworks/laravel.md).
-
-### Spiral
-
-```php
-$container->bindSingleton(MessageBusInterface::class, fn (Container $container) => new MessageBus(
-    registry: $container->get(CompiledMessageRegistry::class),
-    flows: $container->get(FlowRegistry::class),
-    container: $container,
-));
-```
-
-Полный пример: [Spiral](docs/examples/frameworks/spiral.md).
-
-### Yii3
-
-```php
-MessageBusInterface::class => static fn (ContainerInterface $container) => new MessageBus(
-    registry: $container->get(CompiledMessageRegistry::class),
-    flows: $container->get(FlowRegistry::class),
-    container: $container,
-),
-```
-
-Полный пример: [Yii3](docs/examples/frameworks/yii3.md).
-
-## Examples index
-
-- [Sync command/query](docs/examples/01-basic-sync.md)
-- [Compiled registry for production](docs/examples/02-compiled-registry.md)
-- [Async queue and worker](docs/examples/03-async-queue-worker.md)
-- [Custom context](docs/examples/04-custom-context.md)
-- [Middleware](docs/examples/05-middleware.md)
-- [PostgreSQL runtime and CLI](docs/examples/06-postgres-runtime-cli.md)
-- [CacheResult middleware](docs/examples/07-cache-result.md)
-- [Generic PSR-11](docs/examples/frameworks/generic-psr11.md)
-- [Symfony DI](docs/examples/frameworks/symfony-di.md)
-- [Spiral](docs/examples/frameworks/spiral.md)
-- [Yii3](docs/examples/frameworks/yii3.md)
-- [Laravel](docs/examples/frameworks/laravel.md)
-- [Analytic report orchestration](docs/examples/analytic-report.md)
-- [Cake Queue worker adapter](docs/examples/cake-worker.md)
-- [Event fan-out and saga](docs/examples/event-fanout-saga.md)
-- [Multi-binding action](docs/examples/multi-binding-action.md)
-- [Migration v4 -> v5](docs/migration/v4-to-v5.md)
+| Раздел | Документ |
+| --- | --- |
+| Подробный быстрый старт | [docs/guides/quick-start.md](docs/guides/quick-start.md) |
+| События, `MessageAlias` и `bindingId` | [docs/guides/events.md](docs/guides/events.md) |
+| Async очередь и запуск worker-а | [docs/guides/async-queue.md](docs/guides/async-queue.md) |
+| Сериализация payload | [docs/guides/payload-serialization.md](docs/guides/payload-serialization.md) |
+| Миграция с v4 на v5 | [docs/migration/v4-to-v5.md](docs/migration/v4-to-v5.md) |
+| Основные концепции | [docs/reference/core-concepts.md](docs/reference/core-concepts.md) |
+| Контракт контейнера | [docs/reference/container-contract.md](docs/reference/container-contract.md) |
+| Контракты очереди и worker-а | [docs/reference/queue-and-worker.md](docs/reference/queue-and-worker.md) |
+| Управление worker-ами | [docs/reference/worker-control-plane.md](docs/reference/worker-control-plane.md) |
+| Кеширование результата | [docs/guides/cache-result.md](docs/guides/cache-result.md) |
+| Логирование через middleware | [docs/guides/logging.md](docs/guides/logging.md) |
+| Подключение к frameworks | [docs/guides/framework-integration.md](docs/guides/framework-integration.md) |
+| Готовые примеры | [docs/examples](docs/examples) |
 
 ## Tests
 
@@ -2194,11 +458,11 @@ MessageBusInterface::class => static fn (ContainerInterface $container) => new M
 composer test
 ```
 
-PostgreSQL integration tests are opt-in:
+PostgreSQL integration tests запускаются только при наличии DSN:
 
 ```bash
-MESSAGE_BUS_TEST_PGSQL_DSN='pgsql:host=127.0.0.1;port=55432;dbname=postgres' \
-MESSAGE_BUS_TEST_PGSQL_USER=postgres \
-MESSAGE_BUS_TEST_PGSQL_PASSWORD=postgres \
-vendor/bin/phpunit tests/PostgresQueueIntegrationTest.php
+MESSAGE_BUS_TEST_PGSQL_DSN='pgsql:host=127.0.0.1;port=5432;dbname=messagebus' \
+MESSAGE_BUS_TEST_PGSQL_USER='messagebus' \
+MESSAGE_BUS_TEST_PGSQL_PASSWORD='messagebus' \
+composer test
 ```
