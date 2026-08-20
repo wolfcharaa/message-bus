@@ -35,6 +35,8 @@ use Wolfcharaa\MessageBus\Exception\ContainerServiceInvalid;
 use Wolfcharaa\MessageBus\Exception\ContainerServiceNotFound;
 use Wolfcharaa\MessageBus\Serialization\JsonMessageSerializer;
 use Wolfcharaa\MessageBus\Serialization\MessageNameResolverInterface;
+use Wolfcharaa\MessageBus\Worker\DefaultWorkerControlService;
+use Wolfcharaa\MessageBus\Worker\Postgres\PostgresWorkerControlStorage;
 
 final class MessageBusRuntime
 {
@@ -46,6 +48,7 @@ final class MessageBusRuntime
         private readonly ?QueueWorkerInterface $worker = null,
         private readonly ?QueueStatusRepositoryInterface $queueStatus = null,
         private readonly ?QueueJobControlInterface $queueControl = null,
+        private readonly ?WorkerControlRuntime $workerControlRuntime = null,
     ) {
     }
 
@@ -84,6 +87,11 @@ final class MessageBusRuntime
         return $this->queueControl;
     }
 
+    public function workerControlRuntime(): ?WorkerControlRuntime
+    {
+        return $this->workerControlRuntime;
+    }
+
     public static function fromContainer(ContainerInterface $container): self
     {
         return new self(
@@ -94,6 +102,7 @@ final class MessageBusRuntime
             self::optional($container, QueueWorkerInterface::class, 'message_bus.worker', QueueWorkerInterface::class, 'queue worker'),
             self::optional($container, QueueStatusRepositoryInterface::class, 'message_bus.queue_status', QueueStatusRepositoryInterface::class, 'queue status repository'),
             self::optional($container, QueueJobControlInterface::class, 'message_bus.queue_control', QueueJobControlInterface::class, 'queue job control'),
+            self::optional($container, WorkerControlRuntime::class, 'message_bus.worker_control_runtime', WorkerControlRuntime::class, 'worker control runtime'),
         );
     }
 
@@ -105,6 +114,7 @@ final class MessageBusRuntime
         string $tableName = 'message_bus__queue_jobs',
         ?EnvelopeSerializerInterface $envelopeSerializer = null,
         ?RetryPolicyRegistryInterface $retryPolicyRegistry = null,
+        ?WorkerControlRuntime $workerControlRuntime = null,
     ): self {
         $flows ??= new FlowRegistry(
             FlowDefinition::sync('default'),
@@ -114,6 +124,7 @@ final class MessageBusRuntime
         $storage = new PostgresQueueStorage($pdo, $tableName);
         $provider = new PostgresQueueProvider($storage);
         $consumer = new PostgresMessageConsumer($storage);
+        $workerControlRuntime ??= self::defaultPostgresWorkerControlRuntime($pdo);
         $envelopeSerializer ??= self::defaultEnvelopeSerializer($registry);
         $bus = new MessageBus(
             registry: $registry,
@@ -124,9 +135,9 @@ final class MessageBusRuntime
             retryPolicyRegistry: $retryPolicyRegistry,
         );
         $worker = new MessageBusQueueWorker($bus, $envelopeSerializer);
-        $runner = new QueueWorkerRunner($consumer, $worker);
+        $runner = new QueueWorkerRunner($consumer, $worker, queueControl: $storage);
 
-        return new self($bus, $runner, $provider, $consumer, $worker, $storage, $storage);
+        return new self($bus, $runner, $provider, $consumer, $worker, $storage, $storage, $workerControlRuntime);
     }
 
     public static function compileRuntimeRegistry(
@@ -147,6 +158,21 @@ final class MessageBusRuntime
         }
 
         return new DefaultEnvelopeSerializer(new JsonMessageSerializer($registry));
+    }
+
+    private static function defaultPostgresWorkerControlRuntime(PDO $pdo): WorkerControlRuntime
+    {
+        $storage = new PostgresWorkerControlStorage($pdo);
+        $service = new DefaultWorkerControlService($storage, $storage);
+
+        return new WorkerControlRuntime(
+            $service,
+            $storage,
+            $storage,
+            $storage,
+            $storage,
+            $storage,
+        );
     }
 
     private static function required(

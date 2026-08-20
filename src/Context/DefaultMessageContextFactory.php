@@ -7,6 +7,7 @@ namespace Wolfcharaa\MessageBus\Context;
 use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\MessageBusInterface;
+use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlInterface;
 
 final class DefaultMessageContextFactory implements MessageContextFactoryInterface
 {
@@ -14,7 +15,8 @@ final class DefaultMessageContextFactory implements MessageContextFactoryInterfa
         MessageBusInterface $messageBus,
         Envelope $envelope,
         FlowDefinition $flow,
+        ?WorkerRuntimeControlInterface $workerRuntimeControl = null,
     ): MessageContextInterface {
-        return new DefaultMessageContext($messageBus, $envelope);
+        return new DefaultMessageContext($messageBus, $envelope, $workerRuntimeControl);
     }
 }

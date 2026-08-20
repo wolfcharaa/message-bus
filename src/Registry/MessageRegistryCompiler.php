@@ -10,6 +10,8 @@ use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionUnionType;
 use Wolfcharaa\MessageBus\Attribute\MessageAlias;
+use Wolfcharaa\MessageBus\Context\DefaultMessageContext;
+use Wolfcharaa\MessageBus\Context\DefaultMessageContextFactory;
 use Wolfcharaa\MessageBus\Context\MessageContextFactoryInterface;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Discovery\AttributeHandlerDiscovery;
@@ -20,7 +22,7 @@ use Wolfcharaa\MessageBus\Middleware\PipelineInterface;
 
 final class MessageRegistryCompiler
 {
-    public const SCHEMA_VERSION = 4;
+    public const SCHEMA_VERSION = 5;
 
     public function __construct(private readonly AttributeHandlerDiscovery $discovery = new AttributeHandlerDiscovery())
     {
@@ -29,7 +31,7 @@ final class MessageRegistryCompiler
     public function compile(
         ClassProviderInterface $provider,
         ?FlowRegistry $flows = null,
-        string $libraryVersion = '4.0.0',
+        string $libraryVersion = '5.0.0',
         string $sourceHash = '',
     ): MessageRegistryDefinition {
         $flows ??= new FlowRegistry();
@@ -363,7 +365,7 @@ final class MessageRegistryCompiler
             ));
         }
 
-        if (!$this->parameterAccepts($params[1]->getType(), $flow->contextInterface)) {
+        if (!$this->contextParameterAccepts($params[1]->getType(), $flow)) {
             throw new RegistryCompilationException(\sprintf(
                 'Second argument of `%s::%s` must accept flow context `%s`.',
                 $binding->action,
@@ -391,7 +393,7 @@ final class MessageRegistryCompiler
             throw new RegistryCompilationException(\sprintf('Middleware `%s` must accept context and pipeline.', $middleware));
         }
 
-        if (!$this->parameterAccepts($params[0]->getType(), $flow->contextInterface)) {
+        if (!$this->contextParameterAccepts($params[0]->getType(), $flow)) {
             throw new RegistryCompilationException(\sprintf('Middleware `%s` context argument must accept `%s`.', $middleware, $flow->contextInterface));
         }
 
@@ -428,6 +430,16 @@ final class MessageRegistryCompiler
         }
 
         return false;
+    }
+
+    private function contextParameterAccepts(?\ReflectionType $type, FlowDefinition $flow): bool
+    {
+        if ($this->parameterAccepts($type, $flow->contextInterface)) {
+            return true;
+        }
+
+        return $flow->contextFactory === DefaultMessageContextFactory::class
+            && $this->parameterAccepts($type, DefaultMessageContext::class);
     }
 
     private function isVoid(?\ReflectionType $type): bool

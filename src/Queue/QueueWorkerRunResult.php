@@ -12,6 +12,7 @@ final class QueueWorkerRunResult
         public readonly int $retried = 0,
         public readonly int $rejected = 0,
         public readonly int $cancelled = 0,
+        public readonly ?int $exitCode = null,
     ) {
     }
 }

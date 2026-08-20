@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Flow;
 
 use BackedEnum;
+use Wolfcharaa\MessageBus\Context\DefaultMessageContext;
 use Wolfcharaa\MessageBus\Context\DefaultMessageContextFactory;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Execution\QueueExecutionStrategy;
@@ -62,7 +63,7 @@ final class FlowDefinition
             $this->key,
             $this->mode,
             $interface,
-            $factory ?? ($interface === MessageContextInterface::class ? DefaultMessageContextFactory::class : null),
+            $factory ?? (\is_a(DefaultMessageContext::class, $interface, true) ? DefaultMessageContextFactory::class : null),
             $this->strategy,
             $this->middleware,
             $this->transport,

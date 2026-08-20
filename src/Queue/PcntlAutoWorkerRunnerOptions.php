@@ -14,6 +14,14 @@ final class PcntlAutoWorkerRunnerOptions
         public readonly bool $stopWhenEmpty = false,
         public readonly int $sleepWhenIdleMilliseconds = 500,
         public readonly ?int $memoryLimitBytes = null,
+        public readonly ?string $workerName = null,
+        public readonly ?string $workerGroup = null,
+        public readonly ?string $workerInstanceId = null,
+        public readonly ?string $host = null,
+        public readonly int $controlPollIntervalMilliseconds = 1000,
+        public readonly int $heartbeatIntervalMilliseconds = 1000,
+        public readonly int $forceKillTimeoutSeconds = 5,
+        public readonly int $restartExitCode = 75,
     ) {
     }
 }

@@ -40,11 +40,14 @@ use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryInterface;
 use Wolfcharaa\MessageBus\Serialization\JsonMessageSerializer;
 use Wolfcharaa\MessageBus\Serialization\MessageNameResolverInterface;
+use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlInterface;
+use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlScope;
 
 final class MessageBus implements MessageBusInterface
 {
     private readonly EnvelopeFactory $envelopeFactory;
     private readonly ExecutionEnvironment $environment;
+    private readonly ?WorkerRuntimeControlInterface $workerRuntimeControl;
 
     public function __construct(
         private readonly MessageRegistryInterface $registry,
@@ -56,6 +59,7 @@ final class MessageBus implements MessageBusInterface
         ?MessageIdGenerator $messageIdGenerator = null,
         ?ClockInterface $clock = null,
         ?RetryPolicyRegistryInterface $retryPolicyRegistry = null,
+        ?WorkerRuntimeControlInterface $workerRuntimeControl = null,
     ) {
         $queueProvider ??= $this->optionalService(
             [QueueProviderInterface::class, 'message_bus.queue_provider'],
@@ -82,6 +86,11 @@ final class MessageBus implements MessageBusInterface
             'retry policy registry',
             RetryPolicyRegistryInterface::class,
         );
+        $workerRuntimeControl ??= $this->optionalService(
+            [WorkerRuntimeControlInterface::class, 'message_bus.worker_runtime_control'],
+            'worker runtime control',
+            WorkerRuntimeControlInterface::class,
+        );
 
         if ($envelopeSerializer === null) {
             $envelopeSerializer = $this->optionalService(
@@ -104,6 +113,7 @@ final class MessageBus implements MessageBusInterface
             $clock,
         );
         $this->environment = new ExecutionEnvironment($invoker, $envelopeSerializer, $clock, $queueProvider, $retryPolicyRegistry);
+        $this->workerRuntimeControl = $workerRuntimeControl;
     }
 
     public function dispatch(
@@ -453,7 +463,12 @@ final class MessageBus implements MessageBusInterface
             flow: $flow->key,
         );
 
-        $context = $factory->create($this, $envelope, $flow);
+        $context = $factory->create(
+            $this,
+            $envelope,
+            $flow,
+            WorkerRuntimeControlScope::current() ?? $this->workerRuntimeControl,
+        );
 
         if (!$context instanceof $flow->contextInterface) {
             throw new RuntimeException(\sprintf(

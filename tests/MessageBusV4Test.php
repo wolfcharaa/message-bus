@@ -627,7 +627,12 @@ final class TestMessageContext implements TestMessageContextInterface
 
 final class TestMessageContextFactory implements MessageContextFactoryInterface
 {
-    public function create(MessageBusInterface $bus, Envelope $envelope, FlowDefinition $flow): MessageContextInterface
+    public function create(
+        MessageBusInterface $bus,
+        Envelope $envelope,
+        FlowDefinition $flow,
+        ?\Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlInterface $workerRuntimeControl = null,
+    ): MessageContextInterface
     {
         return new TestMessageContext($bus, $envelope);
     }

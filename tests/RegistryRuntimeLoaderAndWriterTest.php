@@ -12,6 +12,7 @@ use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryDefinition;
+use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\RegistryRuntimeLoader;
 
 final class RegistryRuntimeLoaderAndWriterTest extends TestCase
@@ -67,7 +68,7 @@ final class RegistryRuntimeLoaderAndWriterTest extends TestCase
     private function definition(string $sourceHash): MessageRegistryDefinition
     {
         return new MessageRegistryDefinition(
-            4,
+            MessageRegistryCompiler::SCHEMA_VERSION,
             '5.0.0',
             '2026-08-20T10:00:00+00:00',
             $sourceHash,

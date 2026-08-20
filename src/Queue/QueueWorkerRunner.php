@@ -6,6 +6,9 @@ namespace Wolfcharaa\MessageBus\Queue;
 
 use Wolfcharaa\MessageBus\Exception\MessageCancellationExceptionInterface;
 use Wolfcharaa\MessageBus\Exception\NonRetryableMessageExceptionInterface;
+use Wolfcharaa\MessageBus\Worker\QueueJobWorkerRuntimeControl;
+use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlInterface;
+use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlScope;
 
 final class QueueWorkerRunner
 {
@@ -13,6 +16,7 @@ final class QueueWorkerRunner
         private readonly MessageConsumerInterface $consumer,
         private readonly QueueWorkerInterface $worker,
         private readonly StopSignalProviderInterface $stopSignalProvider = new NullStopSignalProvider(),
+        private readonly ?QueueJobControlInterface $queueControl = null,
     ) {
     }
 
@@ -44,7 +48,10 @@ final class QueueWorkerRunner
             ++$handled;
 
             try {
-                $this->worker->handle($message->message->envelope);
+                WorkerRuntimeControlScope::run(
+                    $this->runtimeControl($message),
+                    fn (): mixed => $this->worker->handle($message->message->envelope),
+                );
                 $this->consumer->ack($message);
                 ++$succeeded;
             } catch (\Throwable $e) {
@@ -96,5 +103,17 @@ final class QueueWorkerRunner
     private function shouldRetry(ReceivedQueueMessage $message): bool
     {
         return $message->attempts < $message->message->retryPolicySnapshot->maxAttempts;
+    }
+
+    private function runtimeControl(ReceivedQueueMessage $message): ?WorkerRuntimeControlInterface
+    {
+        if ($this->queueControl === null) {
+            return null;
+        }
+
+        return new QueueJobWorkerRuntimeControl(
+            queueMessageId: $message->queueMessageId,
+            queueControl: $this->queueControl,
+        );
     }
 }

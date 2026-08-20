@@ -19,10 +19,98 @@ use Wolfcharaa\MessageBus\Queue\QueueWorkerInterface;
 use Wolfcharaa\MessageBus\Queue\ReceivedQueueMessage;
 use Wolfcharaa\MessageBus\Queue\RetryPolicySnapshot;
 use Wolfcharaa\MessageBus\Serialization\SerializedMessage;
+use Wolfcharaa\MessageBus\Tests\Support\WorkerControlMemoryRuntime;
+use Wolfcharaa\MessageBus\Worker\WorkerChildState;
+use Wolfcharaa\MessageBus\Worker\WorkerControlAcknowledgementState;
+use Wolfcharaa\MessageBus\Worker\WorkerControlCommand;
+use Wolfcharaa\MessageBus\Worker\WorkerControlCommandType;
+use Wolfcharaa\MessageBus\Worker\WorkerLifecycleState;
+use Wolfcharaa\MessageBus\Worker\WorkerTarget;
 
 #[RequiresPhpExtension('pcntl')]
 final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
 {
+    public function testAutoRunnerAppliesStopCommandBeforeTakingNewMessages(): void
+    {
+        $control = new WorkerControlMemoryRuntime();
+        $now = new DateTimeImmutable('2026-08-20T10:00:00+00:00');
+        $control->commands[] = new WorkerControlCommand(
+            'command-stop',
+            WorkerControlCommandType::Stop,
+            WorkerTarget::all(),
+            $now,
+            expiresAt: $now->modify('+5 minutes'),
+        );
+        $parentConsumer = new PcntlAutoWorkerParentConsumer([
+            $this->received('success', attempts: 0, maxAttempts: 3),
+        ]);
+
+        $runner = new PcntlAutoWorkerRunner(
+            $parentConsumer,
+            new PcntlAutoWorkerChildWorker([]),
+            workerControlRuntime: $control->runtime(),
+        );
+
+        $result = $runner->run(
+            new ConsumerOptions('postgres', 'default'),
+            new PcntlAutoWorkerRunnerOptions(
+                stopWhenEmpty: true,
+                sleepWhenIdleMilliseconds: 1,
+                workerInstanceId: 'instance-stop',
+                controlPollIntervalMilliseconds: 1,
+                heartbeatIntervalMilliseconds: 1,
+            ),
+        );
+
+        self::assertSame(0, $result->handled);
+        self::assertSame(WorkerLifecycleState::Stopped, $control->workers['instance-stop']->state);
+        self::assertCount(1, $control->acknowledgements);
+        self::assertSame(WorkerControlAcknowledgementState::Applied, $control->acknowledgements[0]->state);
+    }
+
+    public function testAutoRunnerRegistersWorkerAndChildLifecycle(): void
+    {
+        $logFile = \tempnam(\sys_get_temp_dir(), 'message-bus-pcntl-control-');
+        self::assertIsString($logFile);
+        $control = new WorkerControlMemoryRuntime();
+
+        try {
+            $runner = new PcntlAutoWorkerRunner(
+                new PcntlAutoWorkerParentConsumer([
+                    $this->received('success', attempts: 0, maxAttempts: 3),
+                ]),
+                new PcntlAutoWorkerChildWorker([]),
+                childConsumerFactory: static fn (): PcntlAutoWorkerChildConsumer => new PcntlAutoWorkerChildConsumer($logFile),
+                childWorkerFactory: static fn (): PcntlAutoWorkerChildWorker => new PcntlAutoWorkerChildWorker([]),
+                workerControlRuntime: $control->runtime(),
+            );
+
+            $result = $runner->run(
+                new ConsumerOptions('postgres', 'default'),
+                new PcntlAutoWorkerRunnerOptions(
+                    maxWorkers: 1,
+                    maxMessages: 1,
+                    stopWhenEmpty: true,
+                    sleepWhenIdleMilliseconds: 1,
+                    workerInstanceId: 'instance-lifecycle',
+                    workerName: 'emails-worker',
+                    workerGroup: 'emails',
+                    controlPollIntervalMilliseconds: 1,
+                    heartbeatIntervalMilliseconds: 1,
+                ),
+            );
+
+            self::assertSame(1, $result->handled);
+            self::assertSame(1, $result->succeeded);
+            self::assertSame(WorkerLifecycleState::Stopped, $control->workers['instance-lifecycle']->state);
+            self::assertSame('emails-worker', $control->workers['instance-lifecycle']->identity->workerName);
+            self::assertCount(1, $control->children);
+            self::assertSame(WorkerChildState::Succeeded, \array_values($control->children)[0]->state);
+        } finally {
+            @\unlink($logFile);
+        }
+    }
+
     public function testAutoRunnerForksChildrenAndReportsAllOutcomes(): void
     {
         $logFile = \tempnam(\sys_get_temp_dir(), 'message-bus-pcntl-');

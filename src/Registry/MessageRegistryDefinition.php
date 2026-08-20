@@ -49,7 +49,7 @@ final class MessageRegistryDefinition
     /** @param array<string, mixed> $data */
     public static function fromArray(array $data): self
     {
-        if (($data['schemaVersion'] ?? null) !== 4) {
+        if (($data['schemaVersion'] ?? null) !== MessageRegistryCompiler::SCHEMA_VERSION) {
             throw new RegistryCompilationException('Unsupported message registry schema version.');
         }
 
