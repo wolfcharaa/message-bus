@@ -19,6 +19,8 @@ final class QueueMessage
         public readonly string $bindingId,
         public readonly DateTimeImmutable $availableAt,
         public readonly int $priority = 0,
+        public readonly string $retryPolicyKey = RetryPolicySnapshot::DEFAULT_KEY,
+        public readonly RetryPolicySnapshot $retryPolicySnapshot = new RetryPolicySnapshot(),
     ) {
     }
 }

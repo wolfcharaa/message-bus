@@ -14,4 +14,9 @@ final class FixedRetryDelayStrategy implements RetryDelayStrategy
     {
         return $this->delaySeconds;
     }
+
+    public function delaySecondsValue(): int
+    {
+        return $this->delaySeconds;
+    }
 }

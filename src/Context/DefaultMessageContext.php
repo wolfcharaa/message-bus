@@ -8,6 +8,7 @@ use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
 use Wolfcharaa\MessageBus\MessageBusInterface;
 use Wolfcharaa\MessageBus\PublishOptions;
+use Wolfcharaa\MessageBus\PublishResult;
 
 final class DefaultMessageContext implements MessageContextInterface
 {
@@ -32,8 +33,8 @@ final class DefaultMessageContext implements MessageContextInterface
         return $this->messageBus->dispatchAll($message, $options, $this->envelope);
     }
 
-    public function publish(object $message, PublishOptions $options = new PublishOptions()): void
+    public function publish(object $message, PublishOptions $options = new PublishOptions()): PublishResult
     {
-        $this->messageBus->publish($message, $options, $this->envelope);
+        return $this->messageBus->publish($message, $options, $this->envelope);
     }
 }

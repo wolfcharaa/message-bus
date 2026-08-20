@@ -7,6 +7,7 @@ namespace Wolfcharaa\MessageBus\Context;
 use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
 use Wolfcharaa\MessageBus\PublishOptions;
+use Wolfcharaa\MessageBus\PublishResult;
 
 interface MessageContextInterface
 {
@@ -16,5 +17,5 @@ interface MessageContextInterface
 
     public function dispatchAll(object $message, PublishOptions $options = new PublishOptions()): HandlerExecutionResultInterface;
 
-    public function publish(object $message, PublishOptions $options = new PublishOptions()): void;
+    public function publish(object $message, PublishOptions $options = new PublishOptions()): PublishResult;
 }

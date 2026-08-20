@@ -20,4 +20,19 @@ final class ExponentialRetryDelayStrategy implements RetryDelayStrategy
 
         return $this->maxDelaySeconds === null ? $delay : \min($delay, $this->maxDelaySeconds);
     }
+
+    public function initialDelaySeconds(): int
+    {
+        return $this->initialDelaySeconds;
+    }
+
+    public function multiplier(): float
+    {
+        return $this->multiplier;
+    }
+
+    public function maxDelaySeconds(): ?int
+    {
+        return $this->maxDelaySeconds;
+    }
 }

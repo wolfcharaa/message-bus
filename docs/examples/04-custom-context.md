@@ -27,6 +27,7 @@ use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
 use Wolfcharaa\MessageBus\MessageBusInterface;
 use Wolfcharaa\MessageBus\PublishOptions;
+use Wolfcharaa\MessageBus\PublishResult;
 
 final class ReportContext implements ReportContextInterface
 {
@@ -60,9 +61,9 @@ final class ReportContext implements ReportContextInterface
         return $this->inner->dispatchAll($message, $options);
     }
 
-    public function publish(object $message, PublishOptions $options = new PublishOptions()): void
+    public function publish(object $message, PublishOptions $options = new PublishOptions()): PublishResult
     {
-        $this->inner->publish($message, $options);
+        return $this->inner->publish($message, $options);
     }
 }
 ```
@@ -101,4 +102,3 @@ $flow = FlowDefinition::sync('reports')
 ```
 
 Handler этого flow может требовать `ReportContextInterface` вторым аргументом.
-

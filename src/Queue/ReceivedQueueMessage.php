@@ -9,6 +9,7 @@ final class ReceivedQueueMessage
     public function __construct(
         public readonly string $queueMessageId,
         public readonly QueueMessage $message,
+        public readonly int $attempts = 0,
         public readonly mixed $raw = null,
     ) {
     }

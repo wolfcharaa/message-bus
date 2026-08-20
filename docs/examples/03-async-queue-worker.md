@@ -48,7 +48,7 @@ use Wolfcharaa\MessageBus\Queue\QueueDeliveryOptions;
 $flows = new FlowRegistry(
     FlowDefinition::sync('default'),
     FlowDefinition::async('notifications')
-        ->transport('database', 'notifications')
+        ->transport('postgres', 'notifications')
         ->delivery(new QueueDeliveryOptions(priority: 5, retryPolicy: 'fast')),
 );
 ```
@@ -82,11 +82,11 @@ final class DatabaseQueueProvider implements QueueProviderInterface
 ## Publish
 
 ```php
-$bus->publish(new UserCreatedEvent(10));
+$result = $bus->publish(new UserCreatedEvent(10));
 ```
 
-`publish()` не возвращает бизнес-результат.
-Он только ставит async bindings в очередь.
+`publish()` не возвращает бизнес-результат handler-а.
+Он возвращает `PublishResult` со списком `PublishedExecution`, где queued execution содержит `queueMessageId` для polling.
 
 ## Worker
 
@@ -102,4 +102,3 @@ $worker->handle($serializedEnvelope);
 ```
 
 Если lifecycle очереди уже управляется CakeJob, Symfony Messenger, Kafka consumer или другим adapter, он может сам делать `ack/retry/reject`, а библиотечный worker только исполняет envelope.
-

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Middleware;
 
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
+use Wolfcharaa\MessageBus\Exception\ContainerServiceInvalid;
+use Wolfcharaa\MessageBus\Exception\ContainerServiceNotFound;
 use Wolfcharaa\MessageBus\Invoker\CallableInvokerInterface;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 
@@ -24,13 +26,25 @@ final class Pipeline implements PipelineInterface
         $middleware = \array_shift($this->middleware);
 
         if ($middleware !== null) {
-            return $this->invoker->invoke($middleware, '__invoke', [$this->context, $this]);
+            try {
+                return $this->invoker->invoke($middleware, '__invoke', [$this->context, $this]);
+            } catch (ContainerServiceNotFound $e) {
+                throw $e->withContext('middleware', $this->binding->bindingId, $this->binding->flow);
+            } catch (ContainerServiceInvalid $e) {
+                throw $e->withContext('middleware', $this->binding->bindingId, $this->binding->flow);
+            }
         }
 
-        return $this->invoker->invoke(
-            $this->binding->action,
-            $this->binding->method,
-            [$this->context->envelope()->message, $this->context],
-        );
+        try {
+            return $this->invoker->invoke(
+                $this->binding->action,
+                $this->binding->method,
+                [$this->context->envelope()->message, $this->context],
+            );
+        } catch (ContainerServiceNotFound $e) {
+            throw $e->withContext('handler', $this->binding->bindingId, $this->binding->flow);
+        } catch (ContainerServiceInvalid $e) {
+            throw $e->withContext('handler', $this->binding->bindingId, $this->binding->flow);
+        }
     }
 }

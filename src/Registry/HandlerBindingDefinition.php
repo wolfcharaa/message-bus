@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Registry;
 
 use BackedEnum;
+use Wolfcharaa\MessageBus\Cache\CachePolicy;
 use Wolfcharaa\MessageBus\Queue\QueueDeliveryOptions;
 
 final class HandlerBindingDefinition
@@ -25,6 +26,7 @@ final class HandlerBindingDefinition
         public readonly int $priority,
         public readonly array $middleware = [],
         public readonly ?QueueDeliveryOptions $delivery = null,
+        public readonly ?CachePolicy $cache = null,
     ) {
     }
 
@@ -38,6 +40,7 @@ final class HandlerBindingDefinition
         string|BackedEnum|null $bindingId = null,
         array $middleware = [],
         ?QueueDeliveryOptions $delivery = null,
+        ?CachePolicy $cache = null,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -50,6 +53,7 @@ final class HandlerBindingDefinition
             $priority,
             $middleware,
             $delivery,
+            $cache,
         );
     }
 
@@ -62,6 +66,7 @@ final class HandlerBindingDefinition
         string|BackedEnum|null $bindingId = null,
         array $middleware = [],
         ?QueueDeliveryOptions $delivery = null,
+        ?CachePolicy $cache = null,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -74,6 +79,7 @@ final class HandlerBindingDefinition
             $priority,
             $middleware,
             $delivery,
+            $cache,
         );
     }
 
@@ -86,6 +92,7 @@ final class HandlerBindingDefinition
         string|BackedEnum|null $bindingId = null,
         array $middleware = [],
         ?QueueDeliveryOptions $delivery = null,
+        ?CachePolicy $cache = null,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -98,6 +105,24 @@ final class HandlerBindingDefinition
             $priority,
             $middleware,
             $delivery,
+            $cache,
+        );
+    }
+
+    public function withCache(?CachePolicy $cache): self
+    {
+        return new self(
+            $this->bindingId,
+            $this->message,
+            $this->action,
+            $this->method,
+            $this->flow,
+            $this->kind,
+            $this->primary,
+            $this->priority,
+            $this->middleware,
+            $this->delivery,
+            $cache,
         );
     }
 
@@ -114,6 +139,7 @@ final class HandlerBindingDefinition
             $this->priority,
             $this->middleware,
             $this->delivery,
+            $this->cache,
         );
     }
 
@@ -130,6 +156,7 @@ final class HandlerBindingDefinition
             $this->priority,
             $this->middleware,
             $this->delivery,
+            $this->cache,
         );
     }
 
@@ -147,6 +174,7 @@ final class HandlerBindingDefinition
             'priority' => $this->priority,
             'middleware' => $this->middleware,
             'delivery' => $this->delivery?->toArray(),
+            'cache' => $this->cache?->toArray(),
         ];
     }
 
@@ -164,6 +192,7 @@ final class HandlerBindingDefinition
             $data['priority'],
             $data['middleware'] ?? [],
             QueueDeliveryOptions::fromArray($data['delivery'] ?? null),
+            CachePolicy::fromArray($data['cache'] ?? null),
         );
     }
 

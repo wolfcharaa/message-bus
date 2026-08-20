@@ -15,4 +15,20 @@ final class PublishOptions
         public readonly ?QueueDeliveryOptions $delivery = null,
     ) {
     }
+
+    public function merge(self $override): self
+    {
+        $delivery = $this->delivery;
+        if ($delivery !== null) {
+            $delivery = $delivery->merge($override->delivery);
+        } else {
+            $delivery = $override->delivery;
+        }
+
+        return new self(
+            $override->messageId ?? $this->messageId,
+            $this->headers->merge($override->headers),
+            $delivery,
+        );
+    }
 }

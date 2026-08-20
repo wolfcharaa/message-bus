@@ -23,6 +23,7 @@ final class DefaultEnvelopeSerializer implements EnvelopeSerializerInterface
             $envelope->flow,
             $envelope->bindingId,
             $envelope->createdAt,
+            SerializedEnvelope::SCHEMA_VERSION,
         );
     }
 

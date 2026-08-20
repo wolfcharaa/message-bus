@@ -1,35 +1,28 @@
-# Пример 1. Sync command/query
+# Basic sync command/query
 
-Минимальная настройка без очереди и без отдельного container.
+Пример показывает минимальный sync-сценарий. В runtime обязательно нужен PSR-11 container.
+
+```bash
+composer require romanfedorskij/message-bus php-di/php-di
+```
 
 ```php
-<?php
-
-declare(strict_types=1);
-
+use DI\ContainerBuilder;
 use Wolfcharaa\MessageBus\Attribute\CommandHandler;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
-use Wolfcharaa\MessageBus\Message\Command;
 use Wolfcharaa\MessageBus\MessageBus;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 
-/**
- * @implements Command<CreateUserResult>
- */
-final class CreateUserMessage implements Command
+final class CreateUserMessage
 {
-    public function __construct(
-        public readonly string $email,
-    ) {}
+    public function __construct(public readonly string $email) {}
 }
 
 final class CreateUserResult
 {
-    public function __construct(
-        public readonly int $userId,
-    ) {}
+    public function __construct(public readonly int $userId) {}
 }
 
 #[CommandHandler(message: CreateUserMessage::class)]
@@ -41,6 +34,10 @@ final class CreateUserAction
     }
 }
 
+$container = (new ContainerBuilder())
+    ->useAutowiring(true)
+    ->build();
+
 $definition = (new MessageRegistryCompiler())->compile(
     new ClassListProvider([
         CreateUserMessage::class,
@@ -49,10 +46,12 @@ $definition = (new MessageRegistryCompiler())->compile(
 );
 
 $registry = new CompiledMessageRegistry($definition);
-$bus = new MessageBus($registry, $definition->flows);
+
+$bus = new MessageBus(
+    registry: $registry,
+    flows: $definition->flows,
+    container: $container,
+);
 
 $result = $bus->dispatch(new CreateUserMessage('user@example.com'));
 ```
-
-`dispatch()` возвращает результат primary sync handler.
-

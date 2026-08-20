@@ -8,6 +8,8 @@ use InvalidArgumentException;
 
 final class JsonMessageSerializer implements MessageSerializerInterface
 {
+    public const CONTENT_TYPE = 'application/json';
+
     public function __construct(private readonly MessageNameResolverInterface $nameResolver)
     {
     }
@@ -19,14 +21,14 @@ final class JsonMessageSerializer implements MessageSerializerInterface
 
         return new SerializedMessage(
             $this->nameResolver->nameOf($message),
-            'application/json',
+            self::CONTENT_TYPE,
             \json_encode($payload, JSON_THROW_ON_ERROR),
         );
     }
 
     public function deserialize(SerializedMessage $message): object
     {
-        if ($message->contentType !== 'application/json') {
+        if ($message->contentType !== self::CONTENT_TYPE) {
             throw new InvalidArgumentException(\sprintf(
                 'Content type `%s` is not supported by JSON message serializer.',
                 $message->contentType,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Discovery;
 
 use ReflectionClass;
+use Wolfcharaa\MessageBus\Attribute\CacheResult;
 use Wolfcharaa\MessageBus\Attribute\MessageAlias;
 use Wolfcharaa\MessageBus\Attribute\MessageHandlerAttributeInterface;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
@@ -34,6 +35,7 @@ final class AttributeHandlerDiscovery
                 self::registerAlias($alias->name, $class, $aliases, $messageNames);
             }
 
+            $classBindings = [];
             foreach ($reflection->getAttributes() as $attribute) {
                 $instance = $attribute->newInstance();
 
@@ -41,7 +43,11 @@ final class AttributeHandlerDiscovery
                     continue;
                 }
 
-                $bindings[] = $instance->toBinding($class);
+                $classBindings[] = $instance->toBinding($class);
+            }
+
+            foreach ($this->cachePolicies($reflection, $classBindings) as $binding) {
+                $bindings[] = $binding;
             }
         }
 
@@ -50,6 +56,39 @@ final class AttributeHandlerDiscovery
             'aliases' => $aliases,
             'messageNames' => $messageNames,
         ];
+    }
+
+    /**
+     * @param list<HandlerBindingDefinition> $bindings
+     * @return list<HandlerBindingDefinition>
+     */
+    private function cachePolicies(ReflectionClass $reflection, array $bindings): array
+    {
+        $attributes = $reflection->getAttributes(CacheResult::class);
+        if ($attributes === []) {
+            return $bindings;
+        }
+
+        $withCache = $bindings;
+        foreach ($attributes as $attribute) {
+            /** @var CacheResult $cache */
+            $cache = $attribute->newInstance();
+
+            if (\count($bindings) > 1 && $cache->bindingId === null) {
+                throw new RegistryCompilationException(\sprintf(
+                    'CacheResult on `%s` must declare bindingId because action has multiple bindings.',
+                    $reflection->getName(),
+                ));
+            }
+
+            foreach ($withCache as $index => $binding) {
+                if ($cache->bindingId === null || $binding->bindingId === $cache->bindingId) {
+                    $withCache[$index] = $binding->withCache($cache->toPolicy());
+                }
+            }
+        }
+
+        return $withCache;
     }
 
     /**

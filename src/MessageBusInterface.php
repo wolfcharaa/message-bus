@@ -31,7 +31,16 @@ interface MessageBusInterface
         object $message,
         PublishOptions $options = new PublishOptions(),
         ?Envelope $causation = null,
-    ): void;
+    ): PublishResult;
+
+    /**
+     * @param iterable<object|MessageBatchItem> $messages
+     */
+    public function publishMany(
+        iterable $messages,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): PublishResult;
 
     public function dispatchPublishedSync(
         object $message,

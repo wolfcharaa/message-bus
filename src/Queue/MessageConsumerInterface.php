@@ -13,4 +13,6 @@ interface MessageConsumerInterface
     public function retry(ReceivedQueueMessage $message, \Throwable $reason): void;
 
     public function reject(ReceivedQueueMessage $message, \Throwable $reason): void;
+
+    public function cancel(ReceivedQueueMessage $message, \Throwable $reason): void;
 }

@@ -6,6 +6,9 @@ namespace Wolfcharaa\MessageBus;
 
 use BackedEnum;
 use Psr\Clock\ClockInterface;
+use Psr\Container\ContainerExceptionInterface;
+use Psr\Container\ContainerInterface;
+use Psr\Container\NotFoundExceptionInterface;
 use RuntimeException;
 use Wolfcharaa\MessageBus\Clock\WallClock;
 use Wolfcharaa\MessageBus\Context\MessageContextFactoryInterface;
@@ -20,15 +23,18 @@ use Wolfcharaa\MessageBus\Execution\HandlerExecutionResult;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionStrategyInterface;
 use Wolfcharaa\MessageBus\Execution\SequentialExecutionStrategy;
+use Wolfcharaa\MessageBus\Exception\ContainerServiceInvalid;
+use Wolfcharaa\MessageBus\Exception\ContainerServiceNotFound;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
 use Wolfcharaa\MessageBus\Invoker\CallableInvokerInterface;
-use Wolfcharaa\MessageBus\Invoker\InstantiatingServiceResolver;
 use Wolfcharaa\MessageBus\Invoker\ReflectionCallableInvoker;
-use Wolfcharaa\MessageBus\Invoker\ServiceResolverInterface;
 use Wolfcharaa\MessageBus\Message\MessageIdGenerator;
 use Wolfcharaa\MessageBus\Message\RandomMessageIdGenerator;
 use Wolfcharaa\MessageBus\Queue\QueueProviderInterface;
+use Wolfcharaa\MessageBus\Queue\QueueEnqueueFailed;
+use Wolfcharaa\MessageBus\Queue\QueueJobState;
+use Wolfcharaa\MessageBus\Queue\RetryPolicyRegistryInterface;
 use Wolfcharaa\MessageBus\Registry\BindingNotFound;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryInterface;
@@ -42,17 +48,48 @@ final class MessageBus implements MessageBusInterface
 
     public function __construct(
         private readonly MessageRegistryInterface $registry,
-        private readonly FlowRegistry $flows = new FlowRegistry(),
+        private readonly FlowRegistry $flows,
+        private readonly ContainerInterface $container,
         ?QueueProviderInterface $queueProvider = null,
         ?EnvelopeSerializerInterface $envelopeSerializer = null,
         ?CallableInvokerInterface $invoker = null,
-        ?ServiceResolverInterface $resolver = null,
         ?MessageIdGenerator $messageIdGenerator = null,
         ?ClockInterface $clock = null,
+        ?RetryPolicyRegistryInterface $retryPolicyRegistry = null,
     ) {
-        $resolver ??= new InstantiatingServiceResolver();
-        $invoker ??= new ReflectionCallableInvoker($resolver);
-        $clock ??= new WallClock();
+        $queueProvider ??= $this->optionalService(
+            [QueueProviderInterface::class, 'message_bus.queue_provider'],
+            'queue provider',
+            QueueProviderInterface::class,
+        );
+        $invoker ??= $this->optionalService(
+            [CallableInvokerInterface::class, 'message_bus.invoker'],
+            'callable invoker',
+            CallableInvokerInterface::class,
+        ) ?? new ReflectionCallableInvoker($container);
+        $messageIdGenerator ??= $this->optionalService(
+            [MessageIdGenerator::class, 'message_bus.message_id_generator'],
+            'message id generator',
+            MessageIdGenerator::class,
+        ) ?? new RandomMessageIdGenerator();
+        $clock ??= $this->optionalService(
+            [ClockInterface::class, 'message_bus.clock'],
+            'clock',
+            ClockInterface::class,
+        ) ?? new WallClock();
+        $retryPolicyRegistry ??= $this->optionalService(
+            [RetryPolicyRegistryInterface::class, 'message_bus.retry_policy_registry'],
+            'retry policy registry',
+            RetryPolicyRegistryInterface::class,
+        );
+
+        if ($envelopeSerializer === null) {
+            $envelopeSerializer = $this->optionalService(
+                [EnvelopeSerializerInterface::class, 'message_bus.envelope_serializer'],
+                'envelope serializer',
+                EnvelopeSerializerInterface::class,
+            );
+        }
 
         if ($envelopeSerializer === null) {
             if (!$registry instanceof MessageNameResolverInterface) {
@@ -66,11 +103,8 @@ final class MessageBus implements MessageBusInterface
             $messageIdGenerator ?? new RandomMessageIdGenerator(),
             $clock,
         );
-        $this->environment = new ExecutionEnvironment($invoker, $envelopeSerializer, $clock, $queueProvider);
-        $this->resolver = $resolver;
+        $this->environment = new ExecutionEnvironment($invoker, $envelopeSerializer, $clock, $queueProvider, $retryPolicyRegistry);
     }
-
-    private readonly ServiceResolverInterface $resolver;
 
     public function dispatch(
         object $message,
@@ -108,8 +142,47 @@ final class MessageBus implements MessageBusInterface
         object $message,
         PublishOptions $options = new PublishOptions(),
         ?Envelope $causation = null,
-    ): void {
-        $this->executeBindings($message, $this->asyncBindings($message::class), $options, $causation);
+    ): PublishResult {
+        $bindings = $this->asyncBindings($message::class);
+        if ($bindings === []) {
+            return PublishResult::empty();
+        }
+
+        if ($this->forceSync()) {
+            return $this->executePublishedSync($message, $bindings, $options, $causation);
+        }
+
+        return $this->publishResult(
+            $this->executeBindings($message, $bindings, $options, $causation),
+        );
+    }
+
+    public function publishMany(
+        iterable $messages,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): PublishResult {
+        $result = PublishResult::empty();
+
+        foreach ($messages as $item) {
+            if ($item instanceof MessageBatchItem) {
+                $message = $item->message;
+                $itemOptions = $options->merge($item->options);
+            } elseif (\is_object($item)) {
+                $message = $item;
+                $itemOptions = $options;
+            } else {
+                throw new \InvalidArgumentException('publishMany() expects objects or MessageBatchItem instances.');
+            }
+
+            try {
+                $result = $result->merge($this->publish($message, $itemOptions, $causation));
+            } catch (PublishFailed $e) {
+                throw new PublishFailed($result->merge($e->result()), $e);
+            }
+        }
+
+        return $result;
     }
 
     public function dispatchPublishedSync(
@@ -197,6 +270,143 @@ final class MessageBus implements MessageBusInterface
         return new HandlerExecutionResult(...$results);
     }
 
+    /**
+     * @param non-empty-list<HandlerBindingDefinition> $bindings
+     */
+    private function executePublishedSync(
+        object $message,
+        array $bindings,
+        PublishOptions $options,
+        ?Envelope $causation,
+    ): PublishResult {
+        $executions = [];
+        $failures = [];
+
+        foreach ($this->groupByFlow($bindings) as $flowKey => $flowBindings) {
+            $flow = $this->flows->get($flowKey);
+            $baseEnvelope = $this->envelopeFactory->create(
+                $message,
+                $flow->key,
+                \count($flowBindings) === 1 ? $flowBindings[0]->bindingId : null,
+                $options,
+                $causation,
+            );
+
+            foreach ($flowBindings as $binding) {
+                $envelope = $baseEnvelope->withFlowBinding($binding->flow, $binding->bindingId);
+                $context = $this->createContext($flow, $envelope);
+                $startedAt = $this->environment->clock->now();
+                $started = \microtime(true);
+
+                try {
+                    (new SequentialExecutionStrategy())->execute(new ExecutionRequest(
+                        [$binding],
+                        $context,
+                        $flow,
+                        $options,
+                        $this->environment,
+                    ));
+                    $finishedAt = $this->environment->clock->now();
+                    $executions[] = PublishedExecution::sync(
+                        $envelope,
+                        $binding->bindingId ?? '',
+                        QueueJobState::Succeeded,
+                        $startedAt,
+                        $finishedAt,
+                        (int) \round((\microtime(true) - $started) * 1000),
+                    );
+                } catch (\Throwable $e) {
+                    $transport = $flow->transport;
+                    $failures[] = PublishFailure::fromThrowable(
+                        $e,
+                        $envelope->messageId,
+                        $envelope->correlationId,
+                        $binding->flow,
+                        $binding->bindingId ?? '',
+                        $transport?->transport ?? '',
+                        $transport?->queue ?? '',
+                    );
+                }
+            }
+        }
+
+        $result = new PublishResult($executions, $failures);
+        if ($result->hasFailures()) {
+            throw new PublishFailed($result);
+        }
+
+        return $result;
+    }
+
+    private function publishResult(HandlerExecutionResultInterface $executionResult): PublishResult
+    {
+        $executions = [];
+        $failures = [];
+        $previous = null;
+
+        foreach ($executionResult->all() as $result) {
+            if ($result->isSuccessful()) {
+                $execution = $result->result();
+                if ($execution instanceof PublishedExecution) {
+                    $executions[] = $execution;
+                }
+
+                continue;
+            }
+
+            $error = $result->error();
+            if ($error === null) {
+                continue;
+            }
+            $previous ??= $error;
+            $failures[] = $this->publishFailure($result->bindingId(), $error);
+        }
+
+        $publishResult = new PublishResult($executions, $failures);
+        if ($publishResult->hasFailures()) {
+            throw new PublishFailed($publishResult, $previous);
+        }
+
+        return $publishResult;
+    }
+
+    private function publishFailure(string $bindingId, \Throwable $error): PublishFailure
+    {
+        if ($error instanceof QueueEnqueueFailed) {
+            $queueMessage = $error->queueMessage;
+
+            return PublishFailure::fromThrowable(
+                $error->getPrevious() ?? $error,
+                $queueMessage->messageId,
+                $queueMessage->correlationId,
+                $queueMessage->flow,
+                $queueMessage->bindingId,
+                $queueMessage->transport,
+                $queueMessage->queue,
+            );
+        }
+
+        $binding = $this->registry->binding($bindingId);
+        $flow = $this->flows->get($binding->flow);
+
+        return PublishFailure::fromThrowable(
+            $error,
+            '',
+            '',
+            $binding->flow,
+            $binding->bindingId ?? '',
+            $flow->transport?->transport ?? '',
+            $flow->transport?->queue ?? '',
+        );
+    }
+
+    private function forceSync(): bool
+    {
+        $value = \getenv('MESSAGE_BUS_FORCE_SYNC');
+
+        return $value !== false && $value !== '' && $value !== '0';
+    }
+
     /** @return list<HandlerBindingDefinition> */
     private function syncBindings(string $messageClass): array
     {
@@ -236,16 +446,12 @@ final class MessageBus implements MessageBusInterface
             throw new RuntimeException(\sprintf('Flow `%s` has no context factory.', $flow->key));
         }
 
-        $factory = $this->resolver->get($flow->contextFactory);
-
-        if (!$factory instanceof MessageContextFactoryInterface) {
-            throw new RuntimeException(\sprintf(
-                'Flow `%s` context factory `%s` must implement `%s`.',
-                $flow->key,
-                $flow->contextFactory,
-                MessageContextFactoryInterface::class,
-            ));
-        }
+        $factory = $this->requiredService(
+            [$flow->contextFactory],
+            'context factory',
+            MessageContextFactoryInterface::class,
+            flow: $flow->key,
+        );
 
         $context = $factory->create($this, $envelope, $flow);
 
@@ -263,17 +469,70 @@ final class MessageBus implements MessageBusInterface
 
     private function strategy(FlowDefinition $flow): HandlerExecutionStrategyInterface
     {
-        $strategy = $this->resolver->get($flow->strategy);
-
-        if (!$strategy instanceof HandlerExecutionStrategyInterface) {
-            throw new RuntimeException(\sprintf(
-                'Flow `%s` strategy `%s` must implement `%s`.',
-                $flow->key,
-                $flow->strategy,
-                HandlerExecutionStrategyInterface::class,
-            ));
-        }
+        $strategy = $this->requiredService(
+            [$flow->strategy],
+            'execution strategy',
+            HandlerExecutionStrategyInterface::class,
+            flow: $flow->key,
+        );
 
         return $strategy;
+    }
+
+    /**
+     * @param non-empty-list<string> $ids
+     */
+    private function requiredService(
+        array $ids,
+        string $role,
+        string $expectedType,
+        ?string $bindingId = null,
+        ?string $flow = null,
+    ): object {
+        $service = $this->optionalService($ids, $role, $expectedType, $bindingId, $flow);
+
+        if ($service === null) {
+            throw new ContainerServiceNotFound($ids, $role, $expectedType, $bindingId, $flow);
+        }
+
+        return $service;
+    }
+
+    /**
+     * @param non-empty-list<string> $ids
+     */
+    private function optionalService(
+        array $ids,
+        string $role,
+        string $expectedType,
+        ?string $bindingId = null,
+        ?string $flow = null,
+    ): ?object {
+        foreach ($ids as $id) {
+            try {
+                if (!$this->container->has($id)) {
+                    continue;
+                }
+
+                $service = $this->container->get($id);
+            } catch (NotFoundExceptionInterface $e) {
+                throw new ContainerServiceNotFound([$id], $role, $expectedType, $bindingId, $flow, $e);
+            } catch (ContainerExceptionInterface $e) {
+                throw new ContainerServiceInvalid([$id], $role, $expectedType, 'container error', $bindingId, $flow, $e);
+            }
+
+            if (!$service instanceof $expectedType) {
+                throw new ContainerServiceInvalid([$id], $role, $expectedType, $this->actualType($service), $bindingId, $flow);
+            }
+
+            return $service;
+        }
+
+        return null;
+    }
+
+    private function actualType(mixed $value): string
+    {
+        return \is_object($value) ? $value::class : \get_debug_type($value);
     }
 }

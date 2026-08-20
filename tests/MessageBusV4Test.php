@@ -35,6 +35,7 @@ use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\RegistryCompilationException;
 use Wolfcharaa\MessageBus\Serialization\JsonMessageSerializer;
+use Wolfcharaa\MessageBus\Tests\Support\TestContainer;
 
 final class MessageBusV4Test extends TestCase
 {
@@ -48,6 +49,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
         );
@@ -73,6 +75,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
         );
@@ -96,6 +99,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
         );
@@ -120,6 +124,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             queueProvider: $provider,
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
@@ -163,6 +168,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             queueProvider: $provider,
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
@@ -188,6 +194,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             queueProvider: $provider,
             envelopeSerializer: $serializer,
             messageIdGenerator: new IncrementalMessageIdGenerator(),
@@ -214,6 +221,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
         );
@@ -244,6 +252,7 @@ final class MessageBusV4Test extends TestCase
             $bus = new MessageBus(
                 $registry,
                 $registry->definition()->flows,
+            new TestContainer(),
                 messageIdGenerator: new IncrementalMessageIdGenerator(),
                 clock: new FrozenClock(),
             );
@@ -265,6 +274,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
         );
@@ -283,6 +293,7 @@ final class MessageBusV4Test extends TestCase
         $bus = new MessageBus(
             $registry,
             $registry->definition()->flows,
+            new TestContainer(),
             messageIdGenerator: new IncrementalMessageIdGenerator(),
             clock: new FrozenClock(),
         );
@@ -608,9 +619,9 @@ final class TestMessageContext implements TestMessageContextInterface
         return $this->inner->dispatchAll($message, $options);
     }
 
-    public function publish(object $message, PublishOptions $options = new PublishOptions()): void
+    public function publish(object $message, PublishOptions $options = new PublishOptions()): \Wolfcharaa\MessageBus\PublishResult
     {
-        $this->inner->publish($message, $options);
+        return $this->inner->publish($message, $options);
     }
 }
 
