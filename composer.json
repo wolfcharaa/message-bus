@@ -7,10 +7,10 @@
         "psr/clock": "^1.0",
         "psr/container": "^1.1 || ^2.0",
         "psr/simple-cache": "^3.0",
-        "symfony/console": "^6.4 || ^7.0",
+        "symfony/console": "^5.4 || ^6.4 || ^7.0",
         "symfony/var-exporter": "^6.4 || ^7.0",
         "ext-json": "*",
-        "psr/log": "^3.0"
+        "psr/log": "^1.0 || ^2.0 || ^3.0"
     },
     "license": "MIT",
     "autoload": {
