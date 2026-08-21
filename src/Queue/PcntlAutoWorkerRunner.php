@@ -220,7 +220,7 @@ final class PcntlAutoWorkerRunner
                     'retried' => $retried,
                     'rejected' => $rejected,
                     'cancelled' => $cancelled,
-                ]);
+                ], WorkerCliOutputVerbosity::Debug);
             }
 
             if (($draining || $stopping || $killing || $restarting) && $children === []) {

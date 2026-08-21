@@ -432,8 +432,19 @@ vendor/bin/message-bus worker:run \
 
 - `storage-failure-backoff` защищает от tight error loop после exhausted retry в polling/control operations.
 - `max-heartbeat-failures` задаёт границу, после которой worker лучше уронить и отдать восстановление Docker/systemd/Kubernetes.
-- `output-verbosity` управляет количеством lifecycle сообщений.
+- `output-verbosity=normal` пишет lifecycle/control/job/storage события без постоянного heartbeat spam.
+- `output-verbosity=debug` добавляет heartbeat в stdout для диагностики живости процесса.
 - `output-format=json` удобен для production log collectors.
+
+Если контейнер пишет stdout/stderr через Docker `json-file`, добавьте log rotation в compose/deployment config:
+
+```yaml
+logging:
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+```
 
 Worker control команды работают через тот же bootstrap:
 

@@ -98,11 +98,13 @@ vendor/bin/message-bus worker:run \
 Параметры вывода:
 
 - `--output-verbosity=quiet` - только fatal/error и явное завершение.
-- `--output-verbosity=normal` - default: start/config summary, heartbeat, control commands, stop.
-- `--output-verbosity=debug` - добавляет child start/finish и расширенную диагностику runtime.
+- `--output-verbosity=normal` - default: start/config summary, control commands, job/child lifecycle, stop без постоянного heartbeat spam.
+- `--output-verbosity=debug` - добавляет heartbeat и расширенную диагностику runtime.
 - `--output-verbosity=trace` - зарезервирован для максимально подробной диагностики.
 - `--output-format=text` - человекочитаемый формат для локальных Docker logs.
 - `--output-format=json` - JSON Lines для log collectors.
+
+Важно для Docker: stdout/stderr worker-а обычно попадает в Docker log driver. При `json-file` обязательно настройте ротацию на стороне приложения/deployment слоя, например `max-size: "10m"` и `max-file: "5"`. Библиотека не управляет политикой хранения container logs.
 
 Параметры устойчивости:
 

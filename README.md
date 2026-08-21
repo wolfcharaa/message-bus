@@ -405,6 +405,19 @@ vendor/bin/message-bus worker:run \
 `--output-format` может быть `text` для Docker logs или `json` для log collectors.
 `--storage-failure-backoff` и `--max-heartbeat-failures` задают базовую hybrid failure policy после exhausted retry.
 
+`normal` - безопасный default для long-running worker-а: он пишет lifecycle/control/job/storage события, но не пишет heartbeat каждую секунду в idle режиме.
+Для диагностики живости процесса включайте `--output-verbosity=debug`: heartbeat появится в stdout без изменения storage heartbeat механики.
+
+Если worker запускается в Docker с log driver `json-file`, настройте ротацию логов на стороне приложения/deployment слоя:
+
+```yaml
+logging:
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+```
+
 Подробности: [docs/guides/async-queue.md](docs/guides/async-queue.md) и [docs/reference/queue-and-worker.md](docs/reference/queue-and-worker.md).
 
 ## Worker control plane
