@@ -21,7 +21,7 @@ use Wolfcharaa\MessageBus\Queue\QueueStatusRepositoryInterface;
 use Wolfcharaa\MessageBus\Queue\ReceivedQueueMessage;
 use Wolfcharaa\MessageBus\Queue\RetryPolicySnapshot;
 
-final class PostgresQueueStorage implements QueueStatusRepositoryInterface, QueueJobControlInterface
+final class PostgresQueueStorage implements PostgresQueueStorageInterface
 {
     private readonly string $table;
     private readonly SerializedEnvelopeNormalizerInterface $envelopeNormalizer;

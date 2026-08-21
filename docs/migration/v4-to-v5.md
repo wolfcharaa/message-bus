@@ -54,11 +54,16 @@ vendor/bin/message-bus schema:postgres --with=all
 Команда генерирует queue и worker-control таблицы:
 
 - `message_bus__queue_jobs`;
-- `message_bus__worker_commands`;
-- `message_bus__worker_desired_states`;
+- `message_bus__schema_versions`;
+- `message_bus__worker_control_commands`;
+- `message_bus__worker_control_command_deliveries`;
+- `message_bus__worker_control_command_acknowledgements`;
+- `message_bus__worker_control_command_audit`;
+- `message_bus__worker_desired_state`;
 - `message_bus__worker_instances`;
-- `message_bus__worker_child_instances`;
-- `message_bus__worker_command_acknowledgements`.
+- `message_bus__worker_child_instances`.
+
+Если вы переходите сразу на v5.1 или выше, дополнительно прочитайте [v5.0-to-v5.1.md](v5.0-to-v5.1.md), потому что worker control-plane schema была расширена в minor release.
 
 Для существующей v4 installation самый безопасный production-путь:
 
@@ -144,4 +149,3 @@ vendor/bin/message-bus worker:run \
 Для supervisor/docker/systemd restart behavior используйте `worker:restart`. Auto runner после graceful drain завершится с настроенным restart exit code.
 
 Это краткая сводка правил, по которым проектируется приложение на MessageBus.
-

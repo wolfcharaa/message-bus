@@ -14,6 +14,8 @@ use Wolfcharaa\MessageBus\Worker\QueueJobWorkerRuntimeControl;
 use Wolfcharaa\MessageBus\Worker\WorkerActivityState;
 use Wolfcharaa\MessageBus\Worker\WorkerChildInstance;
 use Wolfcharaa\MessageBus\Worker\WorkerChildState;
+use Wolfcharaa\MessageBus\Worker\WorkerCliOutputVerbosity;
+use Wolfcharaa\MessageBus\Worker\WorkerCliOutputWriterInterface;
 use Wolfcharaa\MessageBus\Worker\WorkerControlAcknowledgement;
 use Wolfcharaa\MessageBus\Worker\WorkerControlAcknowledgementState;
 use Wolfcharaa\MessageBus\Worker\WorkerControlCommand;
@@ -43,9 +45,27 @@ final class PcntlAutoWorkerRunner
         private readonly ?QueueJobControlInterface $queueControl = null,
         private readonly mixed $childWorkerRuntimeControlFactory = null,
         private readonly ?WorkerControlRuntime $workerControlRuntime = null,
+        private readonly ?WorkerCliOutputWriterInterface $output = null,
+        private readonly mixed $beforeFork = null,
+        private readonly mixed $afterForkInParent = null,
+        private readonly mixed $afterForkInChild = null,
     ) {
         if (!\extension_loaded('pcntl')) {
             throw new RuntimeException('Auto worker mode requires pcntl extension.');
+        }
+
+        if (!\extension_loaded('posix')) {
+            throw new RuntimeException('Auto worker mode requires posix extension.');
+        }
+
+        foreach ([
+            'beforeFork' => $this->beforeFork,
+            'afterForkInParent' => $this->afterForkInParent,
+            'afterForkInChild' => $this->afterForkInChild,
+        ] as $name => $hook) {
+            if ($hook !== null && !\is_callable($hook)) {
+                throw new RuntimeException(\sprintf('PcntlAutoWorkerRunner %s hook must be callable or null.', $name));
+            }
         }
     }
 
@@ -73,7 +93,21 @@ final class PcntlAutoWorkerRunner
         $cursor = new WorkerControlCursor();
         $lastControlPollAt = 0;
         $lastHeartbeatAt = 0;
+        $stopSignalReported = false;
+        $consecutiveHeartbeatFailures = 0;
+        $sigkillSent = false;
 
+        $this->output('info', 'worker.started', 'Auto worker started.', [
+            'mode' => 'auto',
+            'worker_instance_id' => $identity->workerInstanceId,
+            'worker_name' => $identity->workerName,
+            'worker_group' => $identity->workerGroup,
+            'transport' => $consumerOptions->transport,
+            'queue' => $consumerOptions->queue,
+            'max_workers' => $options->maxWorkers,
+            'control_poll_interval_ms' => $options->controlPollIntervalMilliseconds,
+            'heartbeat_interval_ms' => $options->heartbeatIntervalMilliseconds,
+        ]);
         $this->registerWorker($identity, $lifecycle, WorkerActivityState::Idle, 0);
 
         while (!$this->shouldStop($startedAt, $lastMessageAt, $handled, $options)) {
@@ -81,8 +115,17 @@ final class PcntlAutoWorkerRunner
 
             if ($this->shouldPoll($lastControlPollAt, $options->controlPollIntervalMilliseconds)) {
                 $lastControlPollAt = $this->milliseconds();
-                $control = $this->receiveControl($identity, $cursor);
-                $cursor = $control['cursor'];
+                try {
+                    $control = $this->receiveControl($identity, $cursor);
+                    $cursor = $control['cursor'];
+                } catch (\Throwable $error) {
+                    $this->output('error', 'worker.control_poll_failed', 'Worker control polling failed after retry policy.', [
+                        'worker_instance_id' => $identity->workerInstanceId,
+                        'exception' => $error,
+                    ]);
+                    $this->storageFailureBackoff($options);
+                    continue;
+                }
 
                 foreach ($control['commands'] as $command) {
                     match ($command->type) {
@@ -96,6 +139,12 @@ final class PcntlAutoWorkerRunner
 
                     $lifecycle = $this->lifecycleForCommand($command->type);
                     $this->acknowledgeCommand($identity, $command, WorkerControlAcknowledgementState::Applied);
+                    $this->output('info', 'worker.control_command_applied', 'Worker control command applied.', [
+                        'worker_instance_id' => $identity->workerInstanceId,
+                        'command_id' => $command->commandId,
+                        'command_type' => $command->type,
+                        'state' => $lifecycle,
+                    ]);
                 }
 
                 if ($control['desiredPaused'] !== null && !$draining && !$stopping && !$killing && !$restarting) {
@@ -107,26 +156,71 @@ final class PcntlAutoWorkerRunner
             if ($this->stopSignalProvider->shouldStop()) {
                 $stopping = true;
                 $lifecycle = WorkerLifecycleState::Stopping;
+                if (!$stopSignalReported) {
+                    $stopSignalReported = true;
+                    $this->output('info', 'worker.stopping', 'Stop signal received, worker is stopping.', [
+                        'worker_instance_id' => $identity->workerInstanceId,
+                    ]);
+                }
             }
 
             if ($killing && $killStartedAt === null) {
                 $killStartedAt = \time();
                 $this->signalChildren($children, SIGTERM);
+                $this->output('error', 'worker.children_sigterm', 'SIGTERM sent to child workers.', [
+                    'worker_instance_id' => $identity->workerInstanceId,
+                    'children' => \count($children),
+                ]);
             }
 
-            if ($killing && $killStartedAt !== null && \time() - $killStartedAt >= $options->forceKillTimeoutSeconds) {
+            if ($killing && !$sigkillSent && $killStartedAt !== null && \time() - $killStartedAt >= $options->forceKillTimeoutSeconds) {
+                $sigkillSent = true;
                 $this->signalChildren($children, SIGKILL);
+                $this->output('error', 'worker.children_sigkill', 'SIGKILL sent to child workers after force timeout.', [
+                    'worker_instance_id' => $identity->workerInstanceId,
+                    'children' => \count($children),
+                ]);
             }
 
             if ($this->shouldHeartbeat($lastHeartbeatAt, $options->heartbeatIntervalMilliseconds)) {
                 $lastHeartbeatAt = $this->milliseconds();
-                $this->heartbeatWorker(
-                    $identity,
-                    $lifecycle,
-                    $children === [] ? WorkerActivityState::Idle : WorkerActivityState::Busy,
-                    \count($children),
-                );
-                $this->heartbeatChildren($children);
+                try {
+                    $this->heartbeatWorker(
+                        $identity,
+                        $lifecycle,
+                        $children === [] ? WorkerActivityState::Idle : WorkerActivityState::Busy,
+                        \count($children),
+                    );
+                    $this->heartbeatChildren($children);
+                    $consecutiveHeartbeatFailures = 0;
+                } catch (\Throwable $error) {
+                    ++$consecutiveHeartbeatFailures;
+                    $this->output('error', 'worker.heartbeat_failed', 'Worker heartbeat failed after retry policy.', [
+                        'worker_instance_id' => $identity->workerInstanceId,
+                        'consecutive_failures' => $consecutiveHeartbeatFailures,
+                        'max_consecutive_failures' => $options->maxConsecutiveHeartbeatFailures,
+                        'exception' => $error,
+                    ]);
+
+                    if ($consecutiveHeartbeatFailures >= $options->maxConsecutiveHeartbeatFailures) {
+                        throw $error;
+                    }
+
+                    $this->storageFailureBackoff($options);
+                    continue;
+                }
+
+                $this->output('info', 'worker.heartbeat', 'Auto worker heartbeat.', [
+                    'worker_instance_id' => $identity->workerInstanceId,
+                    'state' => $lifecycle,
+                    'activity' => $children === [] ? WorkerActivityState::Idle : WorkerActivityState::Busy,
+                    'children' => \count($children),
+                    'handled' => $handled,
+                    'succeeded' => $succeeded,
+                    'retried' => $retried,
+                    'rejected' => $rejected,
+                    'cancelled' => $cancelled,
+                ]);
             }
 
             if (($draining || $stopping || $killing || $restarting) && $children === []) {
@@ -145,7 +239,18 @@ final class PcntlAutoWorkerRunner
                     break;
                 }
 
-                $message = $this->consumer->next($consumerOptions);
+                try {
+                    $message = $this->consumer->next($consumerOptions);
+                } catch (\Throwable $error) {
+                    $this->output('error', 'worker.queue_poll_failed', 'Queue polling failed after retry policy.', [
+                        'worker_instance_id' => $identity->workerInstanceId,
+                        'transport' => $consumerOptions->transport,
+                        'queue' => $consumerOptions->queue,
+                        'exception' => $error,
+                    ]);
+                    $this->storageFailureBackoff($options);
+                    break;
+                }
 
                 if ($message === null) {
                     if ($options->stopWhenEmpty && $children === []) {
@@ -158,29 +263,55 @@ final class PcntlAutoWorkerRunner
                 $lastMessageAt = \time();
                 ++$handled;
                 $childInstanceId = $this->childInstanceId($identity, $message);
+                $this->callForkHook($this->beforeFork, $message, $childInstanceId, null);
                 $pid = \pcntl_fork();
 
                 if ($pid === -1) {
+                    $this->output('error', 'worker.child_fork_failed', 'Unable to fork worker child process.', [
+                        'worker_instance_id' => $identity->workerInstanceId,
+                        'queue_message_id' => $message->queueMessageId,
+                    ]);
                     $this->consumer->retry($message, new RuntimeException('Unable to fork worker process.'));
                     break;
                 }
 
                 if ($pid === 0) {
+                    $this->callForkHook($this->afterForkInChild, $message, $childInstanceId, null);
                     exit($this->handleChild($message, $childInstanceId));
                 }
 
+                $this->callForkHook($this->afterForkInParent, $message, $childInstanceId, $pid);
                 $children[$pid] = [
                     'childInstanceId' => $childInstanceId,
                     'message' => $message,
                 ];
-                $this->registerChild($identity, $childInstanceId, $pid, $message);
+                try {
+                    $this->registerChild($identity, $childInstanceId, $pid, $message);
+                } catch (\Throwable $error) {
+                    $this->output('error', 'worker.child_register_failed', 'Worker child registration failed after retry policy.', [
+                        'worker_instance_id' => $identity->workerInstanceId,
+                        'child_instance_id' => $childInstanceId,
+                        'pid' => $pid,
+                        'queue_message_id' => $message->queueMessageId,
+                        'exception' => $error,
+                    ]);
+                }
+                $this->output('debug', 'worker.child_started', 'Worker child process started.', [
+                    'worker_instance_id' => $identity->workerInstanceId,
+                    'child_instance_id' => $childInstanceId,
+                    'pid' => $pid,
+                    'queue_message_id' => $message->queueMessageId,
+                    'message_id' => $message->message->messageId,
+                    'binding_id' => $message->message->bindingId,
+                ], WorkerCliOutputVerbosity::Debug);
             }
 
             $this->idle($options);
         }
 
         while ($children !== []) {
-            if ($killing && $killStartedAt !== null && \time() - $killStartedAt >= $options->forceKillTimeoutSeconds) {
+            if ($killing && !$sigkillSent && $killStartedAt !== null && \time() - $killStartedAt >= $options->forceKillTimeoutSeconds) {
+                $sigkillSent = true;
                 $this->signalChildren($children, SIGKILL);
             }
 
@@ -190,11 +321,33 @@ final class PcntlAutoWorkerRunner
         if ($restarting) {
             $lifecycle = WorkerLifecycleState::Restarting;
             $exitCode = $options->restartExitCode;
+            $this->output('info', 'worker.restart_requested', 'Worker restart requested, returning restart exit code.', [
+                'worker_instance_id' => $identity->workerInstanceId,
+                'exit_code' => $exitCode,
+            ]);
         } else {
             $lifecycle = WorkerLifecycleState::Stopped;
         }
 
-        $this->stopWorker($identity, $lifecycle);
+        try {
+            $this->stopWorker($identity, $lifecycle);
+        } catch (\Throwable $error) {
+            $this->output('error', 'worker.stop_register_failed', 'Worker stop registration failed after retry policy.', [
+                'worker_instance_id' => $identity->workerInstanceId,
+                'state' => $lifecycle,
+                'exception' => $error,
+            ]);
+        }
+        $this->output('info', 'worker.stopped', 'Auto worker stopped.', [
+            'worker_instance_id' => $identity->workerInstanceId,
+            'state' => $lifecycle,
+            'handled' => $handled,
+            'succeeded' => $succeeded,
+            'retried' => $retried,
+            'rejected' => $rejected,
+            'cancelled' => $cancelled,
+            'exit_code' => $exitCode ?? 0,
+        ]);
 
         return new QueueWorkerRunResult($handled, $succeeded, $retried, $rejected, $cancelled, $exitCode);
     }
@@ -268,7 +421,27 @@ final class PcntlAutoWorkerRunner
             };
 
             if ($child !== null) {
-                $this->finishChild($child['childInstanceId'], $childState);
+                try {
+                    $this->finishChild($child['childInstanceId'], $childState);
+                    $this->output('debug', 'worker.child_finished', 'Worker child process finished.', [
+                        'child_instance_id' => $child['childInstanceId'],
+                        'pid' => $pid,
+                        'state' => $childState,
+                        'exit_code' => $exitCode,
+                        'queue_message_id' => $child['message']->queueMessageId,
+                        'message_id' => $child['message']->message->messageId,
+                    ], WorkerCliOutputVerbosity::Debug);
+                } catch (\Throwable $error) {
+                    $this->output('error', 'worker.child_finish_failed', 'Worker child finalization failed after retry policy.', [
+                        'child_instance_id' => $child['childInstanceId'],
+                        'pid' => $pid,
+                        'state' => $childState,
+                        'exit_code' => $exitCode,
+                        'queue_message_id' => $child['message']->queueMessageId,
+                        'message_id' => $child['message']->message->messageId,
+                        'exception' => $error,
+                    ]);
+                }
             }
         }
     }
@@ -537,6 +710,19 @@ final class PcntlAutoWorkerRunner
         \usleep($milliseconds * 1000);
     }
 
+    private function storageFailureBackoff(PcntlAutoWorkerRunnerOptions $options): void
+    {
+        $milliseconds = \max(1, $options->storageFailureBackoffMilliseconds);
+
+        if ($this->workerControlRuntime?->notifier() !== null) {
+            $this->workerControlRuntime->notifier()->waitForControlSignal($milliseconds);
+
+            return;
+        }
+
+        \usleep($milliseconds * 1000);
+    }
+
     private function shouldPoll(int $lastPollAt, int $intervalMilliseconds): bool
     {
         return $this->milliseconds() - $lastPollAt >= \max(1, $intervalMilliseconds);
@@ -555,5 +741,31 @@ final class PcntlAutoWorkerRunner
     private function now(): DateTimeImmutable
     {
         return new DateTimeImmutable('now', new DateTimeZone('UTC'));
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     */
+    private function output(
+        string $level,
+        string $event,
+        string $message,
+        array $context = [],
+        WorkerCliOutputVerbosity $verbosity = WorkerCliOutputVerbosity::Normal,
+    ): void {
+        $this->output?->write($level, $event, $message, $context, $verbosity);
+    }
+
+    private function callForkHook(
+        mixed $hook,
+        ReceivedQueueMessage $message,
+        string $childInstanceId,
+        ?int $pid,
+    ): void {
+        if ($hook === null) {
+            return;
+        }
+
+        $hook($message, $childInstanceId, $pid);
     }
 }

@@ -45,6 +45,7 @@
         "symfony/dependency-injection": "Recommended for Symfony applications, with PSR-11 compatible service access.",
         "level-2/dice": "Alternative DI container option when exposed through a PSR-11 compatible adapter.",
         "ext-pcntl": "Required only for worker:run --mode=auto and PcntlAutoWorkerRunner.",
+        "ext-posix": "Required only for worker:run --mode=auto process liveness checks and child signalling.",
         "ext-pdo_pgsql": "Required only for PostgreSQL queue transport.",
         "ext-pgsql": "Useful for PostgreSQL queue transport diagnostics and native PostgreSQL support."
     }

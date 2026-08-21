@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Tests;
 
 use DateTimeImmutable;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -21,6 +22,8 @@ use Wolfcharaa\MessageBus\Queue\RetryPolicySnapshot;
 use Wolfcharaa\MessageBus\Serialization\SerializedMessage;
 use Wolfcharaa\MessageBus\Tests\Support\WorkerControlMemoryRuntime;
 use Wolfcharaa\MessageBus\Worker\WorkerChildState;
+use Wolfcharaa\MessageBus\Worker\WorkerCliOutputVerbosity;
+use Wolfcharaa\MessageBus\Worker\WorkerCliOutputWriterInterface;
 use Wolfcharaa\MessageBus\Worker\WorkerControlAcknowledgementState;
 use Wolfcharaa\MessageBus\Worker\WorkerControlCommand;
 use Wolfcharaa\MessageBus\Worker\WorkerControlCommandType;
@@ -28,6 +31,7 @@ use Wolfcharaa\MessageBus\Worker\WorkerLifecycleState;
 use Wolfcharaa\MessageBus\Worker\WorkerTarget;
 
 #[RequiresPhpExtension('pcntl')]
+#[Group('integration')]
 final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
 {
     public function testAutoRunnerAppliesStopCommandBeforeTakingNewMessages(): void
@@ -83,6 +87,9 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
                 childConsumerFactory: static fn (): PcntlAutoWorkerChildConsumer => new PcntlAutoWorkerChildConsumer($logFile),
                 childWorkerFactory: static fn (): PcntlAutoWorkerChildWorker => new PcntlAutoWorkerChildWorker([]),
                 workerControlRuntime: $control->runtime(),
+                beforeFork: static fn (): int|false => \file_put_contents($logFile, "before-fork\n", FILE_APPEND | LOCK_EX),
+                afterForkInParent: static fn (ReceivedQueueMessage $message, string $childInstanceId, int $pid): int|false => \file_put_contents($logFile, 'after-fork-parent:' . $pid . "\n", FILE_APPEND | LOCK_EX),
+                afterForkInChild: static fn (): int|false => \file_put_contents($logFile, "after-fork-child\n", FILE_APPEND | LOCK_EX),
             );
 
             $result = $runner->run(
@@ -106,6 +113,11 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
             self::assertSame('emails-worker', $control->workers['instance-lifecycle']->identity->workerName);
             self::assertCount(1, $control->children);
             self::assertSame(WorkerChildState::Succeeded, \array_values($control->children)[0]->state);
+            $events = \file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            self::assertIsArray($events);
+            self::assertContains('before-fork', $events);
+            self::assertContains('after-fork-child', $events);
+            self::assertTrue(\count(\preg_grep('/^after-fork-parent:\d+$/', $events)) === 1);
         } finally {
             @\unlink($logFile);
         }
@@ -164,6 +176,30 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
         }
     }
 
+    public function testAutoRunnerContinuesAfterQueuePollingFailure(): void
+    {
+        $output = new PcntlAutoWorkerOutputBuffer();
+        $runner = new PcntlAutoWorkerRunner(
+            new PcntlAutoWorkerFailingOnceConsumer(),
+            new PcntlAutoWorkerChildWorker([]),
+            output: $output,
+        );
+
+        $result = $runner->run(
+            new ConsumerOptions('postgres', 'default'),
+            new PcntlAutoWorkerRunnerOptions(
+                stopWhenEmpty: true,
+                sleepWhenIdleMilliseconds: 1,
+                heartbeatIntervalMilliseconds: 100000,
+                storageFailureBackoffMilliseconds: 1,
+            ),
+        );
+
+        self::assertSame(0, $result->handled);
+        self::assertContains('worker.queue_poll_failed', $output->events);
+        self::assertContains('worker.stopped', $output->events);
+    }
+
     private function received(string $messageId, int $attempts, int $maxAttempts): ReceivedQueueMessage
     {
         $createdAt = new DateTimeImmutable('2026-08-20T10:00:00+00:00');
@@ -193,6 +229,54 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
             ),
             $attempts,
         );
+    }
+}
+
+final class PcntlAutoWorkerOutputBuffer implements WorkerCliOutputWriterInterface
+{
+    /** @var list<string> */
+    public array $events = [];
+
+    public function write(
+        string $level,
+        string $event,
+        string $message,
+        array $context = [],
+        WorkerCliOutputVerbosity $verbosity = WorkerCliOutputVerbosity::Normal,
+    ): void {
+        $this->events[] = $event;
+    }
+}
+
+final class PcntlAutoWorkerFailingOnceConsumer implements MessageConsumerInterface
+{
+    private bool $failed = false;
+
+    public function next(ConsumerOptions $options): ?ReceivedQueueMessage
+    {
+        if (!$this->failed) {
+            $this->failed = true;
+
+            throw new RuntimeException('temporary queue polling failure');
+        }
+
+        return null;
+    }
+
+    public function ack(ReceivedQueueMessage $message): void
+    {
+    }
+
+    public function retry(ReceivedQueueMessage $message, \Throwable $reason): void
+    {
+    }
+
+    public function reject(ReceivedQueueMessage $message, \Throwable $reason): void
+    {
+    }
+
+    public function cancel(ReceivedQueueMessage $message, \Throwable $reason): void
+    {
     }
 }
 

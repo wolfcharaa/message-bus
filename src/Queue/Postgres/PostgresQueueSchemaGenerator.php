@@ -4,20 +4,26 @@ declare(strict_types=1);
 
 namespace Wolfcharaa\MessageBus\Queue\Postgres;
 
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaComponent;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaVersion;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaVersionSchemaGenerator;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaVersionTableDefinition;
 use Wolfcharaa\MessageBus\Queue\QueueTableDefinition;
 
 final class PostgresQueueSchemaGenerator
 {
-    public function generate(QueueTableDefinition $definition = new QueueTableDefinition()): string
-    {
+    public function generate(
+        QueueTableDefinition $definition = new QueueTableDefinition(),
+        string|PostgresSchemaVersionTableDefinition|null $schemaVersions = null,
+    ): string {
         $table = $this->quoteIdentifier($definition->tableName);
 
-        return <<<SQL
+        $sql = <<<SQL
 CREATE TABLE IF NOT EXISTS {$table} (
     id BIGSERIAL PRIMARY KEY,
     transport TEXT NOT NULL,
     queue TEXT NOT NULL,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted')),
     message_name TEXT NOT NULL,
     message_id TEXT NOT NULL,
     correlation_id TEXT NOT NULL,
@@ -58,7 +64,17 @@ CREATE INDEX IF NOT EXISTS {$definition->tableName}_binding_id_idx
 CREATE INDEX IF NOT EXISTS {$definition->tableName}_running_heartbeat_idx
     ON {$table} (status, heartbeat_at, locked_at)
     WHERE status = 'running';
+
+CREATE INDEX IF NOT EXISTS {$definition->tableName}_interrupted_idx
+    ON {$table} (updated_at ASC, id ASC)
+    WHERE status = 'interrupted';
 SQL;
+
+        return $sql . "\n\n" . (new PostgresSchemaVersionSchemaGenerator($schemaVersions))->generateComponent(
+            PostgresSchemaComponent::Queue,
+            PostgresSchemaVersion::QUEUE,
+            'MessageBus PostgreSQL queue schema.',
+        );
     }
 
     private function quoteIdentifier(string $identifier): string

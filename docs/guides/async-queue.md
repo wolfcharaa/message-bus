@@ -394,7 +394,9 @@ vendor/bin/message-bus worker:run \
   --mode=auto \
   --workers=4 \
   --worker-name=emails-worker \
-  --worker-group=emails
+  --worker-group=emails \
+  --output-verbosity=normal \
+  --output-format=text
 ```
 
 Что делает worker:
@@ -412,6 +414,26 @@ vendor/bin/message-bus worker:run \
 - ставит heartbeat для контроля зависших worker-ов.
 
 В auto mode главный процесс создаёт child processes. Каждый child заново загружает bootstrap, поэтому database connection и container resources создаются внутри child process.
+
+Auto mode требует `ext-pcntl` и `ext-posix`.
+
+Полезные production параметры:
+
+```bash
+vendor/bin/message-bus worker:run \
+  --bootstrap=config/message_bus_runtime.php \
+  --mode=auto \
+  --workers=4 \
+  --storage-failure-backoff=1000 \
+  --max-heartbeat-failures=3 \
+  --output-verbosity=normal \
+  --output-format=json
+```
+
+- `storage-failure-backoff` защищает от tight error loop после exhausted retry в polling/control operations.
+- `max-heartbeat-failures` задаёт границу, после которой worker лучше уронить и отдать восстановление Docker/systemd/Kubernetes.
+- `output-verbosity` управляет количеством lifecycle сообщений.
+- `output-format=json` удобен для production log collectors.
 
 Worker control команды работают через тот же bootstrap:
 

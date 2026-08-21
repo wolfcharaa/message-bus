@@ -213,6 +213,7 @@ composer require romanfedorskij/message-bus
 
 - `ext-pdo_pgsql` - для PostgreSQL queue transport;
 - `ext-pcntl` - для `worker:run --mode=auto`;
+- `ext-posix` - для process liveness checks и signals в `worker:run --mode=auto`;
 - `ext-pgsql` - для PostgreSQL diagnostics/native support.
 
 Container не входит в библиотеку намеренно. Используйте любой PSR-11 compatible container, например:
@@ -346,19 +347,37 @@ final class SendWelcomeEmail
 
 ```php
 use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
+use Wolfcharaa\MessageBus\Postgres\CallbackPdoConnectionProvider;
+use Wolfcharaa\MessageBus\Postgres\PostgresRetryConfig;
+use PDO;
 
 $runtime = MessageBusRuntime::postgres(
-    pdo: $pdo,
+    pdo: new CallbackPdoConnectionProvider(static fn (): PDO => new PDO($dsn, $user, $password)),
     registry: $registry,
     container: $container,
     flows: $flows,
+    postgresRetryConfig: PostgresRetryConfig::default(),
 );
 ```
+
+Для production workers лучше передавать reconnect-capable provider, например `CallbackPdoConnectionProvider`.
+Если передать готовый `PDO`, runtime обернет его в `StaticPdoConnectionProvider`: обычные запросы будут работать, но reconnect невозможен, и при transient disconnect библиотека упадет с явной ошибкой.
 
 Создать schema:
 
 ```bash
 vendor/bin/message-bus schema:postgres --with=all
+```
+
+Для production migration можно использовать SQL templates из `resources/postgres/schema/5.1`.
+
+Проверить schema:
+
+```bash
+vendor/bin/message-bus message-bus:postgres:schema:validate \
+  --dsn='pgsql:host=127.0.0.1;port=5432;dbname=app' \
+  --user='app' \
+  --password='secret'
 ```
 
 Запустить single worker:
@@ -375,8 +394,16 @@ vendor/bin/message-bus worker:run \
   --mode=auto \
   --workers=4 \
   --worker-name=emails-worker \
-  --worker-group=emails
+  --worker-group=emails \
+  --output-verbosity=normal \
+  --output-format=text \
+  --storage-failure-backoff=1000 \
+  --max-heartbeat-failures=3
 ```
+
+`--output-verbosity` управляет stdout/stderr событиями worker-а: `quiet`, `normal`, `debug`, `trace`.
+`--output-format` может быть `text` для Docker logs или `json` для log collectors.
+`--storage-failure-backoff` и `--max-heartbeat-failures` задают базовую hybrid failure policy после exhausted retry.
 
 Подробности: [docs/guides/async-queue.md](docs/guides/async-queue.md) и [docs/reference/queue-and-worker.md](docs/reference/queue-and-worker.md).
 
@@ -428,6 +455,20 @@ v5 не сохраняет совместимость registry/schema с v4.
 
 Подробная инструкция: [docs/migration/v4-to-v5.md](docs/migration/v4-to-v5.md).
 
+## Миграция с v5.0 на v5.1
+
+v5.1 расширяет PostgreSQL schema для worker control-plane и добавляет schema validation.
+
+Минимальный safe path:
+
+- остановить или drain-нуть v5.0 workers;
+- применить SQL из `resources/postgres/schema/5.1/all.sql`;
+- запустить `message-bus:postgres:schema:validate`;
+- перезапустить workers;
+- проверить `worker:status`.
+
+Подробная инструкция: [docs/migration/v5.0-to-v5.1.md](docs/migration/v5.0-to-v5.1.md).
+
 ## Framework integration
 
 Библиотека не навязывает framework. Основной контракт - PSR-11 container.
@@ -443,6 +484,7 @@ v5 не сохраняет совместимость registry/schema с v4.
 | Async очередь и запуск worker-а | [docs/guides/async-queue.md](docs/guides/async-queue.md) |
 | Сериализация payload | [docs/guides/payload-serialization.md](docs/guides/payload-serialization.md) |
 | Миграция с v4 на v5 | [docs/migration/v4-to-v5.md](docs/migration/v4-to-v5.md) |
+| Миграция с v5.0 на v5.1 | [docs/migration/v5.0-to-v5.1.md](docs/migration/v5.0-to-v5.1.md) |
 | Основные концепции | [docs/reference/core-concepts.md](docs/reference/core-concepts.md) |
 | Контракт контейнера | [docs/reference/container-contract.md](docs/reference/container-contract.md) |
 | Контракты очереди и worker-а | [docs/reference/queue-and-worker.md](docs/reference/queue-and-worker.md) |
@@ -458,11 +500,26 @@ v5 не сохраняет совместимость registry/schema с v4.
 composer test
 ```
 
-PostgreSQL integration tests запускаются только при наличии DSN:
+Default suite не запускает внешние integration tests.
+
+PostgreSQL integration profile:
+
+```bash
+docker compose -f docker-compose.integration.yml up -d --wait
+vendor/bin/phpunit -c phpunit.integration.xml.dist
+```
+
+Process/pcntl integration profile:
+
+```bash
+vendor/bin/phpunit -c phpunit.process.xml.dist
+```
+
+Если PostgreSQL уже поднят отдельно, можно передать DSN явно:
 
 ```bash
 MESSAGE_BUS_TEST_PGSQL_DSN='pgsql:host=127.0.0.1;port=5432;dbname=messagebus' \
 MESSAGE_BUS_TEST_PGSQL_USER='messagebus' \
 MESSAGE_BUS_TEST_PGSQL_PASSWORD='messagebus' \
-composer test
+vendor/bin/phpunit -c phpunit.integration.xml.dist
 ```

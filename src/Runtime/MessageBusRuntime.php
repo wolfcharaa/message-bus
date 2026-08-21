@@ -8,6 +8,7 @@ use PDO;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
+use Psr\Log\LoggerInterface;
 use RuntimeException;
 use Wolfcharaa\MessageBus\Discovery\ClassProviderInterface;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
@@ -19,13 +20,21 @@ use Wolfcharaa\MessageBus\Queue\MessageConsumerInterface;
 use Wolfcharaa\MessageBus\Queue\MessageBusQueueWorker;
 use Wolfcharaa\MessageBus\Queue\Postgres\PostgresMessageConsumer;
 use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueProvider;
-use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueStorage;
+use Wolfcharaa\MessageBus\Queue\Postgres\ResilientPostgresQueueStorage;
+use Wolfcharaa\MessageBus\Queue\QueueTableDefinition;
 use Wolfcharaa\MessageBus\Queue\QueueJobControlInterface;
 use Wolfcharaa\MessageBus\Queue\QueueProviderInterface;
 use Wolfcharaa\MessageBus\Queue\QueueStatusRepositoryInterface;
 use Wolfcharaa\MessageBus\Queue\QueueWorkerInterface;
 use Wolfcharaa\MessageBus\Queue\QueueWorkerRunner;
 use Wolfcharaa\MessageBus\Queue\RetryPolicyRegistryInterface;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidator;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidatorInterface;
+use Wolfcharaa\MessageBus\Postgres\PdoConnectionProviderInterface;
+use Wolfcharaa\MessageBus\Postgres\PostgresRetryConfig;
+use Wolfcharaa\MessageBus\Postgres\PostgresRetryingExecutor;
+use Wolfcharaa\MessageBus\Postgres\PostgresTransientFailureDetectorInterface;
+use Wolfcharaa\MessageBus\Postgres\StaticPdoConnectionProvider;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryInterface;
@@ -36,7 +45,8 @@ use Wolfcharaa\MessageBus\Exception\ContainerServiceNotFound;
 use Wolfcharaa\MessageBus\Serialization\JsonMessageSerializer;
 use Wolfcharaa\MessageBus\Serialization\MessageNameResolverInterface;
 use Wolfcharaa\MessageBus\Worker\DefaultWorkerControlService;
-use Wolfcharaa\MessageBus\Worker\Postgres\PostgresWorkerControlStorage;
+use Wolfcharaa\MessageBus\Worker\Postgres\ResilientPostgresWorkerControlStorage;
+use Wolfcharaa\MessageBus\Worker\WorkerControlTableDefinition;
 
 final class MessageBusRuntime
 {
@@ -49,6 +59,7 @@ final class MessageBusRuntime
         private readonly ?QueueStatusRepositoryInterface $queueStatus = null,
         private readonly ?QueueJobControlInterface $queueControl = null,
         private readonly ?WorkerControlRuntime $workerControlRuntime = null,
+        private readonly ?PostgresSchemaValidatorInterface $postgresSchemaValidator = null,
     ) {
     }
 
@@ -92,6 +103,11 @@ final class MessageBusRuntime
         return $this->workerControlRuntime;
     }
 
+    public function postgresSchemaValidator(): ?PostgresSchemaValidatorInterface
+    {
+        return $this->postgresSchemaValidator;
+    }
+
     public static function fromContainer(ContainerInterface $container): self
     {
         return new self(
@@ -103,11 +119,12 @@ final class MessageBusRuntime
             self::optional($container, QueueStatusRepositoryInterface::class, 'message_bus.queue_status', QueueStatusRepositoryInterface::class, 'queue status repository'),
             self::optional($container, QueueJobControlInterface::class, 'message_bus.queue_control', QueueJobControlInterface::class, 'queue job control'),
             self::optional($container, WorkerControlRuntime::class, 'message_bus.worker_control_runtime', WorkerControlRuntime::class, 'worker control runtime'),
+            self::optional($container, PostgresSchemaValidatorInterface::class, 'message_bus.postgres_schema_validator', PostgresSchemaValidatorInterface::class, 'PostgreSQL schema validator'),
         );
     }
 
     public static function postgres(
-        PDO $pdo,
+        PDO|PdoConnectionProviderInterface $pdo,
         MessageRegistryInterface $registry,
         ContainerInterface $container,
         ?FlowRegistry $flows = null,
@@ -115,16 +132,27 @@ final class MessageBusRuntime
         ?EnvelopeSerializerInterface $envelopeSerializer = null,
         ?RetryPolicyRegistryInterface $retryPolicyRegistry = null,
         ?WorkerControlRuntime $workerControlRuntime = null,
+        ?PostgresRetryConfig $postgresRetryConfig = null,
+        ?PostgresTransientFailureDetectorInterface $postgresTransientFailureDetector = null,
+        ?LoggerInterface $postgresLogger = null,
     ): self {
         $flows ??= new FlowRegistry(
             FlowDefinition::sync('default'),
             FlowDefinition::async('async')->transport('postgres', 'default'),
         );
 
-        $storage = new PostgresQueueStorage($pdo, $tableName);
+        $connectionProvider = $pdo instanceof PDO ? new StaticPdoConnectionProvider($pdo) : $pdo;
+        $connection = $connectionProvider->connection();
+        $postgresRetryExecutor = new PostgresRetryingExecutor(
+            $connectionProvider,
+            detector: $postgresTransientFailureDetector,
+            config: $postgresRetryConfig,
+            logger: $postgresLogger,
+        );
+        $storage = new ResilientPostgresQueueStorage($connectionProvider, $tableName, executor: $postgresRetryExecutor);
         $provider = new PostgresQueueProvider($storage);
         $consumer = new PostgresMessageConsumer($storage);
-        $workerControlRuntime ??= self::defaultPostgresWorkerControlRuntime($pdo);
+        $workerControlRuntime ??= self::defaultPostgresWorkerControlRuntime($connectionProvider, $postgresRetryExecutor);
         $envelopeSerializer ??= self::defaultEnvelopeSerializer($registry);
         $bus = new MessageBus(
             registry: $registry,
@@ -137,7 +165,21 @@ final class MessageBusRuntime
         $worker = new MessageBusQueueWorker($bus, $envelopeSerializer);
         $runner = new QueueWorkerRunner($consumer, $worker, queueControl: $storage);
 
-        return new self($bus, $runner, $provider, $consumer, $worker, $storage, $storage, $workerControlRuntime);
+        return new self(
+            $bus,
+            $runner,
+            $provider,
+            $consumer,
+            $worker,
+            $storage,
+            $storage,
+            $workerControlRuntime,
+            new PostgresSchemaValidator(
+                $connection,
+                queue: new QueueTableDefinition($tableName),
+                workerControl: new WorkerControlTableDefinition(),
+            ),
+        );
     }
 
     public static function compileRuntimeRegistry(
@@ -160,9 +202,12 @@ final class MessageBusRuntime
         return new DefaultEnvelopeSerializer(new JsonMessageSerializer($registry));
     }
 
-    private static function defaultPostgresWorkerControlRuntime(PDO $pdo): WorkerControlRuntime
+    private static function defaultPostgresWorkerControlRuntime(
+        PdoConnectionProviderInterface $connectionProvider,
+        ?PostgresRetryingExecutor $postgresRetryExecutor = null,
+    ): WorkerControlRuntime
     {
-        $storage = new PostgresWorkerControlStorage($pdo);
+        $storage = new ResilientPostgresWorkerControlStorage($connectionProvider, executor: $postgresRetryExecutor);
         $service = new DefaultWorkerControlService($storage, $storage);
 
         return new WorkerControlRuntime(

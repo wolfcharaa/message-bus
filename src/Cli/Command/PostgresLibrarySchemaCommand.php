@@ -11,6 +11,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueSchemaGenerator;
 use Wolfcharaa\MessageBus\Queue\QueueTableDefinition;
 use Wolfcharaa\MessageBus\Worker\Postgres\PostgresWorkerControlSchemaGenerator;
+use Wolfcharaa\MessageBus\Worker\WorkerControlTableDefinition;
 
 final class PostgresLibrarySchemaCommand extends Command
 {
@@ -25,6 +26,7 @@ final class PostgresLibrarySchemaCommand extends Command
             ->setDescription('Generate PostgreSQL schema for message-bus tables.')
             ->addOption('with', null, InputOption::VALUE_REQUIRED, default: 'all')
             ->addOption('queue-table', null, InputOption::VALUE_REQUIRED, default: 'message_bus__queue_jobs')
+            ->addOption('schema-version-table', null, InputOption::VALUE_REQUIRED, default: 'message_bus__schema_versions')
             ->addOption('output', null, InputOption::VALUE_REQUIRED);
     }
 
@@ -38,8 +40,13 @@ final class PostgresLibrarySchemaCommand extends Command
         $sql = [];
         foreach ($parts as $part) {
             $sql[] = match ($part) {
-                'queue' => (new PostgresQueueSchemaGenerator())->generate(new QueueTableDefinition($input->getOption('queue-table'))),
-                'worker-control' => (new PostgresWorkerControlSchemaGenerator())->generate(),
+                'queue' => (new PostgresQueueSchemaGenerator())->generate(
+                    new QueueTableDefinition($input->getOption('queue-table')),
+                    (string) $input->getOption('schema-version-table'),
+                ),
+                'worker-control' => (new PostgresWorkerControlSchemaGenerator())->generate(new WorkerControlTableDefinition(
+                    schemaVersionsTable: (string) $input->getOption('schema-version-table'),
+                )),
                 default => throw new \InvalidArgumentException('schema:postgres --with supports queue, worker-control or all.'),
             };
         }

@@ -22,6 +22,8 @@ final class PcntlAutoWorkerRunnerOptions
         public readonly int $heartbeatIntervalMilliseconds = 1000,
         public readonly int $forceKillTimeoutSeconds = 5,
         public readonly int $restartExitCode = 75,
+        public readonly int $storageFailureBackoffMilliseconds = 1000,
+        public readonly int $maxConsecutiveHeartbeatFailures = 3,
     ) {
     }
 }

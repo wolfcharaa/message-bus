@@ -10,7 +10,7 @@ use Wolfcharaa\MessageBus\Queue\ReceivedQueueMessage;
 
 final class PostgresMessageConsumer implements MessageConsumerInterface
 {
-    public function __construct(private readonly PostgresQueueStorage $storage)
+    public function __construct(private readonly PostgresQueueStorageInterface $storage)
     {
     }
 

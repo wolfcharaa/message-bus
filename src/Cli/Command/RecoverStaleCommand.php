@@ -11,7 +11,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Wolfcharaa\MessageBus\Cli\BootstrapResolver;
 use Wolfcharaa\MessageBus\Queue\ConsumerOptions;
-use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueStorage;
+use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueStorageInterface;
 
 #[AsCommand(name: 'queue:recover-stale')]
 final class RecoverStaleCommand extends Command
@@ -30,8 +30,8 @@ final class RecoverStaleCommand extends Command
         $runtime = (new BootstrapResolver())->resolve($input->getOption('bootstrap'));
         $status = $runtime instanceof \Wolfcharaa\MessageBus\Runtime\MessageBusRuntime ? $runtime->queueStatus() : null;
 
-        if (!$status instanceof PostgresQueueStorage) {
-            throw new \RuntimeException('queue:recover-stale requires MessageBusRuntime with PostgresQueueStorage.');
+        if (!$status instanceof PostgresQueueStorageInterface) {
+            throw new \RuntimeException('queue:recover-stale requires MessageBusRuntime with PostgresQueueStorageInterface.');
         }
 
         $count = $status->recoverStale(new ConsumerOptions(

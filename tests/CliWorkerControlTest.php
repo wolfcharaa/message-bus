@@ -105,6 +105,7 @@ final class CliWorkerControlTest extends TestCase
             'worker:status',
             'worker:schema:postgres',
             'schema:postgres',
+            'message-bus:postgres:schema:validate',
         ] as $name) {
             self::assertTrue($application->has($name));
         }

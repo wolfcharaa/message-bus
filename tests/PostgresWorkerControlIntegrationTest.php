@@ -7,6 +7,7 @@ namespace Wolfcharaa\MessageBus\Tests;
 use DateTimeImmutable;
 use DateTimeZone;
 use PDO;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
 use Wolfcharaa\MessageBus\Worker\Postgres\PostgresWorkerControlSchemaGenerator;
@@ -29,6 +30,7 @@ use Wolfcharaa\MessageBus\Worker\WorkerMode;
 use Wolfcharaa\MessageBus\Worker\WorkerTarget;
 
 #[RequiresPhpExtension('pdo_pgsql')]
+#[Group('integration')]
 final class PostgresWorkerControlIntegrationTest extends TestCase
 {
     private ?PDO $pdo = null;
@@ -38,11 +40,14 @@ final class PostgresWorkerControlIntegrationTest extends TestCase
     {
         if ($this->pdo !== null && $this->definition !== null) {
             foreach ([
+                $this->definition->commandAuditTable,
+                $this->definition->commandDeliveriesTable,
                 $this->definition->acknowledgementsTable,
                 $this->definition->childInstancesTable,
                 $this->definition->workerInstancesTable,
                 $this->definition->desiredStatesTable,
                 $this->definition->commandsTable,
+                $this->definition->schemaVersionsTable,
             ] as $table) {
                 $this->pdo->exec('DROP TABLE IF EXISTS ' . $this->quoteIdentifier($table));
             }
@@ -156,7 +161,9 @@ final class PostgresWorkerControlIntegrationTest extends TestCase
         if ($this->pdo === null) {
             $dsn = \getenv('MESSAGE_BUS_TEST_PGSQL_DSN');
             if ($dsn === false || $dsn === '') {
-                self::markTestSkipped('Set MESSAGE_BUS_TEST_PGSQL_DSN to run PostgreSQL worker control integration tests.');
+                self::markTestSkipped(
+                    'PostgreSQL worker control integration profile is not enabled. Run `docker compose -f docker-compose.integration.yml up -d` and `vendor/bin/phpunit -c phpunit.integration.xml.dist`.',
+                );
             }
 
             $this->pdo = new PDO(
@@ -178,6 +185,9 @@ final class PostgresWorkerControlIntegrationTest extends TestCase
                 workerInstancesTable: 'message_bus__worker_instances_test_' . $suffix,
                 childInstancesTable: 'message_bus__worker_child_instances_test_' . $suffix,
                 acknowledgementsTable: 'message_bus__worker_command_acknowledgements_test_' . $suffix,
+                commandDeliveriesTable: 'message_bus__worker_control_command_deliveries_test_' . $suffix,
+                commandAuditTable: 'message_bus__worker_control_command_audit_test_' . $suffix,
+                schemaVersionsTable: 'message_bus__schema_versions_test_' . $suffix,
             );
             $this->pdo->exec((new PostgresWorkerControlSchemaGenerator())->generate($this->definition));
         }

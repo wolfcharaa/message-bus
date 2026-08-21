@@ -19,12 +19,16 @@ final class PostgresSchemaCommand extends Command
     {
         $this
             ->addOption('table', null, InputOption::VALUE_REQUIRED, default: 'message_bus__queue_jobs')
+            ->addOption('schema-version-table', null, InputOption::VALUE_REQUIRED, default: 'message_bus__schema_versions')
             ->addOption('output', null, InputOption::VALUE_REQUIRED);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $sql = (new PostgresQueueSchemaGenerator())->generate(new QueueTableDefinition($input->getOption('table')));
+        $sql = (new PostgresQueueSchemaGenerator())->generate(
+            new QueueTableDefinition($input->getOption('table')),
+            (string) $input->getOption('schema-version-table'),
+        );
 
         if ($input->getOption('output') !== null) {
             \file_put_contents($input->getOption('output'), $sql . PHP_EOL);

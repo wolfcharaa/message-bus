@@ -82,10 +82,43 @@ vendor/bin/message-bus worker:run \
   --worker-name=emails-worker \
   --worker-group=emails \
   --worker-instance-id=emails-app-01-1 \
-  --host=app-01
+  --host=app-01 \
+  --output-verbosity=normal \
+  --output-format=text \
+  --storage-failure-backoff=1000 \
+  --max-heartbeat-failures=3
 ```
 
 Если `worker-instance-id` не передан, auto runner генерирует его сам.
+
+## CLI output и failure policy
+
+`worker:run` пишет lifecycle события, чтобы в Docker logs было видно, что worker стартовал, жив, получил control command или штатно остановился.
+
+Параметры вывода:
+
+- `--output-verbosity=quiet` - только fatal/error и явное завершение.
+- `--output-verbosity=normal` - default: start/config summary, heartbeat, control commands, stop.
+- `--output-verbosity=debug` - добавляет child start/finish и расширенную диагностику runtime.
+- `--output-verbosity=trace` - зарезервирован для максимально подробной диагностики.
+- `--output-format=text` - человекочитаемый формат для локальных Docker logs.
+- `--output-format=json` - JSON Lines для log collectors.
+
+Параметры устойчивости:
+
+- `--storage-failure-backoff=1000` - сколько миллисекунд ждать после exhausted retry в не-критичных storage operations.
+- `--max-heartbeat-failures=3` - сколько подряд heartbeat failures допустимо до fail-fast.
+
+Hybrid policy по умолчанию:
+
+- initial worker registration остается fail-fast;
+- control polling failure логируется и loop продолжается после backoff;
+- queue polling failure логируется и loop продолжается после backoff;
+- heartbeat failure допускается ограниченное число раз, затем process падает;
+- child register/finish failures логируются, parent process не падает сразу.
+
+Auto mode требует PHP extensions `pcntl` и `posix`.
+`pcntl` нужен для fork/signals/wait, `posix` - для signal/liveness операций вроде `posix_kill`.
 
 ## Targeting
 

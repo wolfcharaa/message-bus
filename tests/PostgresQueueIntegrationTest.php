@@ -6,6 +6,7 @@ namespace Wolfcharaa\MessageBus\Tests;
 
 use DateTimeImmutable;
 use PDO;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -22,6 +23,7 @@ use Wolfcharaa\MessageBus\Queue\RetryPolicySnapshot;
 use Wolfcharaa\MessageBus\Serialization\SerializedMessage;
 
 #[RequiresPhpExtension('pdo_pgsql')]
+#[Group('integration')]
 final class PostgresQueueIntegrationTest extends TestCase
 {
     private ?PDO $pdo = null;
@@ -123,7 +125,9 @@ final class PostgresQueueIntegrationTest extends TestCase
         if ($this->pdo === null) {
             $dsn = \getenv('MESSAGE_BUS_TEST_PGSQL_DSN');
             if ($dsn === false || $dsn === '') {
-                self::markTestSkipped('Set MESSAGE_BUS_TEST_PGSQL_DSN to run PostgreSQL integration tests.');
+                self::markTestSkipped(
+                    'PostgreSQL integration profile is not enabled. Run `docker compose -f docker-compose.integration.yml up -d` and `vendor/bin/phpunit -c phpunit.integration.xml.dist`.',
+                );
             }
 
             $this->pdo = new PDO(

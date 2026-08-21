@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: message_bus_test
+      POSTGRES_USER: message_bus
+      POSTGRES_PASSWORD: message_bus
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U message_bus -d message_bus_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

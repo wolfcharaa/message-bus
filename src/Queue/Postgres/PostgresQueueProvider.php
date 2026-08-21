@@ -11,7 +11,7 @@ use Wolfcharaa\MessageBus\Queue\QueueMessage;
 
 final class PostgresQueueProvider implements BatchQueueProviderInterface
 {
-    public function __construct(private readonly PostgresQueueStorage $storage)
+    public function __construct(private readonly PostgresQueueStorageInterface $storage)
     {
     }
 

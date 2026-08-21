@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/10.5/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true">
+    <testsuites>
+        <testsuite name="MessageBus PostgreSQL Integration Test Suite">
+            <file>tests/PostgresQueueIntegrationTest.php</file>
+            <file>tests/PostgresWorkerControlIntegrationTest.php</file>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="MESSAGE_BUS_TEST_PGSQL_DSN" value="pgsql:host=127.0.0.1;port=55432;dbname=message_bus_test"/>
+        <env name="MESSAGE_BUS_TEST_PGSQL_USER" value="message_bus"/>
+        <env name="MESSAGE_BUS_TEST_PGSQL_PASSWORD" value="message_bus"/>
+    </php>
+</phpunit>

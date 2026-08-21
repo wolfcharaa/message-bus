@@ -7,6 +7,7 @@ namespace Wolfcharaa\MessageBus\Cli;
 use Symfony\Component\Console\Application;
 use Wolfcharaa\MessageBus\Cli\Command\PostgresSchemaCommand;
 use Wolfcharaa\MessageBus\Cli\Command\PostgresLibrarySchemaCommand;
+use Wolfcharaa\MessageBus\Cli\Command\PostgresSchemaValidateCommand;
 use Wolfcharaa\MessageBus\Cli\Command\RecoverStaleCommand;
 use Wolfcharaa\MessageBus\Cli\Command\RegistryCompileCommand;
 use Wolfcharaa\MessageBus\Cli\Command\WorkerControlActionCommand;
@@ -33,6 +34,7 @@ final class ApplicationFactory
         $application->add(new PostgresSchemaCommand());
         $application->add(new WorkerPostgresSchemaCommand());
         $application->add(new PostgresLibrarySchemaCommand());
+        $application->add(new PostgresSchemaValidateCommand());
         $application->add(new RecoverStaleCommand());
         $application->add(new RegistryCompileCommand());
 

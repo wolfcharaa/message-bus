@@ -4,12 +4,24 @@ declare(strict_types=1);
 
 namespace Wolfcharaa\MessageBus\Tests;
 
+use BackedEnum;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 use Wolfcharaa\MessageBus\Cli\ApplicationFactory;
+use Wolfcharaa\MessageBus\Cli\ExitCode;
+use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Envelope\SerializedEnvelope;
+use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
+use Wolfcharaa\MessageBus\MessageBatchItem;
+use Wolfcharaa\MessageBus\MessageBusInterface;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaComponent;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidationIssue;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidationResult;
+use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidatorInterface;
+use Wolfcharaa\MessageBus\PublishOptions;
+use Wolfcharaa\MessageBus\PublishResult;
 use Wolfcharaa\MessageBus\Queue\ConsumerOptions;
 use Wolfcharaa\MessageBus\Queue\MessageConsumerInterface;
 use Wolfcharaa\MessageBus\Queue\QueueMessage;
@@ -39,6 +51,8 @@ final class CliRuntimeV5Test extends TestCase
         }
 
         self::assertSame(Command::SUCCESS, $exitCode);
+        self::assertStringContainsString('worker.started', $tester->getDisplay());
+        self::assertStringContainsString('worker.stopped', $tester->getDisplay());
         self::assertStringContainsString('handled=1 succeeded=1 retried=0 rejected=0 cancelled=0', $tester->getDisplay());
     }
 
@@ -67,8 +81,37 @@ final class CliRuntimeV5Test extends TestCase
 
         self::assertTrue($definition->hasOption('mode'));
         self::assertTrue($definition->hasOption('workers'));
+        self::assertTrue($definition->hasOption('output-verbosity'));
+        self::assertTrue($definition->hasOption('output-format'));
+        self::assertTrue($definition->hasOption('storage-failure-backoff'));
+        self::assertTrue($definition->hasOption('max-heartbeat-failures'));
         self::assertSame('single', $definition->getOption('mode')->getDefault());
         self::assertSame(2, $definition->getOption('workers')->getDefault());
+        self::assertSame('normal', $definition->getOption('output-verbosity')->getDefault());
+        self::assertSame('text', $definition->getOption('output-format')->getDefault());
+        self::assertSame(1000, $definition->getOption('storage-failure-backoff')->getDefault());
+        self::assertSame(3, $definition->getOption('max-heartbeat-failures')->getDefault());
+    }
+
+    public function testWorkerRunAutoModeFailsFastWhenPostgresSchemaIsInvalid(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . CliRuntimeV5Factory::class . '::runtimeWithInvalidPostgresSchema();');
+
+        try {
+            $tester = new CommandTester(ApplicationFactory::create()->find('worker:run'));
+            $exitCode = $tester->execute([
+                '--bootstrap' => $bootstrap,
+                '--mode' => 'auto',
+                '--transport' => 'postgres',
+                '--stop-when-empty' => true,
+            ]);
+        } finally {
+            @\unlink($bootstrap);
+        }
+
+        self::assertSame(ExitCode::SchemaMismatch->value, $exitCode);
+        self::assertStringContainsString('MessageBus PostgreSQL schema is not compatible with worker auto mode.', $tester->getDisplay());
+        self::assertStringContainsString('schema.version_missing', $tester->getDisplay());
     }
 
     private function bootstrap(string $body): string
@@ -94,6 +137,16 @@ final class CliRuntimeV5Factory
     public static function runtimeWithoutWorker(): MessageBusRuntime
     {
         throw new \LogicException('Reserved for future CLI runtime tests.');
+    }
+
+    public static function runtimeWithInvalidPostgresSchema(): MessageBusRuntime
+    {
+        return new MessageBusRuntime(
+            new CliRuntimeV5Bus(),
+            consumer: new CliRuntimeV5Consumer([]),
+            worker: new CliRuntimeV5Worker(),
+            postgresSchemaValidator: new CliRuntimeV5InvalidPostgresSchemaValidator(),
+        );
     }
 
     private static function received(): ReceivedQueueMessage
@@ -122,6 +175,84 @@ final class CliRuntimeV5Factory
                 'cli.runtime.handle',
                 $createdAt,
             ),
+        );
+    }
+}
+
+final class CliRuntimeV5Bus implements MessageBusInterface
+{
+    public function dispatch(
+        object $message,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): mixed {
+        throw new \LogicException('Not used by CLI runtime tests.');
+    }
+
+    public function dispatchAll(
+        object $message,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): HandlerExecutionResultInterface {
+        throw new \LogicException('Not used by CLI runtime tests.');
+    }
+
+    public function publish(
+        object $message,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): PublishResult {
+        throw new \LogicException('Not used by CLI runtime tests.');
+    }
+
+    /**
+     * @param iterable<object|MessageBatchItem> $messages
+     */
+    public function publishMany(
+        iterable $messages,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): PublishResult {
+        throw new \LogicException('Not used by CLI runtime tests.');
+    }
+
+    public function dispatchPublishedSync(
+        object $message,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): HandlerExecutionResultInterface {
+        throw new \LogicException('Not used by CLI runtime tests.');
+    }
+
+    public function dispatchBindingSync(
+        object $message,
+        string|BackedEnum $bindingId,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): mixed {
+        throw new \LogicException('Not used by CLI runtime tests.');
+    }
+
+    public function dispatchEnvelopeToBinding(Envelope $envelope): mixed
+    {
+        throw new \LogicException('Not used by CLI runtime tests.');
+    }
+}
+
+final class CliRuntimeV5InvalidPostgresSchemaValidator implements PostgresSchemaValidatorInterface
+{
+    public function validate(?array $components = null): PostgresSchemaValidationResult
+    {
+        return new PostgresSchemaValidationResult(
+            [PostgresSchemaComponent::Queue->value => '5.1', PostgresSchemaComponent::WorkerControl->value => '5.1'],
+            [PostgresSchemaComponent::Queue->value => '5.1', PostgresSchemaComponent::WorkerControl->value => null],
+            [
+                new PostgresSchemaValidationIssue(
+                    'schema.version_missing',
+                    'Schema version for component `worker_control` is missing. Required version: 5.1.',
+                    PostgresSchemaComponent::WorkerControl,
+                ),
+            ],
         );
     }
 }
