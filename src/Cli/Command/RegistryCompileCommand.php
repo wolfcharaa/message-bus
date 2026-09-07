@@ -24,6 +24,7 @@ final class RegistryCompileCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        // TODO(next-major): accept provider/flow bootstrap and render compileWithDiagnostics() output directly from this command.
         $value = require $input->getOption('bootstrap');
 
         if (!$value instanceof MessageRegistryDefinition) {

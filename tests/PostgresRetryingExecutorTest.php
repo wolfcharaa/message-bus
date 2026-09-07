@@ -117,6 +117,37 @@ final class PostgresRetryingExecutorTest extends TestCase
         self::assertSame(1, $provider->resetCount);
     }
 
+    public function testTransactionalOperationReusesAlreadyOpenTransaction(): void
+    {
+        $pdo = new RetryExecutorTestPdo();
+        $executor = new PostgresRetryingExecutor(
+            new StaticPdoConnectionProvider($pdo),
+            config: new PostgresRetryConfig(initialDelayMilliseconds: 0, jitter: false),
+        );
+
+        $pdo->beginTransaction();
+
+        try {
+            $result = $executor->transactional(
+                'pipeline.nested_dispatch',
+                OperationSafety::NonIdempotent,
+                static function (PDO $nestedPdo) use ($pdo): string {
+                    self::assertSame($pdo, $nestedPdo);
+                    self::assertTrue($nestedPdo->inTransaction());
+
+                    return 'inside-existing-transaction';
+                },
+            );
+
+            self::assertSame('inside-existing-transaction', $result);
+            self::assertTrue($pdo->inTransaction());
+        } finally {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+        }
+    }
+
     public function testDefaultDetectorRecognizesKnownPostgresDisconnects(): void
     {
         $detector = new DefaultPostgresTransientFailureDetector();
@@ -129,7 +160,7 @@ final class PostgresRetryingExecutorTest extends TestCase
 
     public function testStaticProviderResetFailsExplicitly(): void
     {
-        $provider = new StaticPdoConnectionProvider(new PDO('sqlite::memory:'));
+        $provider = new StaticPdoConnectionProvider(new RetryExecutorTestPdo());
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('StaticPdoConnectionProvider cannot reset PDO connection');
@@ -140,7 +171,7 @@ final class PostgresRetryingExecutorTest extends TestCase
     public function testStaticProviderFailsExplicitlyAfterTransientDisconnect(): void
     {
         $executor = new PostgresRetryingExecutor(
-            new StaticPdoConnectionProvider(new PDO('sqlite::memory:')),
+            new StaticPdoConnectionProvider(new RetryExecutorTestPdo()),
             config: new PostgresRetryConfig(
                 attempts: 2,
                 initialDelayMilliseconds: 0,
@@ -169,16 +200,63 @@ final class PostgresRetryingExecutorTest extends TestCase
 final class RetryExecutorTestConnectionProvider implements PdoConnectionProviderInterface
 {
     public int $resetCount = 0;
-    private ?PDO $connection = null;
+    private ?RetryExecutorTestPdo $connection = null;
 
     public function connection(): PDO
     {
-        return $this->connection ??= new PDO('sqlite::memory:');
+        return $this->connection ??= new RetryExecutorTestPdo();
     }
 
     public function reset(): void
     {
         ++$this->resetCount;
         $this->connection = null;
+    }
+}
+
+final class RetryExecutorTestPdo extends PDO
+{
+    private bool $transactionActive = false;
+
+    public function __construct()
+    {
+    }
+
+    public function beginTransaction(): bool
+    {
+        if ($this->transactionActive) {
+            throw new PDOException('There is already an active transaction.');
+        }
+
+        $this->transactionActive = true;
+
+        return true;
+    }
+
+    public function inTransaction(): bool
+    {
+        return $this->transactionActive;
+    }
+
+    public function commit(): bool
+    {
+        if (!$this->transactionActive) {
+            throw new PDOException('There is no active transaction.');
+        }
+
+        $this->transactionActive = false;
+
+        return true;
+    }
+
+    public function rollBack(): bool
+    {
+        if (!$this->transactionActive) {
+            throw new PDOException('There is no active transaction.');
+        }
+
+        $this->transactionActive = false;
+
+        return true;
     }
 }

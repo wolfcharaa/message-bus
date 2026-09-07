@@ -257,6 +257,7 @@ final class MessageBus implements MessageBusInterface
         ?Envelope $causation,
         bool $forceSequential = false,
     ): HandlerExecutionResultInterface {
+        // TODO(next-major): let dispatch/publish receive an explicit transaction boundary state instead of relying on interceptor-owned guards.
         if ($bindings === []) {
             throw new BindingNotFound(\sprintf('Message `%s` has no matching bindings.', $message::class));
         }
