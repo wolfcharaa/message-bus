@@ -9,6 +9,7 @@ use Wolfcharaa\MessageBus\Exception\ContainerServiceInvalid;
 use Wolfcharaa\MessageBus\Exception\ContainerServiceNotFound;
 use Wolfcharaa\MessageBus\Invoker\CallableInvokerInterface;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
+use Wolfcharaa\MessageBus\Registry\HandlerInvocationMode;
 
 final class Pipeline implements PipelineInterface
 {
@@ -36,10 +37,15 @@ final class Pipeline implements PipelineInterface
         }
 
         try {
+            $arguments = [$this->context->envelope()->message];
+            if ($this->binding->invocationMode === HandlerInvocationMode::ContextAware) {
+                $arguments[] = $this->context;
+            }
+
             return $this->invoker->invoke(
                 $this->binding->action,
                 $this->binding->method,
-                [$this->context->envelope()->message, $this->context],
+                $arguments,
             );
         } catch (ContainerServiceNotFound $e) {
             throw $e->withContext('handler', $this->binding->bindingId, $this->binding->flow);

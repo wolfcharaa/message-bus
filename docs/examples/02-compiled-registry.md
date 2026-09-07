@@ -2,6 +2,8 @@
 
 Registry можно собрать в build step и загрузить как PHP artifact.
 
+Для готовой CLI-команды, readable diagnostics и `--explain` используйте [Registry compilation and diagnostics](../guides/registry-compilation.md).
+
 ```php
 use DI\ContainerBuilder;
 use Wolfcharaa\MessageBus\Discovery\ChainClassProvider;
@@ -20,7 +22,7 @@ $provider = new ChainClassProvider(
 
 $definition = (new MessageRegistryCompiler())->compile(
     $provider,
-    libraryVersion: '5.0.0',
+    libraryVersion: '5.2.0',
     sourceHash: 'build-hash',
 );
 

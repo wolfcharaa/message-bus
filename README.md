@@ -22,8 +22,10 @@ MessageBus полезен, когда в приложении появляютс
 | --- | --- | --- |
 | `dispatch()` | Выполнить command/query синхронно и получить result | [Quick start](docs/guides/quick-start.md) |
 | `publish()` | Опубликовать event в один или несколько handlers | [Event guide](docs/guides/events.md) |
+| `DomainHandler` | Выполнить небольшую domain capability без доступа к nested dispatch/publish | [Domain handlers](docs/guides/domain-handlers.md) |
 | Flows | Разделить sync, async, queue, middleware и execution strategy | [Core concepts](docs/reference/core-concepts.md) |
 | Compiled registry | Получить стабильную карту messages/handlers/aliases/bindings | [Core concepts](docs/reference/core-concepts.md) |
+| Registry diagnostics | Проверить bindings, signatures, flows и project rules в CLI/CI | [Registry compilation](docs/guides/registry-compilation.md) |
 | Payload serialization | Выбрать JSON, PHP serialize, protobuf или custom payload | [Payload serialization](docs/guides/payload-serialization.md) |
 | PostgreSQL queue | Поставить async jobs в БД и запускать workers | [Async queue](docs/guides/async-queue.md) |
 | Queue status/control | Вернуть frontend `queueMessageId`, polling status и cancel | [Queue and worker](docs/reference/queue-and-worker.md) |
@@ -185,10 +187,11 @@ MessageBus отвечает за:
 
 1. README до конца, чтобы понять общую модель.
 2. [Quick start](docs/guides/quick-start.md), чтобы собрать первый sync command.
-3. [Event guide](docs/guides/events.md), если нужны events и fan-out.
-4. [Async queue](docs/guides/async-queue.md), если нужны queue jobs и workers.
-5. [Worker control plane](docs/reference/worker-control-plane.md), если workers будут жить в production.
-6. [Migration v4 to v5](docs/migration/v4-to-v5.md), если обновляетесь с предыдущей версии.
+3. [Domain handlers](docs/guides/domain-handlers.md), если domain capability не должна получать MessageBus context.
+4. [Event guide](docs/guides/events.md), если нужны events и fan-out.
+5. [Async queue](docs/guides/async-queue.md), если нужны queue jobs и workers.
+6. [Worker control plane](docs/reference/worker-control-plane.md), если workers будут жить в production.
+7. [Migration v4 to v5](docs/migration/v4-to-v5.md), если обновляетесь с предыдущей версии.
 
 ## Install
 
@@ -284,7 +287,7 @@ $definition = (new MessageRegistryCompiler())->compile(
         CreateUserAction::class,
     ]),
     new FlowRegistry(),
-    '5.0.0',
+    '5.2.0',
 );
 
 $registry = new CompiledMessageRegistry($definition);
@@ -482,6 +485,12 @@ v5.1 расширяет PostgreSQL schema для worker control-plane и доб�
 
 Подробная инструкция: [docs/migration/v5.0-to-v5.1.md](docs/migration/v5.0-to-v5.1.md).
 
+## Миграция с v5.1 на v5.2
+
+v5.2 добавляет typed registry diagnostics, обновлённый `registry:compile` и contextless `DomainHandler`. PostgreSQL schema не меняется, но compiled registry artifact рекомендуется пересобрать.
+
+Подробная инструкция: [docs/migration/v5.1-to-v5.2.md](docs/migration/v5.1-to-v5.2.md).
+
 ## Framework integration
 
 Библиотека не навязывает framework. Основной контракт - PSR-11 container.
@@ -493,11 +502,14 @@ v5.1 расширяет PostgreSQL schema для worker control-plane и доб�
 | Раздел | Документ |
 | --- | --- |
 | Подробный быстрый старт | [docs/guides/quick-start.md](docs/guides/quick-start.md) |
+| Domain capability без MessageBus context | [docs/guides/domain-handlers.md](docs/guides/domain-handlers.md) |
+| Компиляция registry и CLI diagnostics | [docs/guides/registry-compilation.md](docs/guides/registry-compilation.md) |
 | События, `MessageAlias` и `bindingId` | [docs/guides/events.md](docs/guides/events.md) |
 | Async очередь и запуск worker-а | [docs/guides/async-queue.md](docs/guides/async-queue.md) |
 | Сериализация payload | [docs/guides/payload-serialization.md](docs/guides/payload-serialization.md) |
 | Миграция с v4 на v5 | [docs/migration/v4-to-v5.md](docs/migration/v4-to-v5.md) |
 | Миграция с v5.0 на v5.1 | [docs/migration/v5.0-to-v5.1.md](docs/migration/v5.0-to-v5.1.md) |
+| Миграция с v5.1 на v5.2 | [docs/migration/v5.1-to-v5.2.md](docs/migration/v5.1-to-v5.2.md) |
 | Основные концепции | [docs/reference/core-concepts.md](docs/reference/core-concepts.md) |
 | Контракт контейнера | [docs/reference/container-contract.md](docs/reference/container-contract.md) |
 | Контракты очереди и worker-а | [docs/reference/queue-and-worker.md](docs/reference/queue-and-worker.md) |

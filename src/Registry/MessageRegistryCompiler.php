@@ -24,6 +24,7 @@ use Wolfcharaa\MessageBus\Middleware\PipelineInterface as LegacyPipelineInterfac
 final class MessageRegistryCompiler
 {
     public const SCHEMA_VERSION = 5;
+    public const LIBRARY_VERSION = '5.2.0';
 
     private const SOURCE_COMPILER = 'message_bus.registry.compiler';
     private const SOURCE_FLOW_VALIDATION = 'message_bus.registry.flow_validation';
@@ -40,7 +41,7 @@ final class MessageRegistryCompiler
     public function compile(
         ClassProviderInterface $provider,
         ?FlowRegistry $flows = null,
-        string $libraryVersion = '5.0.0',
+        string $libraryVersion = self::LIBRARY_VERSION,
         string $sourceHash = '',
         ?MessageRegistryCompilerOptions $options = null,
     ): MessageRegistryDefinition {
@@ -62,17 +63,21 @@ final class MessageRegistryCompiler
     public function compileWithDiagnostics(
         ClassProviderInterface $provider,
         ?FlowRegistry $flows = null,
-        string $libraryVersion = '5.0.0',
+        string $libraryVersion = self::LIBRARY_VERSION,
         string $sourceHash = '',
         ?MessageRegistryCompilerOptions $options = null,
     ): RegistryCompilationResult {
         $options ??= new MessageRegistryCompilerOptions();
+        $usesDefaultFlows = $flows === null;
         $flows ??= new FlowRegistry();
         $diagnostics = [];
 
         $discovered = $this->discovery->discoverWithDiagnostics($provider);
         $diagnostics = [...$diagnostics, ...$discovered->diagnostics];
         $bindings = $discovered->bindings;
+        if ($usesDefaultFlows && $this->hasDomainBindings($bindings)) {
+            $flows = $this->withDefaultDomainCapabilityFlow($flows);
+        }
         $aliases = $discovered->aliases;
         $messageNames = $discovered->messageNames;
         $graphContext = $this->graphContext(RegistryCompilationStage::HandlersDiscovered, $bindings, $aliases, $messageNames, $flows);
@@ -96,7 +101,7 @@ final class MessageRegistryCompiler
         }
 
         $this->validateAliases($aliases, $diagnostics);
-        $this->validateBindings($bindings, $flows, $messageNames, $diagnostics);
+        $this->validateBindings($bindings, $flows, $messageNames, $diagnostics, $options);
         $graphContext = $this->graphContext(RegistryCompilationStage::CoreValidated, $bindings, $aliases, $messageNames, $flows);
 
         if ($this->hasErrorDiagnostics($diagnostics)) {
@@ -243,6 +248,18 @@ final class MessageRegistryCompiler
         foreach ($bindings as $binding) {
             $flow = $this->flow($flows, $binding->flow, $diagnostics, $binding);
             if ($flow === null) {
+                continue;
+            }
+
+            if ($binding->role === HandlerRole::Domain && !$flow->isSync()) {
+                $diagnostics[] = RegistryDiagnostic::error(
+                    RegistryDiagnosticCodes::DOMAIN_HANDLER_ASYNC_FLOW,
+                    \sprintf('DomainHandler `%s` must be bound to sync flow.', $binding->action),
+                    $this->originForBinding($binding, self::SOURCE_COMPILER),
+                    RegistryDiagnosticTarget::fromBinding($binding),
+                    'Move async orchestration to a pipeline handler and keep domain capability handlers sync/contextless.',
+                );
+
                 continue;
             }
 
@@ -399,7 +416,13 @@ final class MessageRegistryCompiler
      * @param array<class-string, string> $messageNames
      * @param list<RegistryDiagnostic> $diagnostics
      */
-    private function validateBindings(array $bindings, FlowRegistry $flows, array $messageNames, array &$diagnostics): void
+    private function validateBindings(
+        array $bindings,
+        FlowRegistry $flows,
+        array $messageNames,
+        array &$diagnostics,
+        MessageRegistryCompilerOptions $options,
+    ): void
     {
         $bindingIds = [];
 
@@ -436,10 +459,22 @@ final class MessageRegistryCompiler
                 continue;
             }
 
+            if ($binding->role === HandlerRole::Domain && !$flow->isSync()) {
+                $diagnostics[] = RegistryDiagnostic::error(
+                    RegistryDiagnosticCodes::DOMAIN_HANDLER_ASYNC_FLOW,
+                    \sprintf('DomainHandler `%s` must be bound to sync flow.', $binding->action),
+                    $this->originForBinding($binding, self::SOURCE_COMPILER),
+                    RegistryDiagnosticTarget::fromBinding($binding),
+                    'Move async orchestration to a pipeline handler and keep domain capability handlers sync/contextless.',
+                );
+
+                continue;
+            }
+
             $this->validateHandlerSignature($binding, $flow, $diagnostics);
 
             foreach ([...$flow->middleware, ...$binding->middleware] as $middleware) {
-                $this->validateMiddlewareSignature($middleware, $flow, $diagnostics, $binding);
+                $this->validateMiddlewareSignature($middleware, $flow, $diagnostics, $binding, $options);
             }
 
             if ($binding->kind === HandlerKind::Query && !$flow->isSync()) {
@@ -592,14 +627,15 @@ final class MessageRegistryCompiler
         $method = new ReflectionMethod($binding->action, $binding->method);
         $origin = RegistryDiagnosticOrigin::fromReflectionMethod($method, self::SOURCE_HANDLER_SIGNATURE);
         $params = $method->getParameters();
+        $contextless = $binding->invocationMode === HandlerInvocationMode::Contextless;
 
-        if (\count($params) < 2) {
+        if ($params === []) {
             $diagnostics[] = RegistryDiagnostic::error(
                 RegistryDiagnosticCodes::HANDLER_INVALID_SIGNATURE,
-                \sprintf('Handler `%s::%s` must accept message and context arguments.', $binding->action, $binding->method),
+                \sprintf('Handler `%s::%s` must accept message argument.', $binding->action, $binding->method),
                 $origin,
                 $target,
-                'Handler signature must be __invoke(Message $message, MessageContextInterface $context): Result.',
+                'Handler signature must start with the message class from the handler attribute.',
             );
 
             return;
@@ -615,6 +651,34 @@ final class MessageRegistryCompiler
             );
         }
 
+        if ($contextless) {
+            if (\count($params) > 1) {
+                $diagnostics[] = RegistryDiagnostic::error(
+                    RegistryDiagnosticCodes::HANDLER_INVALID_SIGNATURE,
+                    \sprintf('Contextless handler `%s::%s` must not accept MessageContextInterface.', $binding->action, $binding->method),
+                    $origin,
+                    $target,
+                    'DomainHandler methods must use __invoke(Message $message): Result and leave orchestration in pipeline handlers.',
+                );
+            }
+
+            $this->validateHandlerReturnType($binding, $method, $origin, $target, $diagnostics);
+
+            return;
+        }
+
+        if (\count($params) < 2) {
+            $diagnostics[] = RegistryDiagnostic::error(
+                RegistryDiagnosticCodes::HANDLER_INVALID_SIGNATURE,
+                \sprintf('Handler `%s::%s` must accept message and context arguments.', $binding->action, $binding->method),
+                $origin,
+                $target,
+                'Handler signature must be __invoke(Message $message, MessageContextInterface $context): Result.',
+            );
+
+            return;
+        }
+
         if (!$this->contextParameterAccepts($params[1]->getType(), $flow)) {
             $diagnostics[] = RegistryDiagnostic::error(
                 RegistryDiagnosticCodes::HANDLER_INVALID_SIGNATURE,
@@ -625,6 +689,17 @@ final class MessageRegistryCompiler
             );
         }
 
+        $this->validateHandlerReturnType($binding, $method, $origin, $target, $diagnostics);
+    }
+
+    /** @param list<RegistryDiagnostic> $diagnostics */
+    private function validateHandlerReturnType(
+        HandlerBindingDefinition $binding,
+        ReflectionMethod $method,
+        RegistryDiagnosticOrigin $origin,
+        RegistryDiagnosticTarget $target,
+        array &$diagnostics,
+    ): void {
         $returnType = $method->getReturnType();
         if ($binding->kind === HandlerKind::Query && $this->isVoid($returnType)) {
             $diagnostics[] = RegistryDiagnostic::error(
@@ -647,8 +722,36 @@ final class MessageRegistryCompiler
         }
     }
 
+    /** @param list<HandlerBindingDefinition> $bindings */
+    private function hasDomainBindings(array $bindings): bool
+    {
+        foreach ($bindings as $binding) {
+            if ($binding->role === HandlerRole::Domain) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function withDefaultDomainCapabilityFlow(FlowRegistry $flows): FlowRegistry
+    {
+        if (isset($flows->all()['domain_capability'])) {
+            return $flows;
+        }
+
+        // TODO(next-major): require explicit domain_capability flow in project bootstrap after RegistryCompileInput adoption is complete.
+        return new FlowRegistry(...\array_merge(\array_values($flows->all()), [FlowDefinition::sync('domain_capability')]));
+    }
+
     /** @param list<RegistryDiagnostic> $diagnostics */
-    private function validateMiddlewareSignature(string $middleware, FlowDefinition $flow, array &$diagnostics, HandlerBindingDefinition $binding): void
+    private function validateMiddlewareSignature(
+        string $middleware,
+        FlowDefinition $flow,
+        array &$diagnostics,
+        HandlerBindingDefinition $binding,
+        MessageRegistryCompilerOptions $options,
+    ): void
     {
         // TODO(next-major): rename this validator and registry metadata from middleware to interceptor after legacy API aliases are enough.
         $target = new RegistryDiagnosticTarget(
@@ -709,6 +812,44 @@ final class MessageRegistryCompiler
                 'Make the second interceptor argument accept Interceptor\\PipelineInterface.',
             );
         }
+
+        if ($options->deprecations !== DeprecationDiagnosticsMode::Ignore
+            && $this->usesLegacyMiddlewareApi($middleware, $params[1]->getType())) {
+            $diagnostic = [
+                RegistryDiagnosticCodes::INTERCEPTOR_LEGACY_MIDDLEWARE,
+                \sprintf('Interceptor `%s` uses the deprecated Middleware API.', $middleware),
+                $origin,
+                $target,
+                'Use Wolfcharaa\\MessageBus\\Interceptor and Interceptor\\PipelineInterface for new code.',
+            ];
+
+            $diagnostics[] = $options->deprecations === DeprecationDiagnosticsMode::Fail
+                ? RegistryDiagnostic::error(...$diagnostic)
+                : RegistryDiagnostic::warning(...$diagnostic);
+        }
+    }
+
+    private function usesLegacyMiddlewareApi(string $middleware, ?\ReflectionType $pipelineType): bool
+    {
+        return \str_starts_with($middleware, 'Wolfcharaa\\MessageBus\\Middleware\\')
+            || $this->typeReferences($pipelineType, LegacyPipelineInterface::class);
+    }
+
+    private function typeReferences(?\ReflectionType $type, string $class): bool
+    {
+        if ($type instanceof ReflectionNamedType) {
+            return !$type->isBuiltin() && $type->getName() === $class;
+        }
+
+        if ($type instanceof ReflectionUnionType) {
+            foreach ($type->getTypes() as $inner) {
+                if ($this->typeReferences($inner, $class)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /** @param list<RegistryDiagnostic> $diagnostics */

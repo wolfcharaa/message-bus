@@ -17,6 +17,7 @@ use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
 use Wolfcharaa\MessageBus\Interceptor\PipelineInterface as InterceptorPipelineInterface;
 use Wolfcharaa\MessageBus\Middleware\PipelineInterface;
+use Wolfcharaa\MessageBus\Registry\DeprecationDiagnosticsMode;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompilerOptions;
 use Wolfcharaa\MessageBus\Registry\RegistryCompilationException;
@@ -127,13 +128,49 @@ final class RegistryDiagnosticsTest extends TestCase
 
     public function testCompileAcceptsNewInterceptorPipelineInterface(): void
     {
-        $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
-            DiagnosticsNewInterceptorMessage::class,
-            DiagnosticsNewInterceptorHandler::class,
-        ]));
+        $result = (new MessageRegistryCompiler())->compileWithDiagnostics(
+            new ClassListProvider([
+                DiagnosticsNewInterceptorMessage::class,
+                DiagnosticsNewInterceptorHandler::class,
+            ]),
+            options: new MessageRegistryCompilerOptions(deprecations: DeprecationDiagnosticsMode::Fail),
+        );
 
         self::assertTrue($result->hasDefinition());
         self::assertFalse($result->hasErrors());
+    }
+
+    public function testLegacyMiddlewareDeprecationModeControlsDiagnosticsAndFailure(): void
+    {
+        $provider = new ClassListProvider([
+            DiagnosticsLegacyInterceptorMessage::class,
+            DiagnosticsLegacyInterceptorHandler::class,
+        ]);
+        $compiler = new MessageRegistryCompiler();
+
+        $ignored = $compiler->compileWithDiagnostics($provider);
+        self::assertTrue($ignored->hasDefinition());
+        self::assertNull(self::diagnostic($ignored->diagnostics, RegistryDiagnosticCodes::INTERCEPTOR_LEGACY_MIDDLEWARE));
+
+        $warned = $compiler->compileWithDiagnostics(
+            $provider,
+            options: new MessageRegistryCompilerOptions(deprecations: DeprecationDiagnosticsMode::Warn),
+        );
+        self::assertTrue($warned->hasDefinition());
+        self::assertSame(
+            RegistryDiagnosticSeverity::Warning,
+            self::diagnostic($warned->diagnostics, RegistryDiagnosticCodes::INTERCEPTOR_LEGACY_MIDDLEWARE)?->severity,
+        );
+
+        $failed = $compiler->compileWithDiagnostics(
+            $provider,
+            options: new MessageRegistryCompilerOptions(deprecations: DeprecationDiagnosticsMode::Fail),
+        );
+        self::assertFalse($failed->hasDefinition());
+        self::assertSame(
+            RegistryDiagnosticSeverity::Error,
+            self::diagnostic($failed->diagnostics, RegistryDiagnosticCodes::INTERCEPTOR_LEGACY_MIDDLEWARE)?->severity,
+        );
     }
 
     public function testLegacyCompileThrowsExceptionWithTypedDiagnostics(): void
@@ -171,15 +208,26 @@ final class RegistryDiagnosticsTest extends TestCase
     /** @param list<RegistryDiagnostic> $diagnostics */
     private static function assertDiagnosticCode(array $diagnostics, string $code): void
     {
-        foreach ($diagnostics as $diagnostic) {
-            if ($diagnostic->code === $code) {
-                self::assertSame(RegistryDiagnosticSeverity::Error, $diagnostic->severity);
+        $diagnostic = self::diagnostic($diagnostics, $code);
+        if ($diagnostic !== null) {
+            self::assertSame(RegistryDiagnosticSeverity::Error, $diagnostic->severity);
 
-                return;
-            }
+            return;
         }
 
         self::fail('Diagnostic code not found: ' . $code);
+    }
+
+    /** @param list<RegistryDiagnostic> $diagnostics */
+    private static function diagnostic(array $diagnostics, string $code): ?RegistryDiagnostic
+    {
+        foreach ($diagnostics as $diagnostic) {
+            if ($diagnostic->code === $code) {
+                return $diagnostic;
+            }
+        }
+
+        return null;
     }
 }
 
@@ -319,6 +367,27 @@ final class DiagnosticsNewInterceptor
 final class DiagnosticsNewInterceptorHandler
 {
     public function __invoke(DiagnosticsNewInterceptorMessage $message, MessageContextInterface $context): string
+    {
+        return 'ok';
+    }
+}
+
+final class DiagnosticsLegacyInterceptorMessage
+{
+}
+
+final class DiagnosticsLegacyInterceptor
+{
+    public function __invoke(MessageContextInterface $context, PipelineInterface $pipeline): mixed
+    {
+        return $pipeline->continue();
+    }
+}
+
+#[CommandHandler(message: DiagnosticsLegacyInterceptorMessage::class, middleware: [DiagnosticsLegacyInterceptor::class])]
+final class DiagnosticsLegacyInterceptorHandler
+{
+    public function __invoke(DiagnosticsLegacyInterceptorMessage $message, MessageContextInterface $context): string
     {
         return 'ok';
     }

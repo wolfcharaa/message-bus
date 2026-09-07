@@ -9,7 +9,7 @@ use BackedEnum;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
-final class QueryHandler extends AbstractMessageHandlerAttribute
+class QueryHandler extends AbstractMessageHandlerAttribute
 {
     /**
      * @param class-string $message

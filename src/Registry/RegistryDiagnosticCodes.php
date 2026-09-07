@@ -16,9 +16,11 @@ final class RegistryDiagnosticCodes
     public const FLOW_INVALID = 'registry.flow.invalid';
     public const HANDLER_INVALID_SIGNATURE = 'registry.handler.invalid_signature';
     public const INTERCEPTOR_INVALID_SIGNATURE = 'registry.interceptor.invalid_signature';
+    public const INTERCEPTOR_LEGACY_MIDDLEWARE = 'registry.interceptor.legacy_middleware';
     public const MESSAGE_ALIAS_REQUIRED = 'registry.message.alias_required';
     public const QUERY_HANDLER_COUNT = 'registry.query.handler_count';
     public const QUERY_ASYNC_FLOW = 'registry.query.async_flow';
+    public const DOMAIN_HANDLER_ASYNC_FLOW = 'registry.domain_handler.async_flow';
     public const COMMAND_PRIMARY_MISSING = 'registry.command.primary_missing';
     public const COMMAND_PRIMARY_DUPLICATE = 'registry.command.primary_duplicate';
 

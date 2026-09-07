@@ -185,7 +185,7 @@ final class MessageBusRuntime
     public static function compileRuntimeRegistry(
         ClassProviderInterface $provider,
         ?FlowRegistry $flows = null,
-        string $libraryVersion = '5.0.0',
+        string $libraryVersion = MessageRegistryCompiler::LIBRARY_VERSION,
         string $sourceHash = '',
     ): CompiledMessageRegistry {
         $definition = (new MessageRegistryCompiler())->compile($provider, $flows, $libraryVersion, $sourceHash);

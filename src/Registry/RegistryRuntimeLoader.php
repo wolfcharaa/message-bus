@@ -18,7 +18,7 @@ final class RegistryRuntimeLoader
         ClassProviderInterface $provider,
         ?string $compiledFile = null,
         ?FlowRegistry $flows = null,
-        string $libraryVersion = '5.0.0',
+        string $libraryVersion = MessageRegistryCompiler::LIBRARY_VERSION,
         string $sourceHash = '',
         bool $preferCompiled = true,
         bool $requireCompiled = false,
