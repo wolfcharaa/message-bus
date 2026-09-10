@@ -74,6 +74,59 @@ final class CliRuntimeV5Test extends TestCase
         }
     }
 
+    public function testWorkerRunCommandRejectsInvalidMode(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . CliRuntimeV5Factory::class . '::singleRunner();');
+
+        try {
+            $tester = new CommandTester(ApplicationFactory::create()->find('worker:run'));
+            $this->expectException(\InvalidArgumentException::class);
+            $this->expectExceptionMessage('Worker mode must be `single` or `auto`.');
+            $tester->execute([
+                '--bootstrap' => $bootstrap,
+                '--mode' => 'daemon',
+            ]);
+        } finally {
+            @\unlink($bootstrap);
+        }
+    }
+
+    public function testWorkerRunCommandRequiresRunnerInSingleMode(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . CliRuntimeV5Factory::class . '::runtimeWithoutWorker();');
+
+        try {
+            $tester = new CommandTester(ApplicationFactory::create()->find('worker:run'));
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('MessageBus runtime does not provide QueueWorkerRunner.');
+            $tester->execute([
+                '--bootstrap' => $bootstrap,
+            ]);
+        } finally {
+            @\unlink($bootstrap);
+        }
+    }
+
+    public function testWorkerRunCommandWritesFatalOutputBeforeRethrowingSingleModeFailure(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . CliRuntimeV5Factory::class . '::failingSingleRunner();');
+        $tester = new CommandTester(ApplicationFactory::create()->find('worker:run'));
+
+        try {
+            $tester->execute([
+                '--bootstrap' => $bootstrap,
+                '--max-messages' => '1',
+            ]);
+            self::fail('Expected worker failure.');
+        } catch (\RuntimeException $error) {
+            self::assertSame('worker failed', $error->getMessage());
+            self::assertStringContainsString('worker.started', $tester->getDisplay());
+            self::assertStringContainsString('worker.fatal', $tester->getDisplay());
+        } finally {
+            @\unlink($bootstrap);
+        }
+    }
+
     public function testWorkerRunCommandDefinesAutoModeOptions(): void
     {
         $command = ApplicationFactory::create()->find('worker:run');
@@ -114,6 +167,26 @@ final class CliRuntimeV5Test extends TestCase
         self::assertStringContainsString('schema.version_missing', $tester->getDisplay());
     }
 
+    public function testWorkerRunAutoModeReturnsValidationFailedForNonVersionSchemaIssues(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . CliRuntimeV5Factory::class . '::runtimeWithInvalidPostgresSchemaObject();');
+
+        try {
+            $tester = new CommandTester(ApplicationFactory::create()->find('worker:run'));
+            $exitCode = $tester->execute([
+                '--bootstrap' => $bootstrap,
+                '--mode' => 'auto',
+                '--transport' => 'postgres',
+                '--stop-when-empty' => true,
+            ]);
+        } finally {
+            @\unlink($bootstrap);
+        }
+
+        self::assertSame(ExitCode::SchemaValidationFailed->value, $exitCode);
+        self::assertStringContainsString('schema.object_missing', $tester->getDisplay());
+    }
+
     private function bootstrap(string $body): string
     {
         $file = \tempnam(\sys_get_temp_dir(), 'message-bus-cli-bootstrap-');
@@ -134,9 +207,17 @@ final class CliRuntimeV5Factory
         );
     }
 
+    public static function failingSingleRunner(): QueueWorkerRunner
+    {
+        return new QueueWorkerRunner(
+            new CliRuntimeV5FailingConsumer(),
+            new CliRuntimeV5Worker(),
+        );
+    }
+
     public static function runtimeWithoutWorker(): MessageBusRuntime
     {
-        throw new \LogicException('Reserved for future CLI runtime tests.');
+        return new MessageBusRuntime(new CliRuntimeV5Bus());
     }
 
     public static function runtimeWithInvalidPostgresSchema(): MessageBusRuntime
@@ -146,6 +227,16 @@ final class CliRuntimeV5Factory
             consumer: new CliRuntimeV5Consumer([]),
             worker: new CliRuntimeV5Worker(),
             postgresSchemaValidator: new CliRuntimeV5InvalidPostgresSchemaValidator(),
+        );
+    }
+
+    public static function runtimeWithInvalidPostgresSchemaObject(): MessageBusRuntime
+    {
+        return new MessageBusRuntime(
+            new CliRuntimeV5Bus(),
+            consumer: new CliRuntimeV5Consumer([]),
+            worker: new CliRuntimeV5Worker(),
+            postgresSchemaValidator: new CliRuntimeV5InvalidPostgresSchemaObjectValidator(),
         );
     }
 
@@ -257,6 +348,24 @@ final class CliRuntimeV5InvalidPostgresSchemaValidator implements PostgresSchema
     }
 }
 
+final class CliRuntimeV5InvalidPostgresSchemaObjectValidator implements PostgresSchemaValidatorInterface
+{
+    public function validate(?array $components = null): PostgresSchemaValidationResult
+    {
+        return new PostgresSchemaValidationResult(
+            [PostgresSchemaComponent::Queue->value => '5.1'],
+            [PostgresSchemaComponent::Queue->value => '5.1'],
+            [
+                new PostgresSchemaValidationIssue(
+                    'schema.object_missing',
+                    'Required queue object is missing.',
+                    PostgresSchemaComponent::Queue,
+                ),
+            ],
+        );
+    }
+}
+
 final class CliRuntimeV5Consumer implements MessageConsumerInterface
 {
     /** @var list<ReceivedQueueMessage> */
@@ -271,6 +380,30 @@ final class CliRuntimeV5Consumer implements MessageConsumerInterface
     public function next(ConsumerOptions $options): ?ReceivedQueueMessage
     {
         return \array_shift($this->messages);
+    }
+
+    public function ack(ReceivedQueueMessage $message): void
+    {
+    }
+
+    public function retry(ReceivedQueueMessage $message, \Throwable $reason): void
+    {
+    }
+
+    public function reject(ReceivedQueueMessage $message, \Throwable $reason): void
+    {
+    }
+
+    public function cancel(ReceivedQueueMessage $message, \Throwable $reason): void
+    {
+    }
+}
+
+final class CliRuntimeV5FailingConsumer implements MessageConsumerInterface
+{
+    public function next(ConsumerOptions $options): ?ReceivedQueueMessage
+    {
+        throw new \RuntimeException('worker failed');
     }
 
     public function ack(ReceivedQueueMessage $message): void

@@ -9,6 +9,11 @@
             <file>tests/PostgresWorkerControlIntegrationTest.php</file>
         </testsuite>
     </testsuites>
+    <source>
+        <include>
+            <directory suffix=".php">src</directory>
+        </include>
+    </source>
     <php>
         <env name="MESSAGE_BUS_TEST_PGSQL_DSN" value="pgsql:host=127.0.0.1;port=55432;dbname=message_bus_test"/>
         <env name="MESSAGE_BUS_TEST_PGSQL_USER" value="message_bus"/>

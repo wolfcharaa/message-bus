@@ -7,16 +7,30 @@ namespace Wolfcharaa\MessageBus\Tests;
 use BackedEnum;
 use DateTimeImmutable;
 use LogicException;
+use PDO;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use Wolfcharaa\MessageBus\Cli\BootstrapResolver;
 use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Exception\ContainerServiceInvalid;
 use Wolfcharaa\MessageBus\Exception\ContainerServiceNotFound;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
+use Wolfcharaa\MessageBus\Flow\FlowDefinition;
+use Wolfcharaa\MessageBus\Flow\FlowRegistry;
 use Wolfcharaa\MessageBus\MessageBatchItem;
 use Wolfcharaa\MessageBus\MessageBusInterface;
+use Wolfcharaa\MessageBus\Postgres\CallbackPdoConnectionProvider;
+use Wolfcharaa\MessageBus\Queue\MessageConsumerInterface;
+use Wolfcharaa\MessageBus\Queue\MessageBusQueueWorker;
+use Wolfcharaa\MessageBus\Queue\Postgres\PostgresMessageConsumer;
+use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueProvider;
+use Wolfcharaa\MessageBus\Queue\QueueProviderInterface;
+use Wolfcharaa\MessageBus\Queue\QueueWorkerRunner;
 use Wolfcharaa\MessageBus\PublishOptions;
 use Wolfcharaa\MessageBus\PublishResult;
+use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
+use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
+use Wolfcharaa\MessageBus\Registry\MessageRegistryDefinition;
 use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
 use Wolfcharaa\MessageBus\Tests\Support\TestContainer;
 use Wolfcharaa\MessageBus\Tests\Support\WorkerControlMemoryRuntime;
@@ -123,6 +137,61 @@ final class RuntimeContractsTest extends TestCase
         }
     }
 
+    public function testPostgresRuntimeFactoryWiresQueueAndWorkerRuntimeContracts(): void
+    {
+        $runtime = MessageBusRuntime::postgres(
+            pdo: new CallbackPdoConnectionProvider(static fn (): PDO => self::pdoWithoutConnection()),
+            registry: $this->emptyRegistry(),
+            container: new TestContainer([], autowireClasses: false),
+            flows: new FlowRegistry(
+                FlowDefinition::sync('default'),
+                FlowDefinition::async('async')->transport('postgres', 'default'),
+            ),
+        );
+
+        self::assertInstanceOf(MessageBusInterface::class, $runtime->bus());
+        self::assertInstanceOf(QueueWorkerRunner::class, $runtime->runner());
+        self::assertInstanceOf(PostgresQueueProvider::class, $runtime->provider());
+        self::assertInstanceOf(QueueProviderInterface::class, $runtime->provider());
+        self::assertInstanceOf(PostgresMessageConsumer::class, $runtime->consumer());
+        self::assertInstanceOf(MessageConsumerInterface::class, $runtime->consumer());
+        self::assertInstanceOf(MessageBusQueueWorker::class, $runtime->worker());
+        self::assertSame($runtime->queueStatus(), $runtime->queueControl());
+        self::assertNotNull($runtime->workerControlRuntime());
+        self::assertNotNull($runtime->postgresSchemaValidator());
+    }
+
+    public function testCallbackPdoConnectionProviderCachesAndResetsConnection(): void
+    {
+        $connections = [self::pdoWithoutConnection(), self::pdoWithoutConnection()];
+        $calls = 0;
+        $provider = new CallbackPdoConnectionProvider(static function () use (&$connections, &$calls): PDO {
+            $calls++;
+
+            return \array_shift($connections);
+        });
+
+        $first = $provider->connection();
+
+        self::assertSame($first, $provider->connection());
+        self::assertSame(1, $calls);
+
+        $provider->reset();
+
+        self::assertNotSame($first, $provider->connection());
+        self::assertSame(2, $calls);
+    }
+
+    public function testCallbackPdoConnectionProviderRejectsInvalidFactoryResult(): void
+    {
+        $provider = new CallbackPdoConnectionProvider(static fn (): mixed => new \stdClass());
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('PDO connection factory must return PDO.');
+
+        $provider->connection();
+    }
+
     public function testWorkerIdentityRoundTripPreservesPublicContract(): void
     {
         $identity = new WorkerIdentity(
@@ -157,6 +226,34 @@ final class RuntimeContractsTest extends TestCase
         \file_put_contents($file, "<?php\n\ndeclare(strict_types=1);\n\n" . $body . "\n");
 
         return $file;
+    }
+
+    private function emptyRegistry(): CompiledMessageRegistry
+    {
+        $flows = new FlowRegistry(
+            FlowDefinition::sync('default'),
+            FlowDefinition::async('async')->transport('postgres', 'default'),
+        );
+
+        return new CompiledMessageRegistry(new MessageRegistryDefinition(
+            MessageRegistryCompiler::SCHEMA_VERSION,
+            MessageRegistryCompiler::LIBRARY_VERSION,
+            '2026-09-11T00:00:00+00:00',
+            '',
+            $flows,
+            [],
+            [],
+            [],
+            [],
+        ));
+    }
+
+    private static function pdoWithoutConnection(): PDO
+    {
+        /** @var PDO $pdo */
+        $pdo = (new ReflectionClass(PDO::class))->newInstanceWithoutConstructor();
+
+        return $pdo;
     }
 }
 

@@ -121,6 +121,22 @@ final class CompositeMessageSerializerTest extends TestCase
         $this->serializer(writeContentType: 'application/xml');
     }
 
+    public function testRejectsInvalidWritePayloadEncoding(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Payload encoding `gzip` is not supported.');
+
+        $this->serializer(writePayloadEncoding: 'gzip');
+    }
+
+    public function testRejectsNonContentTypeAwareSerializer(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Composite message serializer expects only `' . ContentTypeAwareMessageSerializerInterface::class . '` instances.');
+
+        new CompositeMessageSerializer([new \stdClass()]);
+    }
+
     public function testRejectsSerializerThatReturnsDifferentWriteContentType(): void
     {
         $serializer = new CompositeMessageSerializer(

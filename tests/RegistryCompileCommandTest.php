@@ -101,6 +101,38 @@ final class RegistryCompileCommandTest extends TestCase
         }
     }
 
+    public function testCompileCommandExplainsMessageHandlerMismatchGraph(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . RegistryCompileCommandFactory::class . '::mismatchInput();');
+        $target = $this->targetFile();
+
+        try {
+            $tester = new CommandTester(new RegistryCompileCommand());
+            $exitCode = $tester->execute([
+                '--bootstrap' => $bootstrap,
+                '--output' => $target,
+                '--explain' => true,
+                '--base-path' => \dirname(__DIR__),
+            ]);
+
+            $display = $tester->getDisplay();
+
+            self::assertSame(Command::FAILURE, $exitCode);
+            self::assertStringContainsString('First argument of `' . RegistryCompileCommandMismatchedHandler::class . '::__invoke` must accept `' . RegistryCompileCommandExpectedMessage::class . '`.', $display);
+            self::assertStringContainsString('target: bindingId=', $display);
+            self::assertStringContainsString('messageClass=' . RegistryCompileCommandExpectedMessage::class, $display);
+            self::assertStringContainsString('handlerClass=' . RegistryCompileCommandMismatchedHandler::class, $display);
+            self::assertStringContainsString('graph: stage=core_validated', $display);
+            self::assertStringContainsString('message ' . RegistryCompileCommandExpectedMessage::class, $display);
+            self::assertStringContainsString('-> handler ' . RegistryCompileCommandMismatchedHandler::class . '::__invoke', $display);
+            self::assertFileDoesNotExist($target);
+        } finally {
+            @\unlink($bootstrap);
+            @\unlink($target);
+        }
+    }
+
+
     public function testCompileCommandCanFailOnProjectWarning(): void
     {
         $bootstrap = $this->bootstrap('return \\' . RegistryCompileCommandFactory::class . '::warningInput();');
@@ -179,6 +211,15 @@ final class RegistryCompileCommandFactory
         ]));
     }
 
+    public static function mismatchInput(): RegistryCompileInput
+    {
+        return new RegistryCompileInput(new ClassListProvider([
+            RegistryCompileCommandExpectedMessage::class,
+            RegistryCompileCommandWrongMessage::class,
+            RegistryCompileCommandMismatchedHandler::class,
+        ]));
+    }
+
     public static function warningInput(): RegistryCompileInput
     {
         return new RegistryCompileInput(
@@ -218,6 +259,22 @@ final class RegistryCompileCommandInvalidHandler
     public function __invoke(RegistryCompileCommandInvalidMessage $message): string
     {
         return 'invalid';
+    }
+}
+
+final class RegistryCompileCommandExpectedMessage
+{
+}
+
+final class RegistryCompileCommandWrongMessage
+{
+}
+
+#[CommandHandler(message: RegistryCompileCommandExpectedMessage::class)]
+final class RegistryCompileCommandMismatchedHandler
+{
+    public function __invoke(RegistryCompileCommandWrongMessage $message, MessageContextInterface $context): void
+    {
     }
 }
 
