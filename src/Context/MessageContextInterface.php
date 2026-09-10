@@ -13,6 +13,11 @@ interface MessageContextInterface
 {
     public function envelope(): Envelope;
 
+    /**
+     * @template TResult
+     * @param \Wolfcharaa\MessageBus\Message\Command<TResult>|\Wolfcharaa\MessageBus\Message\Query<TResult>|object $message
+     * @return TResult
+     */
     public function dispatch(object $message, PublishOptions $options = new PublishOptions()): mixed;
 
     public function dispatchAll(object $message, PublishOptions $options = new PublishOptions()): HandlerExecutionResultInterface;

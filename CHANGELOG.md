@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.1.2 - 2026-09-10
+
+### Added
+
+- Added the same generic dispatch PHPDoc template to `MessageContextInterface` that already exists on `MessageBusInterface`, improving nested dispatch result type inference.
+
 ## 5.0.0
 
 v5 is a new major version. Runtime behavior, registry schema and PostgreSQL schema are not required to stay compatible with v4.
