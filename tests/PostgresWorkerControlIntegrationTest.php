@@ -10,8 +10,9 @@ use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
+use Wolfcharaa\MessageBus\Postgres\StaticPdoConnectionProvider;
 use Wolfcharaa\MessageBus\Worker\Postgres\PostgresWorkerControlSchemaGenerator;
-use Wolfcharaa\MessageBus\Worker\Postgres\PostgresWorkerControlStorage;
+use Wolfcharaa\MessageBus\Worker\Postgres\ResilientPostgresWorkerControlStorage;
 use Wolfcharaa\MessageBus\Worker\WorkerActivityState;
 use Wolfcharaa\MessageBus\Worker\WorkerChildInstance;
 use Wolfcharaa\MessageBus\Worker\WorkerChildState;
@@ -132,7 +133,7 @@ final class PostgresWorkerControlIntegrationTest extends TestCase
     public function testDesiredStateResolutionUsesMostSpecificTarget(): void
     {
         $storage = $this->storage();
-        $now = new DateTimeImmutable('2026-08-20T10:00:00+00:00');
+        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
         $identity = $this->identity($now);
 
         $storage->apply(new WorkerDesiredState(
@@ -156,7 +157,64 @@ final class PostgresWorkerControlIntegrationTest extends TestCase
         self::assertSame(WorkerDesiredStateType::Resumed, $state->type);
     }
 
-    private function storage(): PostgresWorkerControlStorage
+    public function testWorkerControlLookupListsPendingAndChildHeartbeatWithRealDatabase(): void
+    {
+        $storage = $this->storage();
+        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+        $identity = $this->identity($now);
+        $command = new WorkerControlCommand(
+            'command-lookup',
+            WorkerControlCommandType::Restart,
+            new WorkerTarget(workerGroup: 'emails'),
+            $now,
+            createdBy: 'root',
+            source: 'cli',
+            reason: 'lookup test',
+            expiresAt: $now->modify('+5 minutes'),
+            idempotencyKey: 'restart-emails-lookup',
+        );
+
+        $storage->registerWorker(new WorkerInstance(
+            $identity,
+            WorkerLifecycleState::Running,
+            WorkerActivityState::Idle,
+            $now,
+        ));
+        $storage->registerChild(new WorkerChildInstance(
+            'child-lookup',
+            $identity->workerInstanceId,
+            456,
+            WorkerChildState::Running,
+            $now,
+            $now,
+            'queue-lookup',
+            'message-lookup',
+            'correlation-lookup',
+            'user.created.lookup',
+        ));
+        $storage->append($command);
+        $storage->apply(new WorkerDesiredState(
+            'pause-emails-lookup',
+            WorkerDesiredStateType::Paused,
+            new WorkerTarget(workerGroup: 'emails'),
+            $now,
+            active: true,
+        ));
+        $storage->heartbeatChild('child-lookup', WorkerChildState::Running, $now->modify('+10 seconds'));
+
+        self::assertSame('command-lookup', $storage->findById('command-lookup')?->commandId);
+        self::assertSame('command-lookup', $storage->findByIdempotencyKey('restart-emails-lookup')?->commandId);
+        self::assertCount(1, $storage->pendingFor($identity, new WorkerControlCursor()));
+        self::assertCount(1, $storage->list(new WorkerTarget(workerGroup: 'emails')));
+        self::assertCount(1, $storage->listWorkers(new WorkerTarget(workerGroup: 'emails')));
+
+        $children = $storage->listChildren($identity->workerInstanceId);
+        self::assertCount(1, $children);
+        self::assertSame(WorkerChildState::Running, $children[0]->state);
+        self::assertSame($now->modify('+10 seconds')->format(DATE_ATOM), $children[0]->heartbeatAt->format(DATE_ATOM));
+    }
+
+    private function storage(): ResilientPostgresWorkerControlStorage
     {
         if ($this->pdo === null) {
             $dsn = \getenv('MESSAGE_BUS_TEST_PGSQL_DSN');
@@ -192,7 +250,7 @@ final class PostgresWorkerControlIntegrationTest extends TestCase
             $this->pdo->exec((new PostgresWorkerControlSchemaGenerator())->generate($this->definition));
         }
 
-        return new PostgresWorkerControlStorage($this->pdo, $this->definition);
+        return new ResilientPostgresWorkerControlStorage(new StaticPdoConnectionProvider($this->pdo), $this->definition);
     }
 
     private function identity(DateTimeImmutable $startedAt): WorkerIdentity

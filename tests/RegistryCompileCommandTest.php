@@ -124,6 +124,8 @@ final class RegistryCompileCommandTest extends TestCase
             self::assertStringContainsString('handlerClass=' . RegistryCompileCommandMismatchedHandler::class, $display);
             self::assertStringContainsString('graph: stage=core_validated', $display);
             self::assertStringContainsString('message ' . RegistryCompileCommandExpectedMessage::class, $display);
+            self::assertStringContainsString('declared: CommandHandler(message=' . RegistryCompileCommandExpectedMessage::class . '::class)', $display);
+            self::assertStringContainsString('actual: ' . RegistryCompileCommandMismatchedHandler::class . '::__invoke(' . RegistryCompileCommandWrongMessage::class . ' $message, ' . MessageContextInterface::class . ' $context): void', $display);
             self::assertStringContainsString('-> handler ' . RegistryCompileCommandMismatchedHandler::class . '::__invoke', $display);
             self::assertFileDoesNotExist($target);
         } finally {

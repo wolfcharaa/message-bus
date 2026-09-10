@@ -158,6 +158,16 @@ final class RegistryCompileCommand extends Command
 
             $output->writeln('    message ' . $message);
             $output->writeln(\sprintf(
+                '      declared: %s(message=%s::class)',
+                $this->handlerAttributeName($binding),
+                $binding->message,
+            ));
+            $actualSignature = $this->actualHandlerSignature($binding);
+            if ($actualSignature !== null) {
+                $output->writeln('      actual: ' . $actualSignature);
+            }
+
+            $output->writeln(\sprintf(
                 '      -> handler %s::%s binding=%s kind=%s primary=%s invocation=%s',
                 $binding->action,
                 $binding->method,
@@ -172,6 +182,57 @@ final class RegistryCompileCommand extends Command
                 $output->writeln('         -> interceptor ' . $target->middlewareClass);
             }
         }
+    }
+
+    private function handlerAttributeName(HandlerBindingDefinition $binding): string
+    {
+        return match ($binding->kind->value) {
+            'query' => 'QueryHandler',
+            'command' => 'CommandHandler',
+            'event' => 'EventSubscriber',
+            default => 'Handler',
+        };
+    }
+
+    private function actualHandlerSignature(HandlerBindingDefinition $binding): ?string
+    {
+        if (!\class_exists($binding->action) || !\method_exists($binding->action, $binding->method)) {
+            return null;
+        }
+
+        $method = new \ReflectionMethod($binding->action, $binding->method);
+        $params = [];
+        foreach ($method->getParameters() as $parameter) {
+            $type = $parameter->getType();
+            $params[] = ($type !== null ? $this->typeName($type) . ' ' : '') . '$' . $parameter->getName();
+        }
+
+        $returnType = $method->getReturnType();
+
+        return \sprintf(
+            '%s::%s(%s)%s',
+            $binding->action,
+            $binding->method,
+            \implode(', ', $params),
+            $returnType !== null ? ': ' . $this->typeName($returnType) : '',
+        );
+    }
+
+    private function typeName(\ReflectionType $type): string
+    {
+        if ($type instanceof \ReflectionNamedType) {
+            return ($type->allowsNull() && $type->getName() !== 'null' ? '?' : '') . $type->getName();
+        }
+
+        if ($type instanceof \ReflectionUnionType) {
+            return \implode('|', \array_map(fn (\ReflectionType $inner): string => $this->typeName($inner), $type->getTypes()));
+        }
+
+        if ($type instanceof \ReflectionIntersectionType) {
+            return \implode('&', \array_map(fn (\ReflectionType $inner): string => $this->typeName($inner), $type->getTypes()));
+        }
+
+        return (string) $type;
     }
 
     private function writeDefinition(MessageRegistryDefinition $definition, InputInterface $input, OutputInterface $output): int

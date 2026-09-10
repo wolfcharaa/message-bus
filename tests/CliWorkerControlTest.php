@@ -90,6 +90,47 @@ final class CliWorkerControlTest extends TestCase
         self::assertStringContainsString('child-1', $tester->getDisplay());
     }
 
+    public function testWorkerControlCommandDispatchesExplicitCommandTypeAndAuditFields(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . CliWorkerControlFactory::class . '::runtime();');
+        CliWorkerControlFactory::reset();
+
+        try {
+            $tester = new CommandTester(ApplicationFactory::create()->find('worker:control'));
+            $exitCode = $tester->execute([
+                '--bootstrap' => $bootstrap,
+                '--command' => 'restart',
+                '--worker-id' => 'emails-worker',
+                '--created-by' => 'root',
+                '--source' => 'deploy',
+                '--reason' => 'release',
+                '--request-id' => 'request-1',
+                '--correlation-id' => 'deploy-1',
+                '--idempotency-key' => 'restart-emails-deploy-1',
+                '--override' => true,
+            ]);
+        } finally {
+            @\unlink($bootstrap);
+        }
+
+        self::assertSame(Command::SUCCESS, $exitCode);
+        self::assertStringContainsString('command=cli.restart.1 type=restart duplicate=no', $tester->getDisplay());
+        self::assertCount(1, CliWorkerControlFactory::$repository->commands);
+        self::assertSame([], CliWorkerControlFactory::$repository->desiredStates);
+
+        $command = CliWorkerControlFactory::$repository->commands[0];
+        self::assertSame(WorkerControlCommandType::Restart, $command->type);
+        self::assertSame('emails-worker', $command->target->workerId);
+        self::assertSame('root', $command->createdBy);
+        self::assertSame('deploy', $command->source);
+        self::assertSame('release', $command->reason);
+        self::assertSame('request-1', $command->requestId);
+        self::assertSame('deploy-1', $command->correlationId);
+        self::assertSame('restart-emails-deploy-1', $command->idempotencyKey);
+        self::assertTrue($command->override);
+        self::assertSame('2026-08-20T10:05:00+00:00', $command->expiresAt?->format(DATE_ATOM));
+    }
+
     public function testApplicationFactoryRegistersWorkerControlCommands(): void
     {
         $application = ApplicationFactory::create();

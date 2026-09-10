@@ -11,11 +11,12 @@ use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Wolfcharaa\MessageBus\Envelope\SerializedEnvelope;
+use Wolfcharaa\MessageBus\Postgres\StaticPdoConnectionProvider;
 use Wolfcharaa\MessageBus\Queue\ConsumerOptions;
 use Wolfcharaa\MessageBus\Queue\Postgres\PostgresMessageConsumer;
 use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueProvider;
 use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueSchemaGenerator;
-use Wolfcharaa\MessageBus\Queue\Postgres\PostgresQueueStorage;
+use Wolfcharaa\MessageBus\Queue\Postgres\ResilientPostgresQueueStorage;
 use Wolfcharaa\MessageBus\Queue\QueueJobState;
 use Wolfcharaa\MessageBus\Queue\QueueMessage;
 use Wolfcharaa\MessageBus\Queue\QueueTableDefinition;
@@ -120,7 +121,47 @@ final class PostgresQueueIntegrationTest extends TestCase
         self::assertSame(QueueJobState::Pending, $storage->get($results[1]->queueMessageId)?->status);
     }
 
-    private function storage(): PostgresQueueStorage
+    public function testPostgresQueueRejectCancelReceivedAndRecoverStaleWithRealDatabase(): void
+    {
+        $storage = $this->storage();
+        $provider = new PostgresQueueProvider($storage);
+        $consumer = new PostgresMessageConsumer($storage);
+
+        $reject = $provider->enqueue($this->message('message-reject', 'binding.reject', maxAttempts: 3));
+        $receivedReject = $consumer->next(new ConsumerOptions('postgres', 'default', workerId: 'integration-worker'));
+        self::assertNotNull($receivedReject);
+
+        $consumer->reject($receivedReject, new RuntimeException('rejected by test'));
+
+        self::assertSame(QueueJobState::Failed, $storage->get($reject->queueMessageId)?->status);
+        self::assertSame('rejected by test', $storage->get($reject->queueMessageId)?->lastError);
+
+        $cancel = $provider->enqueue($this->message('message-cancel-running', 'binding.cancel_running', maxAttempts: 3));
+        $receivedCancel = $consumer->next(new ConsumerOptions('postgres', 'default', workerId: 'integration-worker'));
+        self::assertNotNull($receivedCancel);
+
+        $consumer->cancel($receivedCancel, new RuntimeException('cancelled by test'));
+
+        self::assertSame(QueueJobState::Cancelled, $storage->get($cancel->queueMessageId)?->status);
+        self::assertSame('cancelled by test', $storage->get($cancel->queueMessageId)?->lastError);
+
+        $stale = $provider->enqueue($this->message('message-stale', 'binding.stale', maxAttempts: 3));
+        $receivedStale = $consumer->next(new ConsumerOptions('postgres', 'default', workerId: 'integration-worker'));
+        self::assertNotNull($receivedStale);
+        $this->pdo?->exec(
+            'UPDATE ' . $this->quoteIdentifier($this->tableName ?? '')
+            . " SET heartbeat_at = '2026-01-01T00:00:00+00:00', locked_at = '2026-01-01T00:00:00+00:00'"
+            . ' WHERE id = ' . $this->pdo->quote($stale->queueMessageId),
+        );
+
+        $recovered = $storage->recoverStale(new ConsumerOptions('postgres', 'default', workerId: 'integration-worker', lockTtlSeconds: 1));
+
+        self::assertSame(1, $recovered);
+        self::assertSame(QueueJobState::Pending, $storage->get($stale->queueMessageId)?->status);
+        self::assertSame('Worker heartbeat expired after 1 seconds.', $storage->get($stale->queueMessageId)?->lastError);
+    }
+
+    private function storage(): ResilientPostgresQueueStorage
     {
         if ($this->pdo === null) {
             $dsn = \getenv('MESSAGE_BUS_TEST_PGSQL_DSN');
@@ -146,7 +187,7 @@ final class PostgresQueueIntegrationTest extends TestCase
             $this->pdo->exec((new PostgresQueueSchemaGenerator())->generate(new QueueTableDefinition($this->tableName)));
         }
 
-        return new PostgresQueueStorage($this->pdo, $this->tableName);
+        return new ResilientPostgresQueueStorage(new StaticPdoConnectionProvider($this->pdo), $this->tableName);
     }
 
     private function message(string $messageId, string $bindingId, int $maxAttempts): QueueMessage
