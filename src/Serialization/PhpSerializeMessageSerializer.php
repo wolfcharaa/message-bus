@@ -6,7 +6,7 @@ namespace Wolfcharaa\MessageBus\Serialization;
 
 use InvalidArgumentException;
 
-final class PhpSerializeMessageSerializer implements MessageSerializerInterface
+final class PhpSerializeMessageSerializer implements ContentTypeAwareMessageSerializerInterface
 {
     public const CONTENT_TYPE = 'application/vnd.php.serialized';
 
@@ -54,5 +54,15 @@ final class PhpSerializeMessageSerializer implements MessageSerializerInterface
         }
 
         return $value;
+    }
+
+    public function supportedContentTypes(): array
+    {
+        return [self::CONTENT_TYPE];
+    }
+
+    public function supportsContentType(string $contentType): bool
+    {
+        return $contentType === self::CONTENT_TYPE;
     }
 }

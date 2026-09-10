@@ -6,7 +6,7 @@ namespace Wolfcharaa\MessageBus\Serialization;
 
 use InvalidArgumentException;
 
-final class JsonMessageSerializer implements MessageSerializerInterface
+final class JsonMessageSerializer implements ContentTypeAwareMessageSerializerInterface
 {
     public const CONTENT_TYPE = 'application/json';
 
@@ -45,6 +45,16 @@ final class JsonMessageSerializer implements MessageSerializerInterface
         $class = $this->nameResolver->classOf($message->name);
 
         return new $class(...$payload);
+    }
+
+    public function supportedContentTypes(): array
+    {
+        return [self::CONTENT_TYPE];
+    }
+
+    public function supportsContentType(string $contentType): bool
+    {
+        return $contentType === self::CONTENT_TYPE;
     }
 
     private static function assertPortable(mixed $value): void

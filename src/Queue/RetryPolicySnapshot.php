@@ -49,7 +49,7 @@ final class RetryPolicySnapshot
             );
         }
 
-        return new self($policy->maxAttempts, $strategy::class);
+        return new self($policy->maxAttempts, $strategy::class, []);
     }
 
     /** @return array{maxAttempts: int, strategy: string, parameters: array<string, int|float|string|null>} */

@@ -21,6 +21,7 @@ use Wolfcharaa\MessageBus\Execution\ExecutionEnvironment;
 use Wolfcharaa\MessageBus\Execution\ExecutionRequest;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResult;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
+use Wolfcharaa\MessageBus\Execution\HandlerResult;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionStrategyInterface;
 use Wolfcharaa\MessageBus\Execution\SequentialExecutionStrategy;
 use Wolfcharaa\MessageBus\Exception\ContainerServiceInvalid;
@@ -37,6 +38,7 @@ use Wolfcharaa\MessageBus\Queue\QueueJobState;
 use Wolfcharaa\MessageBus\Queue\RetryPolicyRegistryInterface;
 use Wolfcharaa\MessageBus\Registry\BindingNotFound;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
+use Wolfcharaa\MessageBus\Registry\HandlerInvocationMode;
 use Wolfcharaa\MessageBus\Registry\HandlerKind;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryInterface;
 use Wolfcharaa\MessageBus\Serialization\JsonMessageSerializer;
@@ -253,6 +255,10 @@ final class MessageBus implements MessageBusInterface
 
         $binding = $this->registry->binding($envelope->bindingId);
         $flow = $this->flows->get($binding->flow);
+        if ($this->canExecuteDirectly($flow, $binding, forceSequential: true)) {
+            return $this->invokeBindingDirect($binding, $envelope->message);
+        }
+
         $context = $this->createContext($flow, $envelope);
         $request = new ExecutionRequest([$binding], $context, $flow, new PublishOptions(), $this->environment);
         $result = (new SequentialExecutionStrategy())->execute($request);
@@ -277,6 +283,18 @@ final class MessageBus implements MessageBusInterface
         $results = [];
         foreach ($this->groupByFlow($bindings) as $flowKey => $flowBindings) {
             $flow = $this->flows->get($flowKey);
+            if ($this->canExecuteFlowDirectly($flow, $flowBindings, $forceSequential)) {
+                foreach ($this->sortBindingsByPriority($flowBindings) as $binding) {
+                    $results[] = HandlerResult::success(
+                        $binding->bindingId ?? '',
+                        $binding->action,
+                        $this->invokeBindingDirect($binding, $message),
+                    );
+                }
+
+                continue;
+            }
+
             $envelope = $this->envelopeFactory->create(
                 $message,
                 $flow->key,
@@ -358,18 +376,23 @@ final class MessageBus implements MessageBusInterface
 
             foreach ($flowBindings as $binding) {
                 $envelope = $baseEnvelope->withFlowBinding($binding->flow, $binding->bindingId);
-                $context = $this->createContext($flow, $envelope);
                 $startedAt = $this->environment->clock->now();
                 $started = \microtime(true);
 
                 try {
-                    (new SequentialExecutionStrategy())->execute(new ExecutionRequest(
-                        [$binding],
-                        $context,
-                        $flow,
-                        $options,
-                        $this->environment,
-                    ));
+                    if ($this->canExecuteDirectly($flow, $binding, forceSequential: true)) {
+                        $this->invokeBindingDirect($binding, $message);
+                    } else {
+                        $context = $this->createContext($flow, $envelope);
+                        (new SequentialExecutionStrategy())->execute(new ExecutionRequest(
+                            [$binding],
+                            $context,
+                            $flow,
+                            $options,
+                            $this->environment,
+                        ));
+                    }
+
                     $finishedAt = $this->environment->clock->now();
                     $executions[] = PublishedExecution::sync(
                         $envelope,
@@ -502,6 +525,50 @@ final class MessageBus implements MessageBusInterface
         }
 
         return $grouped;
+    }
+
+    /**
+     * @param non-empty-list<HandlerBindingDefinition> $bindings
+     */
+    private function canExecuteFlowDirectly(FlowDefinition $flow, array $bindings, bool $forceSequential): bool
+    {
+        foreach ($bindings as $binding) {
+            if (!$this->canExecuteDirectly($flow, $binding, $forceSequential)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function canExecuteDirectly(FlowDefinition $flow, HandlerBindingDefinition $binding, bool $forceSequential): bool
+    {
+        return $binding->invocationMode === HandlerInvocationMode::Contextless
+            && $flow->middleware === []
+            && $binding->middleware === []
+            && ($forceSequential || $flow->strategy === SequentialExecutionStrategy::class);
+    }
+
+    /**
+     * @param non-empty-list<HandlerBindingDefinition> $bindings
+     * @return non-empty-list<HandlerBindingDefinition>
+     */
+    private function sortBindingsByPriority(array $bindings): array
+    {
+        \usort($bindings, static fn (HandlerBindingDefinition $a, HandlerBindingDefinition $b): int => $b->priority <=> $a->priority);
+
+        return $bindings;
+    }
+
+    private function invokeBindingDirect(HandlerBindingDefinition $binding, object $message): mixed
+    {
+        try {
+            return $this->environment->invoker->invoke($binding->action, $binding->method, [$message]);
+        } catch (ContainerServiceNotFound $e) {
+            throw $e->withContext('handler', $binding->bindingId, $binding->flow);
+        } catch (ContainerServiceInvalid $e) {
+            throw $e->withContext('handler', $binding->bindingId, $binding->flow);
+        }
     }
 
     private function createContext(FlowDefinition $flow, Envelope $envelope): MessageContextInterface

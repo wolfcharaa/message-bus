@@ -5,14 +5,22 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Tests;
 
 use PHPUnit\Framework\TestCase;
+use Psr\Container\ContainerInterface;
 use Wolfcharaa\MessageBus\Attribute\MessageAlias;
 use Wolfcharaa\MessageBus\Attribute\QueryHandler;
+use Wolfcharaa\MessageBus\Context\DefaultMessageContext;
+use Wolfcharaa\MessageBus\Context\MessageContextFactoryInterface;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
 use Wolfcharaa\MessageBus\Dumper\CompiledRegistryFileWriter;
+use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
+use Wolfcharaa\MessageBus\Interceptor\PipelineInterface;
+use Wolfcharaa\MessageBus\Invoker\CallableInvokerInterface;
+use Wolfcharaa\MessageBus\Invoker\ReflectionCallableInvoker;
 use Wolfcharaa\MessageBus\MessageBus;
+use Wolfcharaa\MessageBus\MessageBusInterface;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 use Wolfcharaa\MessageBus\Registry\HandlerInvocationMode;
@@ -20,6 +28,7 @@ use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\RegistryDiagnostic;
 use Wolfcharaa\MessageBus\Registry\RegistryDiagnosticCodes;
 use Wolfcharaa\MessageBus\Tests\Support\TestContainer;
+use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlInterface;
 
 final class ContextlessHandlerTest extends TestCase
 {
@@ -44,6 +53,94 @@ final class ContextlessHandlerTest extends TestCase
         $bus = new MessageBus($registry, $result->definition->flows, new TestContainer());
 
         self::assertSame('contextless:77', $bus->dispatch(new ContextlessLookupMessage(77)));
+    }
+
+    public function testContextlessQueryDoesNotCreateMessageContextWithoutInterceptors(): void
+    {
+        ContextlessCountingContextFactory::$calls = 0;
+
+        $result = (new MessageRegistryCompiler())->compileWithDiagnostics(
+            new ClassListProvider([
+                ContextlessNoContextMessage::class,
+                ContextlessNoContextHandler::class,
+            ]),
+            new FlowRegistry(FlowDefinition::sync('direct_contextless')->context(
+                MessageContextInterface::class,
+                ContextlessCountingContextFactory::class,
+            )),
+        );
+
+        self::assertTrue($result->hasDefinition(), self::diagnosticsAsString($result->diagnostics));
+        self::assertNotNull($result->definition);
+
+        $registry = new CompiledMessageRegistry($result->definition);
+        $bus = new MessageBus($registry, $result->definition->flows, new TestContainer());
+
+        self::assertSame('direct:42', $bus->dispatch(new ContextlessNoContextMessage(42)));
+        self::assertSame(0, ContextlessCountingContextFactory::$calls);
+    }
+
+    public function testContextlessQueryCreatesMessageContextWhenInterceptorNeedsIt(): void
+    {
+        ContextlessCountingContextFactory::$calls = 0;
+
+        $result = (new MessageRegistryCompiler())->compileWithDiagnostics(
+            new ClassListProvider([
+                ContextlessInterceptedMessage::class,
+                ContextlessInterceptedHandler::class,
+                ContextlessPassThroughInterceptor::class,
+            ]),
+            new FlowRegistry(FlowDefinition::sync('intercepted_contextless')->context(
+                MessageContextInterface::class,
+                ContextlessCountingContextFactory::class,
+            )),
+        );
+
+        self::assertTrue($result->hasDefinition(), self::diagnosticsAsString($result->diagnostics));
+        self::assertNotNull($result->definition);
+
+        $registry = new CompiledMessageRegistry($result->definition);
+        $bus = new MessageBus($registry, $result->definition->flows, new TestContainer());
+
+        self::assertSame('intercepted:9', $bus->dispatch(new ContextlessInterceptedMessage(9)));
+        self::assertSame(1, ContextlessCountingContextFactory::$calls);
+    }
+
+    public function testContextlessQueryWithInterceptorPassesContextOnlyToInterceptor(): void
+    {
+        ContextlessCountingContextFactory::$calls = 0;
+
+        $result = (new MessageRegistryCompiler())->compileWithDiagnostics(
+            new ClassListProvider([
+                ContextlessInterceptedMessage::class,
+                ContextlessInterceptedHandler::class,
+                ContextlessPassThroughInterceptor::class,
+            ]),
+            new FlowRegistry(FlowDefinition::sync('intercepted_contextless')->context(
+                MessageContextInterface::class,
+                ContextlessCountingContextFactory::class,
+            )),
+        );
+
+        self::assertTrue($result->hasDefinition(), self::diagnosticsAsString($result->diagnostics));
+        self::assertNotNull($result->definition);
+
+        $registry = new CompiledMessageRegistry($result->definition);
+        $container = new TestContainer();
+        $invoker = new ContextlessRecordingInvoker($container);
+        $bus = new MessageBus($registry, $result->definition->flows, $container, invoker: $invoker);
+
+        self::assertSame('intercepted:17', $bus->dispatch(new ContextlessInterceptedMessage(17)));
+        self::assertSame(1, ContextlessCountingContextFactory::$calls);
+
+        $interceptorCall = $invoker->singleCall(ContextlessPassThroughInterceptor::class, '__invoke');
+        self::assertCount(2, $interceptorCall['arguments']);
+        self::assertInstanceOf(MessageContextInterface::class, $interceptorCall['arguments'][0]);
+        self::assertInstanceOf(PipelineInterface::class, $interceptorCall['arguments'][1]);
+
+        $handlerCall = $invoker->singleCall(ContextlessInterceptedHandler::class, '__invoke');
+        self::assertCount(1, $handlerCall['arguments']);
+        self::assertInstanceOf(ContextlessInterceptedMessage::class, $handlerCall['arguments'][0]);
     }
 
     public function testSerializedBindingRequiresInvocationMetadata(): void
@@ -178,6 +275,107 @@ final readonly class ContextlessLookupMessage
 {
     public function __construct(public int $id)
     {
+    }
+}
+
+final readonly class ContextlessNoContextMessage
+{
+    public function __construct(public int $id)
+    {
+    }
+}
+
+#[QueryHandler(message: ContextlessNoContextMessage::class, flow: 'direct_contextless', contextAware: false)]
+final class ContextlessNoContextHandler
+{
+    public function __invoke(ContextlessNoContextMessage $message): string
+    {
+        return 'direct:' . $message->id;
+    }
+}
+
+final readonly class ContextlessInterceptedMessage
+{
+    public function __construct(public int $id)
+    {
+    }
+}
+
+#[QueryHandler(
+    message: ContextlessInterceptedMessage::class,
+    flow: 'intercepted_contextless',
+    middleware: [ContextlessPassThroughInterceptor::class],
+    contextAware: false,
+)]
+final class ContextlessInterceptedHandler
+{
+    public function __invoke(ContextlessInterceptedMessage $message): string
+    {
+        return 'intercepted:' . $message->id;
+    }
+}
+
+final class ContextlessPassThroughInterceptor
+{
+    public function __invoke(MessageContextInterface $context, PipelineInterface $pipeline): mixed
+    {
+        return $pipeline->continue();
+    }
+}
+
+final class ContextlessCountingContextFactory implements MessageContextFactoryInterface
+{
+    public static int $calls = 0;
+
+    public function create(
+        MessageBusInterface $messageBus,
+        Envelope $envelope,
+        FlowDefinition $flow,
+        ?WorkerRuntimeControlInterface $workerRuntimeControl = null,
+    ): MessageContextInterface {
+        self::$calls++;
+
+        return new DefaultMessageContext($messageBus, $envelope, $workerRuntimeControl);
+    }
+}
+
+final class ContextlessRecordingInvoker implements CallableInvokerInterface
+{
+    private readonly ReflectionCallableInvoker $delegate;
+
+    /** @var list<array{service: class-string, method: string, arguments: array<int, mixed>}> */
+    private array $calls = [];
+
+    public function __construct(ContainerInterface $container)
+    {
+        $this->delegate = new ReflectionCallableInvoker($container);
+    }
+
+    public function invoke(string|object $service, string $method, array $arguments): mixed
+    {
+        $this->calls[] = [
+            'service' => \is_string($service) ? $service : $service::class,
+            'method' => $method,
+            'arguments' => $arguments,
+        ];
+
+        return $this->delegate->invoke($service, $method, $arguments);
+    }
+
+    /**
+     * @param class-string $service
+     * @return array{service: class-string, method: string, arguments: array<int, mixed>}
+     */
+    public function singleCall(string $service, string $method): array
+    {
+        $calls = \array_values(\array_filter(
+            $this->calls,
+            static fn (array $call): bool => $call['service'] === $service && $call['method'] === $method,
+        ));
+
+        TestCase::assertCount(1, $calls);
+
+        return $calls[0];
     }
 }
 

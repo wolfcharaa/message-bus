@@ -46,6 +46,7 @@ public function __invoke(Message $message, MessageContextInterface $context): Re
 - Handler должен быть service в PSR-11 container.
 - Handler dependencies передаются через constructor container-ом.
 - Handler method принимает message и context, если binding не объявлен как `contextAware: false`.
+- `contextAware: false` означает, что handler method не получает `MessageContextInterface` и имеет форму `__invoke(Message $message): Result|void`.
 - Query handler обязан вернуть non-void result.
 - Command handler обязан вернуть `void`.
 - Event handler обычно возвращает `void`.
@@ -131,6 +132,7 @@ Built-in serializers:
 
 - `JsonMessageSerializer` - дефолт для переносимого JSON payload.
 - `PhpSerializeMessageSerializer` - PHP-only message payload.
+- `CompositeMessageSerializer` - один facade над несколькими message serializers, который читает payload по `contentType` и пишет выбранный формат.
 - `JsonResultSerializer` - дефолт для cache result.
 - `PhpSerializeResultSerializer` - PHP-only cache result.
 

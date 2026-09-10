@@ -2,6 +2,18 @@
 
 Contextless handlers are regular `QueryHandler`, `CommandHandler`, or `EventSubscriber` bindings with `contextAware: false`.
 
+`contextAware` means "the handler method receives `MessageContextInterface` as an execution context". The default value is `true`, so the handler signature is:
+
+```php
+public function __invoke(Message $message, MessageContextInterface $context): Result|void
+```
+
+When `contextAware: false` is set, the handler is intentionally contextless. Its method receives only the message:
+
+```php
+public function __invoke(Message $message): Result|void
+```
+
 Use them when a small operation should receive only its message and constructor dependencies. The handler cannot receive `MessageContextInterface`, so nested `dispatch()` and `publish()` remain explicit application orchestration.
 
 ```php
@@ -29,6 +41,8 @@ final class FindAddressHandler
 ```
 
 Dependencies still come from the PSR-11 container through the handler constructor. The restriction applies to execution context, not dependency injection.
+
+For a contextless binding without flow or binding interceptors, the runtime executes the handler directly and does not create `MessageContextInterface` through the flow context factory. Interceptors and custom execution strategies still require a context, so those paths keep the normal context creation behavior.
 
 ## Flow rules
 
