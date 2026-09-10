@@ -37,6 +37,7 @@ use Wolfcharaa\MessageBus\Queue\QueueJobState;
 use Wolfcharaa\MessageBus\Queue\RetryPolicyRegistryInterface;
 use Wolfcharaa\MessageBus\Registry\BindingNotFound;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
+use Wolfcharaa\MessageBus\Registry\HandlerKind;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryInterface;
 use Wolfcharaa\MessageBus\Serialization\JsonMessageSerializer;
 use Wolfcharaa\MessageBus\Serialization\MessageNameResolverInterface;
@@ -122,22 +123,34 @@ final class MessageBus implements MessageBusInterface
         ?Envelope $causation = null,
     ): mixed {
         $bindings = $this->syncBindings($message::class);
-        $primary = \array_values(\array_filter(
-            $bindings,
-            static fn (HandlerBindingDefinition $binding): bool => $binding->primary === true,
-        ));
+        $command = $this->primaryCommandBinding($bindings, $message::class);
+        $query = $this->queryBinding($bindings);
 
-        if (\count($primary) !== 1) {
+        if ($command === null && $query === null) {
             throw new BindingNotFound(\sprintf(
-                'Message `%s` must have exactly one primary sync binding.',
+                'Message `%s` must have a sync query binding or a primary sync command binding.',
                 $message::class,
             ));
         }
 
-        $binding = $primary[0];
-        $result = $this->executeBindings($message, [$binding], $options, $causation);
+        if ($command !== null && $query !== null) {
+            throw new BindingNotFound(\sprintf(
+                'Message `%s` cannot dispatch both query and primary command bindings.',
+                $message::class,
+            ));
+        }
 
-        return $result->get($binding->bindingId ?? '');
+        if ($command !== null) {
+            $this->executeBindings($message, [$command], $options, $causation);
+        }
+
+        if ($query !== null) {
+            $result = $this->executeBindings($message, [$query], $options, $causation);
+
+            return $result->get($query->bindingId ?? '');
+        }
+
+        return null;
     }
 
     public function dispatchAll(
@@ -257,7 +270,6 @@ final class MessageBus implements MessageBusInterface
         ?Envelope $causation,
         bool $forceSequential = false,
     ): HandlerExecutionResultInterface {
-        // TODO(next-major): let dispatch/publish receive an explicit transaction boundary state instead of relying on interceptor-owned guards.
         if ($bindings === []) {
             throw new BindingNotFound(\sprintf('Message `%s` has no matching bindings.', $message::class));
         }
@@ -279,6 +291,47 @@ final class MessageBus implements MessageBusInterface
         }
 
         return new HandlerExecutionResult(...$results);
+    }
+
+    /**
+     * @param list<HandlerBindingDefinition> $bindings
+     */
+    private function primaryCommandBinding(array $bindings, string $messageClass): ?HandlerBindingDefinition
+    {
+        $primary = \array_values(\array_filter(
+            $bindings,
+            static fn (HandlerBindingDefinition $binding): bool => $binding->kind === HandlerKind::Command
+                && $binding->primary === true,
+        ));
+
+        if (\count($primary) > 1) {
+            throw new BindingNotFound(\sprintf(
+                'Command message `%s` has more than one primary sync binding.',
+                $messageClass,
+            ));
+        }
+
+        return $primary[0] ?? null;
+    }
+
+    /**
+     * @param list<HandlerBindingDefinition> $bindings
+     */
+    private function queryBinding(array $bindings): ?HandlerBindingDefinition
+    {
+        $queries = \array_values(\array_filter(
+            $bindings,
+            static fn (HandlerBindingDefinition $binding): bool => $binding->kind === HandlerKind::Query,
+        ));
+
+        if (\count($queries) > 1) {
+            throw new BindingNotFound(\sprintf(
+                'Message `%s` has more than one sync query binding.',
+                $queries[0]->message,
+            ));
+        }
+
+        return $queries[0] ?? null;
     }
 
     /**

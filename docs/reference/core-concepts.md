@@ -25,11 +25,11 @@ Binding отвечает за:
 - handler method;
 - flow;
 - `bindingId`;
-- primary flag для command/query;
+- primary flag для command;
 - middleware;
 - retry/cache metadata.
 
-Для sync command/query binding может быть почти невидимым. Для async handler `bindingId` становится обязательной публичной идентичностью задачи.
+Для sync query binding может быть почти невидимым, потому что query всегда имеет ровно один handler. Для command primary flag определяет единственное правило обработки в `dispatch()`. Для async handler `bindingId` становится обязательной публичной идентичностью задачи.
 
 ## Handler
 
@@ -38,17 +38,20 @@ Handler выполняет бизнес-операцию.
 Обязательная форма:
 
 ```php
-public function __invoke(Message $message, MessageContextInterface $context): mixed
+public function __invoke(Message $message, MessageContextInterface $context): Result|void
 ```
 
 Правила:
 
 - Handler должен быть service в PSR-11 container.
 - Handler dependencies передаются через constructor container-ом.
-- Handler method принимает только message и context.
-- Handler может вернуть result для command/query.
+- Handler method принимает message и context, если binding не объявлен как `contextAware: false`.
+- Query handler обязан вернуть non-void result.
+- Command handler обязан вернуть `void`.
 - Event handler обычно возвращает `void`.
 - Handler может вызывать nested `dispatch()` или `publish()` через context.
+
+Один message не может одновременно иметь sync query binding и primary sync command binding. Разделяйте read и write намерения на разные message-классы.
 
 ## Envelope
 
@@ -139,7 +142,7 @@ Built-in serializers:
 
 ## PublishResult
 
-`dispatch()` возвращает business result одного primary sync handler-а.
+`dispatch()` возвращает business result только для sync query. Для sync command тот же метод выполняет primary command handler и возвращает `void`.
 
 `publish()` возвращает технический результат публикации:
 

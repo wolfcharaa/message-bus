@@ -1,5 +1,36 @@
 # Changelog
 
+## 6.0.0 - 2026-09-10
+
+v6 makes command/query semantics explicit and removes the temporary v5.2 migration APIs.
+
+### Breaking changes
+
+- Registry schema version is bumped to `6`.
+- Default registry compilation version is `6.0.0`.
+- `CommandHandler` methods must return `void`.
+- `QueryHandler` methods must declare a non-void return type and remain single-handler sync bindings.
+- A message cannot have both a sync `QueryHandler` and a primary sync `CommandHandler`.
+- `DomainHandler` and handler role metadata are removed.
+- Legacy `Middleware\PipelineInterface` and the deprecation diagnostics mode are removed.
+- `registry:compile` bootstrap files must return `RegistryCompileInput` or `RegistryCompilationResult`.
+
+### Added
+
+- `contextAware: false` on `CommandHandler`, `QueryHandler` and `EventSubscriber` for contextless invocation.
+- `MessageContextInterface::dispatch()` now mirrors the generic PHPDoc template from `MessageBusInterface`.
+- Registry diagnostics now report message kind conflicts and include more graph metadata in `registry:compile --explain`.
+
+### Changed
+
+- `dispatch()` remains the single sync API: query dispatch returns the query result; command dispatch executes the primary command and returns `void`.
+- Built-in pipeline implementation moved to `Interceptor\Pipeline`.
+- Command marker interface no longer carries a result template.
+
+### Migration notes
+
+See `docs/migration/v5.2-to-v6.md`.
+
 ## 5.2.0 - 2026-09-07
 
 v5.2 adds compile-time registry diagnostics and contextless domain capability handlers without changing the PostgreSQL schema.

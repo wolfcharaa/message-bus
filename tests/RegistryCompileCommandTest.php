@@ -8,16 +8,14 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 use Wolfcharaa\MessageBus\Cli\Command\RegistryCompileCommand;
 use Wolfcharaa\MessageBus\Cli\RegistryCompileInput;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
-use Wolfcharaa\MessageBus\Middleware\PipelineInterface as LegacyPipelineInterface;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
-use Wolfcharaa\MessageBus\Registry\DeprecationDiagnosticsMode;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompilerOptions;
-use Wolfcharaa\MessageBus\Registry\MessageRegistryDefinition;
 use Wolfcharaa\MessageBus\Registry\RegistryCompilationResult;
 use Wolfcharaa\MessageBus\Registry\RegistryCompilationGraphContext;
 use Wolfcharaa\MessageBus\Registry\RegistryDiagnostic;
@@ -44,26 +42,6 @@ final class RegistryCompileCommandTest extends TestCase
             self::assertSame('cli-success', $registry->definition()->sourceHash);
             self::assertSame(MessageRegistryCompiler::LIBRARY_VERSION, $registry->definition()->libraryVersion);
             self::assertCount(1, $registry->bindingsForMessage(RegistryCompileCommandSuccessMessage::class));
-        } finally {
-            @\unlink($bootstrap);
-            @\unlink($target);
-        }
-    }
-
-    public function testCompileCommandKeepsLegacyDefinitionBootstrapCompatible(): void
-    {
-        $bootstrap = $this->bootstrap('return \\' . RegistryCompileCommandFactory::class . '::legacyDefinition();');
-        $target = $this->targetFile();
-
-        try {
-            $tester = new CommandTester(new RegistryCompileCommand());
-            $exitCode = $tester->execute([
-                '--bootstrap' => $bootstrap,
-                '--output' => $target,
-            ]);
-
-            self::assertSame(Command::SUCCESS, $exitCode);
-            self::assertSame('cli-success', CompiledMessageRegistry::fromFile($target)->definition()->sourceHash);
         } finally {
             @\unlink($bootstrap);
             @\unlink($target);
@@ -115,7 +93,7 @@ final class RegistryCompileCommandTest extends TestCase
             self::assertStringContainsString('graph: stage=core_validated', $display);
             self::assertStringContainsString('-> handler ' . RegistryCompileCommandInvalidHandler::class . '::__invoke', $display);
             self::assertStringContainsString('-> flow default mode=sync', $display);
-            self::assertStringContainsString('registry.compile_failed errors=1 warnings=0', $display);
+            self::assertStringContainsString('registry.compile_failed errors=1 warnings=0 stage=core_validated', $display);
             self::assertFileDoesNotExist($target);
         } finally {
             @\unlink($bootstrap);
@@ -145,64 +123,6 @@ final class RegistryCompileCommandTest extends TestCase
         } finally {
             @\unlink($bootstrap);
             @\unlink($target);
-        }
-    }
-
-    public function testCompileCommandAppliesDeprecationMode(): void
-    {
-        $bootstrap = $this->bootstrap('return \\' . RegistryCompileCommandFactory::class . '::legacyMiddlewareInput();');
-        $projectTarget = $this->targetFile();
-        $ignoreTarget = $this->targetFile();
-        $warnTarget = $this->targetFile();
-        $failTarget = $this->targetFile();
-
-        try {
-            $projectDefault = new CommandTester(new RegistryCompileCommand());
-            $projectExitCode = $projectDefault->execute([
-                '--bootstrap' => $bootstrap,
-                '--output' => $projectTarget,
-            ]);
-
-            self::assertSame(Command::SUCCESS, $projectExitCode);
-            self::assertStringContainsString('warning registry.interceptor.legacy_middleware:', $projectDefault->getDisplay());
-
-            $ignored = new CommandTester(new RegistryCompileCommand());
-            $ignoreExitCode = $ignored->execute([
-                '--bootstrap' => $bootstrap,
-                '--output' => $ignoreTarget,
-                '--deprecations' => 'ignore',
-            ]);
-
-            self::assertSame(Command::SUCCESS, $ignoreExitCode);
-            self::assertStringNotContainsString('registry.interceptor.legacy_middleware', $ignored->getDisplay());
-
-            $warned = new CommandTester(new RegistryCompileCommand());
-            $warnExitCode = $warned->execute([
-                '--bootstrap' => $bootstrap,
-                '--output' => $warnTarget,
-                '--deprecations' => 'warn',
-            ]);
-
-            self::assertSame(Command::SUCCESS, $warnExitCode);
-            self::assertStringContainsString('warning registry.interceptor.legacy_middleware:', $warned->getDisplay());
-            self::assertFileExists($warnTarget);
-
-            $failed = new CommandTester(new RegistryCompileCommand());
-            $failExitCode = $failed->execute([
-                '--bootstrap' => $bootstrap,
-                '--output' => $failTarget,
-                '--deprecations' => 'fail',
-            ]);
-
-            self::assertSame(Command::FAILURE, $failExitCode);
-            self::assertStringContainsString('error registry.interceptor.legacy_middleware:', $failed->getDisplay());
-            self::assertFileDoesNotExist($failTarget);
-        } finally {
-            @\unlink($bootstrap);
-            @\unlink($projectTarget);
-            @\unlink($ignoreTarget);
-            @\unlink($warnTarget);
-            @\unlink($failTarget);
         }
     }
 
@@ -238,19 +158,6 @@ final class RegistryCompileCommandFactory
         );
     }
 
-    public static function legacyDefinition(): MessageRegistryDefinition
-    {
-        $input = self::successInput();
-
-        return $input->compiler()->compile(
-            $input->provider,
-            $input->flows,
-            $input->libraryVersion,
-            $input->sourceHash,
-            $input->options,
-        );
-    }
-
     public static function successResult(): RegistryCompilationResult
     {
         $input = self::successInput();
@@ -283,16 +190,6 @@ final class RegistryCompileCommandFactory
         );
     }
 
-    public static function legacyMiddlewareInput(): RegistryCompileInput
-    {
-        return new RegistryCompileInput(
-            new ClassListProvider([
-                RegistryCompileCommandLegacyMiddlewareMessage::class,
-                RegistryCompileCommandLegacyMiddlewareHandler::class,
-            ]),
-            options: new MessageRegistryCompilerOptions(deprecations: DeprecationDiagnosticsMode::Warn),
-        );
-    }
 }
 
 final readonly class RegistryCompileCommandSuccessMessage
@@ -302,7 +199,7 @@ final readonly class RegistryCompileCommandSuccessMessage
     }
 }
 
-#[CommandHandler(message: RegistryCompileCommandSuccessMessage::class)]
+#[QueryHandler(message: RegistryCompileCommandSuccessMessage::class)]
 final class RegistryCompileCommandSuccessHandler
 {
     public function __invoke(RegistryCompileCommandSuccessMessage $message, MessageContextInterface $context): string
@@ -329,29 +226,5 @@ final class RegistryCompileCommandWarningRule implements RegistryValidationRuleI
     public function validate(RegistryCompilationGraphContext $context): iterable
     {
         yield RegistryDiagnostic::warning('project.cli.warning', 'Project CLI warning.');
-    }
-}
-
-final class RegistryCompileCommandLegacyMiddlewareMessage
-{
-}
-
-final class RegistryCompileCommandLegacyMiddlewareInterceptor
-{
-    public function __invoke(MessageContextInterface $context, LegacyPipelineInterface $pipeline): mixed
-    {
-        return $pipeline->continue();
-    }
-}
-
-#[CommandHandler(
-    message: RegistryCompileCommandLegacyMiddlewareMessage::class,
-    middleware: [RegistryCompileCommandLegacyMiddlewareInterceptor::class],
-)]
-final class RegistryCompileCommandLegacyMiddlewareHandler
-{
-    public function __invoke(RegistryCompileCommandLegacyMiddlewareMessage $message, MessageContextInterface $context): string
-    {
-        return 'legacy';
     }
 }

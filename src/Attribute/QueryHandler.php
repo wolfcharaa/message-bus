@@ -7,9 +7,10 @@ namespace Wolfcharaa\MessageBus\Attribute;
 use Attribute;
 use BackedEnum;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
+use Wolfcharaa\MessageBus\Registry\HandlerInvocationMode;
 
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
-class QueryHandler extends AbstractMessageHandlerAttribute
+final class QueryHandler extends AbstractMessageHandlerAttribute
 {
     /**
      * @param class-string $message
@@ -22,6 +23,7 @@ class QueryHandler extends AbstractMessageHandlerAttribute
         int $priority = 0,
         public readonly string|BackedEnum|null $bindingId = null,
         public readonly array $middleware = [],
+        public readonly bool $contextAware = true,
     ) {
         parent::__construct($message, $flow, $method, $priority);
     }
@@ -36,6 +38,14 @@ class QueryHandler extends AbstractMessageHandlerAttribute
             $this->priority(),
             $this->bindingId,
             $this->middleware,
+            invocationMode: $this->invocationMode(),
         );
+    }
+
+    private function invocationMode(): HandlerInvocationMode
+    {
+        return $this->contextAware
+            ? HandlerInvocationMode::ContextAware
+            : HandlerInvocationMode::Contextless;
     }
 }

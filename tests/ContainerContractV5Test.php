@@ -7,7 +7,7 @@ namespace Wolfcharaa\MessageBus\Tests;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
-use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 use Wolfcharaa\MessageBus\Context\DefaultMessageContextFactory;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
@@ -106,7 +106,7 @@ final class ContainerContractMessage
 {
 }
 
-#[CommandHandler(message: ContainerContractMessage::class)]
+#[QueryHandler(message: ContainerContractMessage::class)]
 final class ContainerContractAction
 {
     public function __invoke(ContainerContractMessage $message, MessageContextInterface $context): string

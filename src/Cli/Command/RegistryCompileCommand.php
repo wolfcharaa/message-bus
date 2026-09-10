@@ -12,7 +12,6 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Wolfcharaa\MessageBus\Cli\RegistryCompileInput;
 use Wolfcharaa\MessageBus\Dumper\CompiledRegistryFileWriter;
-use Wolfcharaa\MessageBus\Registry\DeprecationDiagnosticsMode;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryDefinition;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompilerOptions;
@@ -29,22 +28,16 @@ final class RegistryCompileCommand extends Command
     {
         $this
             ->setDescription('Compile the message registry and report configuration diagnostics.')
-            ->addOption('bootstrap', null, InputOption::VALUE_REQUIRED, 'PHP file returning RegistryCompileInput, RegistryCompilationResult or MessageRegistryDefinition.')
+            ->addOption('bootstrap', null, InputOption::VALUE_REQUIRED, 'PHP file returning RegistryCompileInput or RegistryCompilationResult.')
             ->addOption('output', null, InputOption::VALUE_REQUIRED, 'Target compiled registry PHP file.')
             ->addOption('explain', null, InputOption::VALUE_NONE, 'Print a focused relation graph for every diagnostic.')
             ->addOption('fail-on-warning', null, InputOption::VALUE_NONE, 'Return a failure exit code when warnings are emitted.')
-            ->addOption('deprecations', null, InputOption::VALUE_REQUIRED, 'Deprecation diagnostics mode: ignore, warn or fail.')
             ->addOption('base-path', null, InputOption::VALUE_REQUIRED, 'Base path for diagnostic file display.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $value = require $this->bootstrapPath($input);
-
-        if ($value instanceof MessageRegistryDefinition) {
-            // TODO(next-major): remove the definition-only bootstrap path after provider/flow bootstraps are widely adopted.
-            return $this->writeDefinition($value, $input, $output);
-        }
 
         if ($value instanceof RegistryCompilationResult) {
             $options = $this->options($input, new MessageRegistryCompilerOptions());
@@ -65,7 +58,7 @@ final class RegistryCompileCommand extends Command
             return $this->handleResult($result, $options, $input, $output);
         }
 
-        throw new RuntimeException('registry:compile bootstrap must return MessageRegistryDefinition, RegistryCompilationResult or RegistryCompileInput.');
+        throw new RuntimeException('registry:compile bootstrap must return RegistryCompileInput or RegistryCompilationResult.');
     }
 
     private function handleResult(
@@ -83,13 +76,14 @@ final class RegistryCompileCommand extends Command
 
         if ($result->isFailure($options)) {
             $output->writeln(\sprintf(
-                'registry.compile_failed errors=%d warnings=%d',
+                'registry.compile_failed errors=%d warnings=%d stage=%s',
                 \count($result->errors()),
                 \count($result->warnings()),
+                $result->graphContext?->stage->value ?? 'unknown',
             ));
 
             if (!$input->getOption('explain') && $result->graphContext !== null) {
-                $output->writeln('hint: Run registry:compile --explain for affected message/handler graph.');
+                $output->writeln('hint: Run registry:compile with --explain for affected message/handler graph.');
             }
 
             return Command::FAILURE;
@@ -164,10 +158,13 @@ final class RegistryCompileCommand extends Command
 
             $output->writeln('    message ' . $message);
             $output->writeln(\sprintf(
-                '      -> handler %s::%s binding=%s',
+                '      -> handler %s::%s binding=%s kind=%s primary=%s invocation=%s',
                 $binding->action,
                 $binding->method,
                 $binding->bindingId ?? 'unresolved',
+                $binding->kind->value,
+                $binding->primary === null ? 'auto' : ($binding->primary ? 'true' : 'false'),
+                $binding->invocationMode->value,
             ));
             $output->writeln('         -> flow ' . $binding->flow . ($flow !== null ? ' mode=' . $flow->mode->value : ''));
 
@@ -192,16 +189,7 @@ final class RegistryCompileCommand extends Command
 
     private function options(InputInterface $input, MessageRegistryCompilerOptions $base): MessageRegistryCompilerOptions
     {
-        $deprecations = $base->deprecations;
-        $value = $input->getOption('deprecations');
-
-        if ($value !== null) {
-            $deprecations = DeprecationDiagnosticsMode::tryFrom((string) $value)
-                ?? throw new RuntimeException('Invalid --deprecations value. Expected one of: ignore, warn, fail.');
-        }
-
         return new MessageRegistryCompilerOptions(
-            deprecations: $deprecations,
             failOnWarning: $base->failOnWarning || (bool) $input->getOption('fail-on-warning'),
         );
     }

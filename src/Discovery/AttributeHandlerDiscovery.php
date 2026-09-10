@@ -25,7 +25,6 @@ final class AttributeHandlerDiscovery
      */
     public function discover(ClassProviderInterface $provider): array
     {
-        // TODO(next-major): make diagnostics result the primary discovery API and keep this method as a thin BC adapter only.
         $result = $this->discoverWithDiagnostics($provider);
         if ($result->hasErrors()) {
             throw RegistryCompilationException::fromDiagnostics($result->diagnostics, 'Attribute handler discovery failed');

@@ -7,13 +7,15 @@ namespace Wolfcharaa\MessageBus;
 use BackedEnum;
 use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
+use Wolfcharaa\MessageBus\Message\Command;
+use Wolfcharaa\MessageBus\Message\Query;
 
 interface MessageBusInterface
 {
     /**
      * @template TResult
-     * @param \Wolfcharaa\MessageBus\Message\Command<TResult>|\Wolfcharaa\MessageBus\Message\Query<TResult>|object $message
-     * @return TResult
+     * @param Query<TResult>|Command|object $message
+     * @return ($message is Query<TResult> ? TResult : void)
      */
     public function dispatch(
         object $message,

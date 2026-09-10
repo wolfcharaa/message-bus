@@ -14,7 +14,7 @@ use Wolfcharaa\MessageBus\Envelope\Envelope;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
 use Wolfcharaa\MessageBus\Middleware\LoggingMiddleware;
 use Wolfcharaa\MessageBus\Middleware\LoggingMiddlewareMode;
-use Wolfcharaa\MessageBus\Middleware\PipelineInterface;
+use Wolfcharaa\MessageBus\Interceptor\PipelineInterface;
 use Wolfcharaa\MessageBus\PublishOptions;
 use Wolfcharaa\MessageBus\PublishResult;
 

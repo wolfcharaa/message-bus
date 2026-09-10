@@ -15,7 +15,7 @@ flow middleware -> binding middleware -> handler
 declare(strict_types=1);
 
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
-use Wolfcharaa\MessageBus\Middleware\PipelineInterface;
+use Wolfcharaa\MessageBus\Interceptor\PipelineInterface;
 
 final class AuditMiddleware
 {
@@ -46,9 +46,9 @@ $flow = FlowDefinition::sync('default')
 ```php
 <?php
 
-use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 
-#[CommandHandler(
+#[QueryHandler(
     message: CreateReportMessage::class,
     middleware: [ValidateReportAccessMiddleware::class],
 )]
@@ -62,4 +62,3 @@ final class CreateReportAction
 ```
 
 Compiler проверит, что middleware принимает context interface выбранного flow и `PipelineInterface`.
-

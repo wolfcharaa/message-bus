@@ -20,9 +20,9 @@ MessageBus полезен, когда в приложении появляютс
 
 | Возможность | Для чего нужна | Подробности |
 | --- | --- | --- |
-| `dispatch()` | Выполнить command/query синхронно и получить result | [Quick start](docs/guides/quick-start.md) |
+| `dispatch()` | Выполнить sync query с result или sync command без result | [Quick start](docs/guides/quick-start.md) |
 | `publish()` | Опубликовать event в один или несколько handlers | [Event guide](docs/guides/events.md) |
-| `DomainHandler` | Выполнить небольшую domain capability без доступа к nested dispatch/publish | [Domain handlers](docs/guides/domain-handlers.md) |
+| Contextless handlers | Выполнить небольшой handler без доступа к nested dispatch/publish | [Contextless handlers](docs/guides/contextless-handlers.md) |
 | Flows | Разделить sync, async, queue, middleware и execution strategy | [Core concepts](docs/reference/core-concepts.md) |
 | Compiled registry | Получить стабильную карту messages/handlers/aliases/bindings | [Core concepts](docs/reference/core-concepts.md) |
 | Registry diagnostics | Проверить bindings, signatures, flows и project rules в CLI/CI | [Registry compilation](docs/guides/registry-compilation.md) |
@@ -30,7 +30,7 @@ MessageBus полезен, когда в приложении появляютс
 | PostgreSQL queue | Поставить async jobs в БД и запускать workers | [Async queue](docs/guides/async-queue.md) |
 | Queue status/control | Вернуть frontend `queueMessageId`, polling status и cancel | [Queue and worker](docs/reference/queue-and-worker.md) |
 | Worker control plane | Управлять long-running workers через pause/resume/drain/stop/kill/restart | [Worker control plane](docs/reference/worker-control-plane.md) |
-| Cache result | Кешировать результат query/command handler-а | [Cache result](docs/guides/cache-result.md) |
+| Cache result | Кешировать результат query handler-а | [Cache result](docs/guides/cache-result.md) |
 | PSR-11 integration | Подключить handlers и infrastructure через container | [Container contract](docs/reference/container-contract.md) |
 | Framework integration | Подключить библиотеку в популярные frameworks | [Framework integration](docs/guides/framework-integration.md) |
 
@@ -66,10 +66,10 @@ message -> envelope -> registry -> flow -> handler -> result / queue job
 С MessageBus controller отправляет один message:
 
 ```php
-$result = $bus->dispatch(new CreateUserMessage($email, $name));
+$bus->dispatch(new CreateUserCommand($email, $name));
 ```
 
-Дальше registry определяет, какой handler является primary, какой flow используется и какой result вернуть.
+Дальше registry определяет primary command handler и flow. Если приложению нужен результат, используйте query message и `QueryHandler`.
 
 ### 2. Events должны быть fan-out, а не цепочкой ручных вызовов
 
@@ -187,7 +187,7 @@ MessageBus отвечает за:
 
 1. README до конца, чтобы понять общую модель.
 2. [Quick start](docs/guides/quick-start.md), чтобы собрать первый sync command.
-3. [Domain handlers](docs/guides/domain-handlers.md), если domain capability не должна получать MessageBus context.
+3. [Contextless handlers](docs/guides/contextless-handlers.md), если handler не должен получать MessageBus context.
 4. [Event guide](docs/guides/events.md), если нужны events и fan-out.
 5. [Async queue](docs/guides/async-queue.md), если нужны queue jobs и workers.
 6. [Worker control plane](docs/reference/worker-control-plane.md), если workers будут жить в production.
@@ -227,12 +227,12 @@ Container не входит в библиотеку намеренно. Испо
 
 ## Quick start
 
-Минимальный sync command состоит из message, handler, container, registry и `MessageBus`.
+Минимальный sync query состоит из message, handler, container, registry и `MessageBus`.
 
 ### 1. Message
 
 ```php
-final class CreateUserMessage
+final class CreateUserQuery
 {
     public function __construct(
         public readonly string $email,
@@ -247,13 +247,13 @@ Message - это DTO. Он описывает намерение или факт
 ### 2. Handler
 
 ```php
-use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 
-#[CommandHandler(message: CreateUserMessage::class)]
-final class CreateUserAction
+#[QueryHandler(message: CreateUserQuery::class)]
+final class CreateUserHandler
 {
-    public function __invoke(CreateUserMessage $message, MessageContextInterface $context): string
+    public function __invoke(CreateUserQuery $message, MessageContextInterface $context): string
     {
         return 'created:' . $message->email;
     }
@@ -268,7 +268,7 @@ Handler должен быть service в PSR-11 container. Dependencies пере
 use Wolfcharaa\MessageBus\Context\DefaultMessageContextFactory;
 use Wolfcharaa\MessageBus\Execution\SequentialExecutionStrategy;
 
-$container->set(CreateUserAction::class, fn () => new CreateUserAction());
+$container->set(CreateUserHandler::class, fn () => new CreateUserHandler());
 $container->set(DefaultMessageContextFactory::class, fn () => new DefaultMessageContextFactory());
 $container->set(SequentialExecutionStrategy::class, fn () => new SequentialExecutionStrategy());
 ```
@@ -283,11 +283,11 @@ use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 
 $definition = (new MessageRegistryCompiler())->compile(
     new ClassListProvider([
-        CreateUserMessage::class,
-        CreateUserAction::class,
+        CreateUserQuery::class,
+        CreateUserHandler::class,
     ]),
     new FlowRegistry(),
-    '5.2.0',
+    '6.0.0',
 );
 
 $registry = new CompiledMessageRegistry($definition);
@@ -306,10 +306,10 @@ $bus = new MessageBus(
     container: $container,
 );
 
-$result = $bus->dispatch(new CreateUserMessage('user@example.com', 'Roman'));
+$result = $bus->dispatch(new CreateUserQuery('user@example.com', 'Roman'));
 ```
 
-`dispatch()` возвращает business result primary sync handler-а.
+`dispatch()` возвращает business result только для sync query. Sync command выполняется тем же методом, но command handler обязан возвращать `void`.
 
 Подробный разбор quick start: [docs/guides/quick-start.md](docs/guides/quick-start.md).
 
@@ -485,11 +485,11 @@ v5.1 расширяет PostgreSQL schema для worker control-plane и доб�
 
 Подробная инструкция: [docs/migration/v5.0-to-v5.1.md](docs/migration/v5.0-to-v5.1.md).
 
-## Миграция с v5.1 на v5.2
+## Миграция с v5.2 на v6
 
-v5.2 добавляет typed registry diagnostics, обновлённый `registry:compile` и contextless `DomainHandler`. PostgreSQL schema не меняется, но compiled registry artifact рекомендуется пересобрать.
+v6 уточняет contract message bus: `QueryHandler` является единственным источником business result, `CommandHandler` обязан возвращать `void`, а contextless-вызов задаётся параметром `contextAware: false` на обычном handler attribute. `DomainHandler`, deprecated middleware pipeline и `--deprecations` удалены.
 
-Подробная инструкция: [docs/migration/v5.1-to-v5.2.md](docs/migration/v5.1-to-v5.2.md).
+Подробная инструкция: [docs/migration/v5.2-to-v6.md](docs/migration/v5.2-to-v6.md).
 
 ## Framework integration
 
@@ -502,7 +502,7 @@ v5.2 добавляет typed registry diagnostics, обновлённый `regi
 | Раздел | Документ |
 | --- | --- |
 | Подробный быстрый старт | [docs/guides/quick-start.md](docs/guides/quick-start.md) |
-| Domain capability без MessageBus context | [docs/guides/domain-handlers.md](docs/guides/domain-handlers.md) |
+| Handler без MessageBus context | [docs/guides/contextless-handlers.md](docs/guides/contextless-handlers.md) |
 | Компиляция registry и CLI diagnostics | [docs/guides/registry-compilation.md](docs/guides/registry-compilation.md) |
 | События, `MessageAlias` и `bindingId` | [docs/guides/events.md](docs/guides/events.md) |
 | Async очередь и запуск worker-а | [docs/guides/async-queue.md](docs/guides/async-queue.md) |
@@ -510,6 +510,7 @@ v5.2 добавляет typed registry diagnostics, обновлённый `regi
 | Миграция с v4 на v5 | [docs/migration/v4-to-v5.md](docs/migration/v4-to-v5.md) |
 | Миграция с v5.0 на v5.1 | [docs/migration/v5.0-to-v5.1.md](docs/migration/v5.0-to-v5.1.md) |
 | Миграция с v5.1 на v5.2 | [docs/migration/v5.1-to-v5.2.md](docs/migration/v5.1-to-v5.2.md) |
+| Миграция с v5.2 на v6 | [docs/migration/v5.2-to-v6.md](docs/migration/v5.2-to-v6.md) |
 | Основные концепции | [docs/reference/core-concepts.md](docs/reference/core-concepts.md) |
 | Контракт контейнера | [docs/reference/container-contract.md](docs/reference/container-contract.md) |
 | Контракты очереди и worker-а | [docs/reference/queue-and-worker.md](docs/reference/queue-and-worker.md) |

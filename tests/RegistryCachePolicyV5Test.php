@@ -107,8 +107,8 @@ final class RegistryCacheMultiMessageB
 }
 
 #[CacheResult(ttlSeconds: 60)]
-#[CommandHandler(message: RegistryCacheMultiMessageA::class, method: 'handleA')]
-#[CommandHandler(message: RegistryCacheMultiMessageB::class, method: 'handleB')]
+#[QueryHandler(message: RegistryCacheMultiMessageA::class, method: 'handleA')]
+#[QueryHandler(message: RegistryCacheMultiMessageB::class, method: 'handleB')]
 final class RegistryCacheAmbiguousMultiAction
 {
     public function handleA(RegistryCacheMultiMessageA $message, MessageContextInterface $context): string
@@ -123,8 +123,8 @@ final class RegistryCacheAmbiguousMultiAction
 }
 
 #[CacheResult(ttlSeconds: 30, bindingId: 'multi.a')]
-#[CommandHandler(message: RegistryCacheMultiMessageA::class, method: 'handleA', bindingId: 'multi.a')]
-#[CommandHandler(message: RegistryCacheMultiMessageB::class, method: 'handleB', bindingId: 'multi.b')]
+#[QueryHandler(message: RegistryCacheMultiMessageA::class, method: 'handleA', bindingId: 'multi.a')]
+#[QueryHandler(message: RegistryCacheMultiMessageB::class, method: 'handleB', bindingId: 'multi.b')]
 final class RegistryCacheTargetedMultiAction
 {
     public function handleA(RegistryCacheMultiMessageA $message, MessageContextInterface $context): string

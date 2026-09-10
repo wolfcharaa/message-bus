@@ -1,4 +1,4 @@
-# Basic sync command/query
+# Basic sync query
 
 Пример показывает минимальный sync-сценарий. В runtime обязательно нужен PSR-11 container.
 
@@ -8,14 +8,14 @@ composer require romanfedorskij/message-bus php-di/php-di
 
 ```php
 use DI\ContainerBuilder;
-use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
 use Wolfcharaa\MessageBus\MessageBus;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 
-final class CreateUserMessage
+final class CreateUserQuery
 {
     public function __construct(public readonly string $email) {}
 }
@@ -25,10 +25,10 @@ final class CreateUserResult
     public function __construct(public readonly int $userId) {}
 }
 
-#[CommandHandler(message: CreateUserMessage::class)]
-final class CreateUserAction
+#[QueryHandler(message: CreateUserQuery::class)]
+final class CreateUserHandler
 {
-    public function __invoke(CreateUserMessage $message, MessageContextInterface $context): CreateUserResult
+    public function __invoke(CreateUserQuery $message, MessageContextInterface $context): CreateUserResult
     {
         return new CreateUserResult(10);
     }
@@ -40,8 +40,8 @@ $container = (new ContainerBuilder())
 
 $definition = (new MessageRegistryCompiler())->compile(
     new ClassListProvider([
-        CreateUserMessage::class,
-        CreateUserAction::class,
+        CreateUserQuery::class,
+        CreateUserHandler::class,
     ]),
 );
 
@@ -53,5 +53,5 @@ $bus = new MessageBus(
     container: $container,
 );
 
-$result = $bus->dispatch(new CreateUserMessage('user@example.com'));
+$result = $bus->dispatch(new CreateUserQuery('user@example.com'));
 ```

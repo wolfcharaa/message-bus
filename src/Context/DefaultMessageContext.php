@@ -26,6 +26,11 @@ final class DefaultMessageContext implements MessageContextInterface, Cancellabl
         return $this->envelope;
     }
 
+    /**
+     * @template TResult
+     * @param \Wolfcharaa\MessageBus\Message\Query<TResult>|\Wolfcharaa\MessageBus\Message\Command|object $message
+     * @return ($message is \Wolfcharaa\MessageBus\Message\Query<TResult> ? TResult : void)
+     */
     public function dispatch(object $message, PublishOptions $options = new PublishOptions()): mixed
     {
         return $this->messageBus->dispatch($message, $options, $this->envelope);

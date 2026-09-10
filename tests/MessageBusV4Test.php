@@ -22,8 +22,8 @@ use Wolfcharaa\MessageBus\Envelope\Headers;
 use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
-use Wolfcharaa\MessageBus\Message\Command;
 use Wolfcharaa\MessageBus\Message\IncrementalMessageIdGenerator;
+use Wolfcharaa\MessageBus\Message\Query;
 use Wolfcharaa\MessageBus\MessageBus;
 use Wolfcharaa\MessageBus\MessageBusInterface;
 use Wolfcharaa\MessageBus\PublishOptions;
@@ -31,8 +31,11 @@ use Wolfcharaa\MessageBus\Queue\QueueEnqueueResult;
 use Wolfcharaa\MessageBus\Queue\QueueMessage;
 use Wolfcharaa\MessageBus\Queue\QueueProviderInterface;
 use Wolfcharaa\MessageBus\Queue\MessageBusQueueWorker;
+use Wolfcharaa\MessageBus\Registry\BindingNotFound;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
+use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
+use Wolfcharaa\MessageBus\Registry\MessageRegistryDefinition;
 use Wolfcharaa\MessageBus\Registry\RegistryCompilationException;
 use Wolfcharaa\MessageBus\Serialization\JsonMessageSerializer;
 use Wolfcharaa\MessageBus\Tests\Support\TestContainer;
@@ -90,6 +93,7 @@ final class MessageBusV4Test extends TestCase
 
     public function testDispatchAllReturnsAllSyncHandlerResults(): void
     {
+        MultiSyncRecorder::$events = [];
         $registry = $this->registry([
             MultiSyncMessage::class,
             MultiSyncPrimaryAction::class,
@@ -106,8 +110,9 @@ final class MessageBusV4Test extends TestCase
 
         $result = $bus->dispatchAll(new MultiSyncMessage('value'));
 
-        self::assertSame('primary:value', $result->getByAction(MultiSyncPrimaryAction::class));
-        self::assertSame('secondary:value', $result->getByAction(MultiSyncSecondaryAction::class));
+        self::assertNull($result->getByAction(MultiSyncPrimaryAction::class));
+        self::assertNull($result->getByAction(MultiSyncSecondaryAction::class));
+        self::assertSame(['primary:value', 'secondary:value'], MultiSyncRecorder::$events);
     }
 
     public function testPublishCreatesQueueMessagePerAsyncBinding(): void
@@ -183,6 +188,7 @@ final class MessageBusV4Test extends TestCase
 
     public function testQueueWorkerExecutesSerializedEnvelopeBinding(): void
     {
+        AsyncRecorder::$calls = [];
         $provider = new RecordingQueueProvider();
         $flow = FlowDefinition::async('jobs')
             ->transport('database', 'jobs');
@@ -204,7 +210,8 @@ final class MessageBusV4Test extends TestCase
         $bus->publish(new AsyncCommandMessage(44));
         $worker = new MessageBusQueueWorker($bus, $serializer);
 
-        self::assertSame('processed:44', $worker->handle($provider->messages[0]->envelope));
+        self::assertNull($worker->handle($provider->messages[0]->envelope));
+        self::assertSame(['processed:44'], AsyncRecorder::$calls);
     }
 
     public function testDispatchPublishedSyncRunsAsyncBindingsWithoutQueue(): void
@@ -308,6 +315,57 @@ final class MessageBusV4Test extends TestCase
         ], MiddlewareRecorder::$events);
     }
 
+    public function testDispatchRejectsMessageWithQueryAndPrimaryCommandBindings(): void
+    {
+        $flows = new FlowRegistry();
+        $registry = new CompiledMessageRegistry(new MessageRegistryDefinition(
+            MessageRegistryCompiler::SCHEMA_VERSION,
+            MessageRegistryCompiler::LIBRARY_VERSION,
+            (new DateTimeImmutable('2026-08-18T12:00:00+00:00'))->format(DATE_ATOM),
+            'mixed-dispatch-runtime-test',
+            $flows,
+            [
+                MixedDispatchRuntimeMessage::class => [
+                    'mixed.dispatch.query',
+                    'mixed.dispatch.command',
+                ],
+            ],
+            [
+                'mixed.dispatch.query' => HandlerBindingDefinition::query(
+                    MixedDispatchRuntimeMessage::class,
+                    MixedDispatchRuntimeQueryHandler::class,
+                    '__invoke',
+                    'default',
+                    0,
+                    'mixed.dispatch.query',
+                ),
+                'mixed.dispatch.command' => HandlerBindingDefinition::command(
+                    MixedDispatchRuntimeMessage::class,
+                    MixedDispatchRuntimeCommandHandler::class,
+                    '__invoke',
+                    'default',
+                    true,
+                    0,
+                    'mixed.dispatch.command',
+                ),
+            ],
+            [],
+            [],
+        ));
+        $bus = new MessageBus(
+            $registry,
+            $flows,
+            new TestContainer(),
+            messageIdGenerator: new IncrementalMessageIdGenerator(),
+            clock: new FrozenClock(),
+        );
+
+        $this->expectException(BindingNotFound::class);
+        $this->expectExceptionMessage('cannot dispatch both query and primary command bindings');
+
+        $bus->dispatch(new MixedDispatchRuntimeMessage());
+    }
+
     public function testCompilerRequiresAliasAndBindingIdForAsyncBindings(): void
     {
         $this->expectException(RegistryCompilationException::class);
@@ -322,7 +380,7 @@ final class MessageBusV4Test extends TestCase
     public function testCompilerRejectsInvalidQueryReturnType(): void
     {
         $this->expectException(RegistryCompilationException::class);
-        $this->expectExceptionMessage('cannot return void');
+        $this->expectExceptionMessage('must declare a non-void return type');
 
         $this->registry([
             BadQueryMessage::class,
@@ -405,9 +463,9 @@ final class RecordingQueueProvider implements QueueProviderInterface
 }
 
 /**
- * @implements Command<CreateUserResult>
+ * @implements Query<CreateUserResult>
  */
-final class CreateUserMessage implements Command
+final class CreateUserMessage implements Query
 {
     public function __construct(public readonly string $email)
     {
@@ -425,7 +483,7 @@ final class CreateUserResult
     }
 }
 
-#[CommandHandler(message: CreateUserMessage::class)]
+#[QueryHandler(message: CreateUserMessage::class)]
 final class CreateUserAction
 {
     public function __invoke(CreateUserMessage $message, \Wolfcharaa\MessageBus\Context\MessageContextInterface $context): CreateUserResult
@@ -443,7 +501,7 @@ final class ParentMessage
 {
 }
 
-#[CommandHandler(message: ParentMessage::class)]
+#[QueryHandler(message: ParentMessage::class)]
 final class ParentAction
 {
     public function __invoke(ParentMessage $message, \Wolfcharaa\MessageBus\Context\MessageContextInterface $context): array
@@ -461,7 +519,7 @@ final class ChildMessage
 {
 }
 
-#[CommandHandler(message: ChildMessage::class)]
+#[QueryHandler(message: ChildMessage::class)]
 final class ChildAction
 {
     public function __invoke(ChildMessage $message, MessageContextInterface $context): array
@@ -481,21 +539,27 @@ final class MultiSyncMessage
     }
 }
 
+final class MultiSyncRecorder
+{
+    /** @var list<string> */
+    public static array $events = [];
+}
+
 #[CommandHandler(message: MultiSyncMessage::class, primary: true)]
 final class MultiSyncPrimaryAction
 {
-    public function __invoke(MultiSyncMessage $message, MessageContextInterface $context): string
+    public function __invoke(MultiSyncMessage $message, MessageContextInterface $context): void
     {
-        return 'primary:' . $message->value;
+        MultiSyncRecorder::$events[] = 'primary:' . $message->value;
     }
 }
 
 #[CommandHandler(message: MultiSyncMessage::class, primary: false)]
 final class MultiSyncSecondaryAction
 {
-    public function __invoke(MultiSyncMessage $message, MessageContextInterface $context): string
+    public function __invoke(MultiSyncMessage $message, MessageContextInterface $context): void
     {
-        return 'secondary:' . $message->value;
+        MultiSyncRecorder::$events[] = 'secondary:' . $message->value;
     }
 }
 
@@ -554,9 +618,9 @@ final class AsyncCommandMessage
 )]
 final class AsyncCommandAction
 {
-    public function __invoke(AsyncCommandMessage $message, MessageContextInterface $context): string
+    public function __invoke(AsyncCommandMessage $message, MessageContextInterface $context): void
     {
-        return 'processed:' . $message->id;
+        AsyncRecorder::$calls[] = 'processed:' . $message->id;
     }
 }
 
@@ -645,7 +709,7 @@ final class CustomContextMessage
     }
 }
 
-#[CommandHandler(message: CustomContextMessage::class, flow: 'custom')]
+#[QueryHandler(message: CustomContextMessage::class, flow: 'custom')]
 final class CustomContextAction
 {
     public function __invoke(CustomContextMessage $message, TestMessageContextInterface $context): string
@@ -666,7 +730,7 @@ final class MiddlewareMessage
 
 final class FlowMiddleware
 {
-    public function __invoke(MessageContextInterface $context, \Wolfcharaa\MessageBus\Middleware\PipelineInterface $pipeline): mixed
+    public function __invoke(MessageContextInterface $context, \Wolfcharaa\MessageBus\Interceptor\PipelineInterface $pipeline): mixed
     {
         MiddlewareRecorder::$events[] = 'flow-before';
         $result = $pipeline->continue();
@@ -678,7 +742,7 @@ final class FlowMiddleware
 
 final class BindingMiddleware
 {
-    public function __invoke(MessageContextInterface $context, \Wolfcharaa\MessageBus\Middleware\PipelineInterface $pipeline): mixed
+    public function __invoke(MessageContextInterface $context, \Wolfcharaa\MessageBus\Interceptor\PipelineInterface $pipeline): mixed
     {
         MiddlewareRecorder::$events[] = 'binding-before';
         $result = $pipeline->continue();
@@ -688,7 +752,7 @@ final class BindingMiddleware
     }
 }
 
-#[CommandHandler(message: MiddlewareMessage::class, middleware: [BindingMiddleware::class])]
+#[QueryHandler(message: MiddlewareMessage::class, middleware: [BindingMiddleware::class])]
 final class MiddlewareAction
 {
     public function __invoke(MiddlewareMessage $message, MessageContextInterface $context): string
@@ -696,6 +760,25 @@ final class MiddlewareAction
         MiddlewareRecorder::$events[] = 'handler';
 
         return 'middleware-done';
+    }
+}
+
+final class MixedDispatchRuntimeMessage
+{
+}
+
+final class MixedDispatchRuntimeQueryHandler
+{
+    public function __invoke(MixedDispatchRuntimeMessage $message, MessageContextInterface $context): string
+    {
+        return 'query';
+    }
+}
+
+final class MixedDispatchRuntimeCommandHandler
+{
+    public function __invoke(MixedDispatchRuntimeMessage $message, MessageContextInterface $context): void
+    {
     }
 }
 

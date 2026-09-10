@@ -27,7 +27,6 @@ final class HandlerBindingDefinition
         public readonly array $middleware = [],
         public readonly ?QueueDeliveryOptions $delivery = null,
         public readonly ?CachePolicy $cache = null,
-        public readonly HandlerRole $role = HandlerRole::Application,
         public readonly HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
     ) {
     }
@@ -43,6 +42,7 @@ final class HandlerBindingDefinition
         array $middleware = [],
         ?QueueDeliveryOptions $delivery = null,
         ?CachePolicy $cache = null,
+        HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -56,6 +56,7 @@ final class HandlerBindingDefinition
             $middleware,
             $delivery,
             $cache,
+            $invocationMode,
         );
     }
 
@@ -69,6 +70,7 @@ final class HandlerBindingDefinition
         array $middleware = [],
         ?QueueDeliveryOptions $delivery = null,
         ?CachePolicy $cache = null,
+        HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -82,6 +84,7 @@ final class HandlerBindingDefinition
             $middleware,
             $delivery,
             $cache,
+            $invocationMode,
         );
     }
 
@@ -95,6 +98,7 @@ final class HandlerBindingDefinition
         array $middleware = [],
         ?QueueDeliveryOptions $delivery = null,
         ?CachePolicy $cache = null,
+        HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -108,6 +112,7 @@ final class HandlerBindingDefinition
             $middleware,
             $delivery,
             $cache,
+            $invocationMode,
         );
     }
 
@@ -125,7 +130,6 @@ final class HandlerBindingDefinition
             $this->middleware,
             $this->delivery,
             $cache,
-            $this->role,
             $this->invocationMode,
         );
     }
@@ -144,7 +148,6 @@ final class HandlerBindingDefinition
             $this->middleware,
             $this->delivery,
             $this->cache,
-            $this->role,
             $this->invocationMode,
         );
     }
@@ -163,26 +166,6 @@ final class HandlerBindingDefinition
             $this->middleware,
             $this->delivery,
             $this->cache,
-            $this->role,
-            $this->invocationMode,
-        );
-    }
-
-    public function withRole(HandlerRole $role): self
-    {
-        return new self(
-            $this->bindingId,
-            $this->message,
-            $this->action,
-            $this->method,
-            $this->flow,
-            $this->kind,
-            $this->primary,
-            $this->priority,
-            $this->middleware,
-            $this->delivery,
-            $this->cache,
-            $role,
             $this->invocationMode,
         );
     }
@@ -201,7 +184,6 @@ final class HandlerBindingDefinition
             $this->middleware,
             $this->delivery,
             $this->cache,
-            $this->role,
             $invocationMode,
         );
     }
@@ -221,7 +203,6 @@ final class HandlerBindingDefinition
             'middleware' => $this->middleware,
             'delivery' => $this->delivery?->toArray(),
             'cache' => $this->cache?->toArray(),
-            'role' => $this->role->value,
             'invocationMode' => $this->invocationMode->value,
         ];
     }
@@ -241,8 +222,7 @@ final class HandlerBindingDefinition
             $data['middleware'] ?? [],
             QueueDeliveryOptions::fromArray($data['delivery'] ?? null),
             CachePolicy::fromArray($data['cache'] ?? null),
-            HandlerRole::from($data['role'] ?? HandlerRole::Application->value),
-            HandlerInvocationMode::from($data['invocationMode'] ?? HandlerInvocationMode::ContextAware->value),
+            HandlerInvocationMode::from($data['invocationMode']),
         );
     }
 

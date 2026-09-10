@@ -1,13 +1,13 @@
 # Quick Start
 
-Этот пример показывает самый короткий путь: создать command, handler, registry и выполнить command синхронно.
+Этот пример показывает самый короткий путь: создать query, handler, registry и выполнить query синхронно.
 
 ## 1. Создайте message
 
 Message - это DTO с данными, которые нужны handler-у.
 
 ```php
-final class CreateUserMessage
+final class CreateUserQuery
 {
     public function __construct(public readonly string $email) {}
 }
@@ -18,20 +18,20 @@ final class CreateUserResult
 }
 ```
 
-Result - это обычный объект, который вернётся из `dispatch()`.
+Result - это обычный объект, который вернётся из `dispatch()` для query.
 
 ## 2. Создайте handler
 
 Handler помечается attribute-ом. Так registry понимает, какое сообщение обрабатывает этот класс.
 
 ```php
-use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 
-#[CommandHandler(message: CreateUserMessage::class)]
-final class CreateUserAction
+#[QueryHandler(message: CreateUserQuery::class)]
+final class CreateUserHandler
 {
-    public function __invoke(CreateUserMessage $message, MessageContextInterface $context): CreateUserResult
+    public function __invoke(CreateUserQuery $message, MessageContextInterface $context): CreateUserResult
     {
         return new CreateUserResult(10);
     }
@@ -40,7 +40,7 @@ final class CreateUserAction
 
 Handler всегда принимает два аргумента:
 
-- `CreateUserMessage $message` - входные данные.
+- `CreateUserQuery $message` - входные данные.
 - `MessageContextInterface $context` - context текущего выполнения.
 
 Context можно не использовать сразу, но он нужен для вложенного `dispatch()`, `publish()` и доступа к metadata envelope.
@@ -84,21 +84,22 @@ MessageBus не сканирует весь проект на каждый `disp
 Registry нужен, чтобы во время выполнения MessageBus работал быстро и предсказуемо. Когда вы вызываете:
 
 ```php
-$bus->dispatch(new CreateUserMessage('user@example.com'));
+$bus->dispatch(new CreateUserQuery('user@example.com'));
 ```
 
 MessageBus не ищет handler reflection-ом заново. Он берёт из registry готовую запись:
 
 ```text
-CreateUserMessage -> CreateUserAction::__invoke()
+CreateUserQuery -> CreateUserHandler::__invoke()
 ```
 
-После этого он просит PSR-11 container вернуть `CreateUserAction` и вызывает нужный method.
+После этого он просит PSR-11 container вернуть `CreateUserHandler` и вызывает нужный method.
 
 Почему registry собирается явно:
 
 - Ошибки в attributes находятся на старте, а не в production во время обработки запроса.
-- Можно проверить, что command имеет primary handler.
+- Можно проверить, что query имеет ровно один sync handler.
+- Можно проверить, что command handler возвращает `void`.
 - Можно проверить, что async messages имеют стабильный alias.
 - Можно проверить, что async handlers имеют стабильный `bindingId`.
 - Можно заранее собрать registry в PHP-файл и не использовать reflection в production.
@@ -113,8 +114,8 @@ use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 
 $definition = (new MessageRegistryCompiler())->compile(
     new ClassListProvider([
-        CreateUserMessage::class,
-        CreateUserAction::class,
+        CreateUserQuery::class,
+        CreateUserHandler::class,
     ]),
 );
 
@@ -142,20 +143,20 @@ $bus = new MessageBus(
 ## 6. Выполните command
 
 ```php
-$result = $bus->dispatch(new CreateUserMessage('user@example.com'));
+$result = $bus->dispatch(new CreateUserQuery('user@example.com'));
 
 assert($result instanceof CreateUserResult);
 echo $result->userId;
 ```
 
-`dispatch()` выполняет primary sync handler и возвращает бизнес-результат handler-а.
+`dispatch()` выполняет sync query handler и возвращает его бизнес-результат. Для command используется тот же метод, но command handler обязан возвращать `void`.
 
 ## 7. Что произошло внутри
 
 В этом примере библиотека сделала такие шаги:
 
-- Нашла binding для `CreateUserMessage`.
-- Получила `CreateUserAction` из PSR-11 container.
+- Нашла binding для `CreateUserQuery`.
+- Получила `CreateUserHandler` из PSR-11 container.
 - Создала envelope с `messageId`, `correlationId`, `createdAt` и headers.
 - Запустила middleware pipeline.
 - Вызвала handler.

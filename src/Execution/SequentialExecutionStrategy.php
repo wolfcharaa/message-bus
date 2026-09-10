@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Wolfcharaa\MessageBus\Execution;
 
-use Wolfcharaa\MessageBus\Middleware\Pipeline;
+use Wolfcharaa\MessageBus\Interceptor\Pipeline;
 
 final class SequentialExecutionStrategy implements HandlerExecutionStrategyInterface
 {

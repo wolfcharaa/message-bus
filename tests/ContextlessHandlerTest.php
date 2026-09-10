@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Tests;
 
 use PHPUnit\Framework\TestCase;
-use Wolfcharaa\MessageBus\Attribute\DomainHandler;
+use Wolfcharaa\MessageBus\Attribute\MessageAlias;
 use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
 use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
@@ -16,116 +16,109 @@ use Wolfcharaa\MessageBus\MessageBus;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
 use Wolfcharaa\MessageBus\Registry\HandlerInvocationMode;
-use Wolfcharaa\MessageBus\Registry\HandlerRole;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\RegistryDiagnostic;
 use Wolfcharaa\MessageBus\Registry\RegistryDiagnosticCodes;
 use Wolfcharaa\MessageBus\Tests\Support\TestContainer;
 
-final class DomainHandlerTest extends TestCase
+final class ContextlessHandlerTest extends TestCase
 {
-    public function testDomainHandlerUsesContextlessInvocationAndDefaultDomainFlow(): void
+    public function testContextlessQueryUsesExplicitInvocationMode(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
-            DomainHandlerLookupMessage::class,
-            DomainHandlerLookupHandler::class,
+            ContextlessLookupMessage::class,
+            ContextlessLookupHandler::class,
         ]));
 
         self::assertTrue($result->hasDefinition(), self::diagnosticsAsString($result->diagnostics));
         self::assertNotNull($result->definition);
 
         $registry = new CompiledMessageRegistry($result->definition);
-        $bindings = $registry->bindingsForMessage(DomainHandlerLookupMessage::class);
+        $bindings = $registry->bindingsForMessage(ContextlessLookupMessage::class);
 
         self::assertCount(1, $bindings);
-        self::assertSame('domain_capability', $bindings[0]->flow);
-        self::assertSame(HandlerRole::Domain, $bindings[0]->role);
+        self::assertSame('default', $bindings[0]->flow);
         self::assertSame(HandlerInvocationMode::Contextless, $bindings[0]->invocationMode);
-        self::assertSame('domain', $bindings[0]->toArray()['role']);
         self::assertSame('contextless', $bindings[0]->toArray()['invocationMode']);
-        self::assertTrue($result->definition->flows->get('domain_capability')->isSync());
 
         $bus = new MessageBus($registry, $result->definition->flows, new TestContainer());
 
-        self::assertSame('domain:77', $bus->dispatch(new DomainHandlerLookupMessage(77)));
+        self::assertSame('contextless:77', $bus->dispatch(new ContextlessLookupMessage(77)));
     }
 
-    public function testLegacySerializedBindingDefaultsToApplicationContextAwareMode(): void
+    public function testSerializedBindingRequiresInvocationMetadata(): void
     {
         $data = HandlerBindingDefinition::query(
-            DomainHandlerLegacyQueryMessage::class,
-            DomainHandlerLegacyQueryHandler::class,
+            ContextlessLegacyQueryMessage::class,
+            ContextlessLegacyQueryHandler::class,
             '__invoke',
             'default',
             0,
             'legacy.query',
         )->toArray();
-        unset($data['role'], $data['invocationMode']);
 
         $binding = HandlerBindingDefinition::fromArray($data);
 
-        self::assertSame(HandlerRole::Application, $binding->role);
         self::assertSame(HandlerInvocationMode::ContextAware, $binding->invocationMode);
     }
 
     public function testCompiledRegistryPreservesContextlessInvocationMetadata(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
-            DomainHandlerLookupMessage::class,
-            DomainHandlerLookupHandler::class,
+            ContextlessLookupMessage::class,
+            ContextlessLookupHandler::class,
         ]));
         self::assertNotNull($result->definition);
 
-        $file = \tempnam(\sys_get_temp_dir(), 'message-bus-domain-registry-');
+        $file = \tempnam(\sys_get_temp_dir(), 'message-bus-contextless-registry-');
         self::assertIsString($file);
 
         try {
             (new CompiledRegistryFileWriter())->write($result->definition, $file);
             $registry = CompiledMessageRegistry::fromFile($file);
-            $binding = $registry->bindingsForMessage(DomainHandlerLookupMessage::class)[0];
+            $binding = $registry->bindingsForMessage(ContextlessLookupMessage::class)[0];
 
-            self::assertSame(HandlerRole::Domain, $binding->role);
             self::assertSame(HandlerInvocationMode::Contextless, $binding->invocationMode);
 
             $bus = new MessageBus($registry, $registry->definition()->flows, new TestContainer());
-            self::assertSame('domain:91', $bus->dispatch(new DomainHandlerLookupMessage(91)));
+            self::assertSame('contextless:91', $bus->dispatch(new ContextlessLookupMessage(91)));
         } finally {
             @\unlink($file);
         }
     }
 
-    public function testDomainHandlerAttributeCanDeclareMultipleDomainBindings(): void
+    public function testContextlessAttributeCanDeclareMultipleBindings(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
-            DomainHandlerRepeatedFirstMessage::class,
-            DomainHandlerRepeatedSecondMessage::class,
-            DomainHandlerRepeatedHandler::class,
+            ContextlessRepeatedFirstMessage::class,
+            ContextlessRepeatedSecondMessage::class,
+            ContextlessRepeatedHandler::class,
         ]));
 
         self::assertTrue($result->hasDefinition(), self::diagnosticsAsString($result->diagnostics));
-        self::assertArrayHasKey('domain.repeated.first', $result->definition?->bindings);
-        self::assertArrayHasKey('domain.repeated.second', $result->definition?->bindings);
+        self::assertArrayHasKey('contextless.repeated.first', $result->definition?->bindings);
+        self::assertArrayHasKey('contextless.repeated.second', $result->definition?->bindings);
     }
 
-    public function testDomainHandlerCanUseExplicitCustomSyncFlow(): void
+    public function testContextlessHandlerCanUseExplicitCustomSyncFlow(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(
             new ClassListProvider([
-                DomainHandlerCustomFlowMessage::class,
-                DomainHandlerCustomFlowHandler::class,
+                ContextlessCustomFlowMessage::class,
+                ContextlessCustomFlowHandler::class,
             ]),
             new FlowRegistry(FlowDefinition::sync('domain_read')),
         );
 
         self::assertTrue($result->hasDefinition(), self::diagnosticsAsString($result->diagnostics));
-        self::assertSame('domain_read', $result->definition?->bindings['domain.custom_flow']->flow);
+        self::assertSame('domain_read', $result->definition?->bindings['contextless.custom_flow']->flow);
     }
 
-    public function testDomainHandlerRejectsContextAwareSignature(): void
+    public function testContextlessHandlerRejectsContextAwareSignature(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
-            DomainHandlerContextMessage::class,
-            DomainHandlerContextAwareHandler::class,
+            ContextlessContextMessage::class,
+            ContextlessContextAwareHandler::class,
         ]));
 
         self::assertFalse($result->hasDefinition());
@@ -133,25 +126,25 @@ final class DomainHandlerTest extends TestCase
         self::assertStringContainsString('must not accept MessageContextInterface', self::diagnosticsAsString($result->diagnostics));
     }
 
-    public function testDomainHandlerRejectsAsyncFlow(): void
+    public function testContextlessQueryRejectsAsyncFlow(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(
             new ClassListProvider([
-                DomainHandlerAsyncMessage::class,
-                DomainHandlerAsyncHandler::class,
+                ContextlessAsyncMessage::class,
+                ContextlessAsyncHandler::class,
             ]),
-            new FlowRegistry(FlowDefinition::async('async')->transport('postgres', 'domain')),
+            new FlowRegistry(FlowDefinition::async('async')->transport('postgres', 'contextless')),
         );
 
         self::assertFalse($result->hasDefinition());
-        self::assertDiagnosticCode($result->diagnostics, RegistryDiagnosticCodes::DOMAIN_HANDLER_ASYNC_FLOW);
+        self::assertDiagnosticCode($result->diagnostics, RegistryDiagnosticCodes::QUERY_ASYNC_FLOW);
     }
 
     public function testRegularQueryHandlerStillRequiresContextAwareSignature(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
-            DomainHandlerLegacyQueryMessage::class,
-            DomainHandlerLegacyQueryHandler::class,
+            ContextlessLegacyQueryMessage::class,
+            ContextlessLegacyQueryHandler::class,
         ]));
 
         self::assertFalse($result->hasDefinition());
@@ -181,100 +174,103 @@ final class DomainHandlerTest extends TestCase
     }
 }
 
-final readonly class DomainHandlerLookupMessage
+final readonly class ContextlessLookupMessage
 {
     public function __construct(public int $id)
     {
     }
 }
 
-#[DomainHandler(message: DomainHandlerLookupMessage::class)]
-final class DomainHandlerLookupHandler
+#[QueryHandler(message: ContextlessLookupMessage::class, contextAware: false)]
+final class ContextlessLookupHandler
 {
-    public function __invoke(DomainHandlerLookupMessage $message): string
+    public function __invoke(ContextlessLookupMessage $message): string
     {
-        return 'domain:' . $message->id;
+        return 'contextless:' . $message->id;
     }
 }
 
-final class DomainHandlerContextMessage
+final class ContextlessContextMessage
 {
 }
 
-#[DomainHandler(message: DomainHandlerContextMessage::class)]
-final class DomainHandlerContextAwareHandler
+#[QueryHandler(message: ContextlessContextMessage::class, contextAware: false)]
+final class ContextlessContextAwareHandler
 {
-    public function __invoke(DomainHandlerContextMessage $message, MessageContextInterface $context): string
-    {
-        return 'invalid';
-    }
-}
-
-final class DomainHandlerAsyncMessage
-{
-}
-
-#[DomainHandler(message: DomainHandlerAsyncMessage::class, flow: 'async', bindingId: 'domain.async')]
-final class DomainHandlerAsyncHandler
-{
-    public function __invoke(DomainHandlerAsyncMessage $message): string
+    public function __invoke(ContextlessContextMessage $message, MessageContextInterface $context): string
     {
         return 'invalid';
     }
 }
 
-final class DomainHandlerLegacyQueryMessage
+#[MessageAlias('contextless.async')]
+final class ContextlessAsyncMessage
 {
 }
 
-#[QueryHandler(message: DomainHandlerLegacyQueryMessage::class)]
-final class DomainHandlerLegacyQueryHandler
+#[QueryHandler(message: ContextlessAsyncMessage::class, flow: 'async', bindingId: 'contextless.async', contextAware: false)]
+final class ContextlessAsyncHandler
 {
-    public function __invoke(DomainHandlerLegacyQueryMessage $message): string
+    public function __invoke(ContextlessAsyncMessage $message): string
     {
         return 'invalid';
     }
 }
 
-final class DomainHandlerCustomFlowMessage
+final class ContextlessLegacyQueryMessage
 {
 }
 
-#[DomainHandler(message: DomainHandlerCustomFlowMessage::class, flow: 'domain_read', bindingId: 'domain.custom_flow')]
-final class DomainHandlerCustomFlowHandler
+#[QueryHandler(message: ContextlessLegacyQueryMessage::class)]
+final class ContextlessLegacyQueryHandler
 {
-    public function __invoke(DomainHandlerCustomFlowMessage $message): string
+    public function __invoke(ContextlessLegacyQueryMessage $message): string
+    {
+        return 'invalid';
+    }
+}
+
+final class ContextlessCustomFlowMessage
+{
+}
+
+#[QueryHandler(message: ContextlessCustomFlowMessage::class, flow: 'domain_read', bindingId: 'contextless.custom_flow', contextAware: false)]
+final class ContextlessCustomFlowHandler
+{
+    public function __invoke(ContextlessCustomFlowMessage $message): string
     {
         return 'custom';
     }
 }
 
-final class DomainHandlerRepeatedFirstMessage
+final class ContextlessRepeatedFirstMessage
 {
 }
 
-final class DomainHandlerRepeatedSecondMessage
+final class ContextlessRepeatedSecondMessage
 {
 }
 
-#[DomainHandler(
-    message: DomainHandlerRepeatedFirstMessage::class,
+#[QueryHandler(
+    message: ContextlessRepeatedFirstMessage::class,
     method: 'first',
-    bindingId: 'domain.repeated.first',
+    bindingId: 'contextless.repeated.first',
+    contextAware: false,
 )]
-#[DomainHandler(
-    message: DomainHandlerRepeatedSecondMessage::class,
+#[QueryHandler(
+    message: ContextlessRepeatedSecondMessage::class,
     method: 'second',
-    bindingId: 'domain.repeated.second',
+    bindingId: 'contextless.repeated.second',
+    contextAware: false,
 )]
-final class DomainHandlerRepeatedHandler
+final class ContextlessRepeatedHandler
 {
-    public function first(DomainHandlerRepeatedFirstMessage $message): string
+    public function first(ContextlessRepeatedFirstMessage $message): string
     {
         return 'first';
     }
 
-    public function second(DomainHandlerRepeatedSecondMessage $message): string
+    public function second(ContextlessRepeatedSecondMessage $message): string
     {
         return 'second';
     }

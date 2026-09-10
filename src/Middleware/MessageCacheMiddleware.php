@@ -13,6 +13,7 @@ use Wolfcharaa\MessageBus\Cache\JsonResultSerializer;
 use Wolfcharaa\MessageBus\Cache\ResultSerializerInterface;
 use Wolfcharaa\MessageBus\Cache\SerializedResult;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
+use Wolfcharaa\MessageBus\Interceptor\PipelineInterface;
 
 final class MessageCacheMiddleware
 {

@@ -8,6 +8,7 @@ use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use Wolfcharaa\MessageBus\Attribute\CommandHandler;
 use Wolfcharaa\MessageBus\Attribute\MessageAlias;
+use Wolfcharaa\MessageBus\Attribute\QueryHandler;
 use Wolfcharaa\MessageBus\Context\CancellableMessageContextInterface;
 use Wolfcharaa\MessageBus\Context\DefaultMessageContextFactory;
 use Wolfcharaa\MessageBus\Context\HeartbeatAwareMessageContextInterface;
@@ -153,7 +154,7 @@ final class WorkerRuntimeContextMessage
 {
 }
 
-#[CommandHandler(message: WorkerRuntimeContextMessage::class)]
+#[QueryHandler(message: WorkerRuntimeContextMessage::class)]
 final class WorkerRuntimeContextAction
 {
     public static bool $heartbeatAware = false;

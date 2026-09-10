@@ -16,8 +16,7 @@ use Wolfcharaa\MessageBus\Discovery\ClassListProvider;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
 use Wolfcharaa\MessageBus\Interceptor\PipelineInterface as InterceptorPipelineInterface;
-use Wolfcharaa\MessageBus\Middleware\PipelineInterface;
-use Wolfcharaa\MessageBus\Registry\DeprecationDiagnosticsMode;
+use Wolfcharaa\MessageBus\Interceptor\PipelineInterface;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompiler;
 use Wolfcharaa\MessageBus\Registry\MessageRegistryCompilerOptions;
 use Wolfcharaa\MessageBus\Registry\RegistryCompilationException;
@@ -115,6 +114,18 @@ final class RegistryDiagnosticsTest extends TestCase
         self::assertDiagnosticCode($result->diagnostics, RegistryDiagnosticCodes::HANDLER_INVALID_SIGNATURE);
     }
 
+    public function testCompileWithDiagnosticsRejectsQueryAndPrimaryCommandForSameMessage(): void
+    {
+        $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
+            DiagnosticsMixedDispatchMessage::class,
+            DiagnosticsMixedDispatchQueryHandler::class,
+            DiagnosticsMixedDispatchCommandHandler::class,
+        ]));
+
+        self::assertFalse($result->hasDefinition());
+        self::assertDiagnosticCode($result->diagnostics, RegistryDiagnosticCodes::MESSAGE_KIND_CONFLICT);
+    }
+
     public function testCompileWithDiagnosticsReportsInvalidInterceptorSignature(): void
     {
         $result = (new MessageRegistryCompiler())->compileWithDiagnostics(new ClassListProvider([
@@ -133,44 +144,10 @@ final class RegistryDiagnosticsTest extends TestCase
                 DiagnosticsNewInterceptorMessage::class,
                 DiagnosticsNewInterceptorHandler::class,
             ]),
-            options: new MessageRegistryCompilerOptions(deprecations: DeprecationDiagnosticsMode::Fail),
         );
 
         self::assertTrue($result->hasDefinition());
         self::assertFalse($result->hasErrors());
-    }
-
-    public function testLegacyMiddlewareDeprecationModeControlsDiagnosticsAndFailure(): void
-    {
-        $provider = new ClassListProvider([
-            DiagnosticsLegacyInterceptorMessage::class,
-            DiagnosticsLegacyInterceptorHandler::class,
-        ]);
-        $compiler = new MessageRegistryCompiler();
-
-        $ignored = $compiler->compileWithDiagnostics($provider);
-        self::assertTrue($ignored->hasDefinition());
-        self::assertNull(self::diagnostic($ignored->diagnostics, RegistryDiagnosticCodes::INTERCEPTOR_LEGACY_MIDDLEWARE));
-
-        $warned = $compiler->compileWithDiagnostics(
-            $provider,
-            options: new MessageRegistryCompilerOptions(deprecations: DeprecationDiagnosticsMode::Warn),
-        );
-        self::assertTrue($warned->hasDefinition());
-        self::assertSame(
-            RegistryDiagnosticSeverity::Warning,
-            self::diagnostic($warned->diagnostics, RegistryDiagnosticCodes::INTERCEPTOR_LEGACY_MIDDLEWARE)?->severity,
-        );
-
-        $failed = $compiler->compileWithDiagnostics(
-            $provider,
-            options: new MessageRegistryCompilerOptions(deprecations: DeprecationDiagnosticsMode::Fail),
-        );
-        self::assertFalse($failed->hasDefinition());
-        self::assertSame(
-            RegistryDiagnosticSeverity::Error,
-            self::diagnostic($failed->diagnostics, RegistryDiagnosticCodes::INTERCEPTOR_LEGACY_MIDDLEWARE)?->severity,
-        );
     }
 
     public function testLegacyCompileThrowsExceptionWithTypedDiagnostics(): void
@@ -256,8 +233,8 @@ final class DiagnosticsCacheMessageB
 }
 
 #[CacheResult(ttlSeconds: 60)]
-#[CommandHandler(message: DiagnosticsCacheMessageA::class, method: 'handleA')]
-#[CommandHandler(message: DiagnosticsCacheMessageB::class, method: 'handleB')]
+#[QueryHandler(message: DiagnosticsCacheMessageA::class, method: 'handleA')]
+#[QueryHandler(message: DiagnosticsCacheMessageB::class, method: 'handleB')]
 final class DiagnosticsAmbiguousCacheHandler
 {
     public function handleA(DiagnosticsCacheMessageA $message, MessageContextInterface $context): string
@@ -311,9 +288,8 @@ final class DiagnosticsMissingFlowMessage
 #[CommandHandler(message: DiagnosticsMissingFlowMessage::class, flow: 'missing')]
 final class DiagnosticsMissingFlowHandler
 {
-    public function __invoke(DiagnosticsMissingFlowMessage $message, MessageContextInterface $context): string
+    public function __invoke(DiagnosticsMissingFlowMessage $message, MessageContextInterface $context): void
     {
-        return 'ok';
     }
 }
 
@@ -327,6 +303,27 @@ final class DiagnosticsInvalidHandler
     public function __invoke(DiagnosticsInvalidHandlerMessage $message): string
     {
         return 'invalid';
+    }
+}
+
+final class DiagnosticsMixedDispatchMessage
+{
+}
+
+#[QueryHandler(message: DiagnosticsMixedDispatchMessage::class)]
+final class DiagnosticsMixedDispatchQueryHandler
+{
+    public function __invoke(DiagnosticsMixedDispatchMessage $message, MessageContextInterface $context): string
+    {
+        return 'result';
+    }
+}
+
+#[CommandHandler(message: DiagnosticsMixedDispatchMessage::class, primary: true)]
+final class DiagnosticsMixedDispatchCommandHandler
+{
+    public function __invoke(DiagnosticsMixedDispatchMessage $message, MessageContextInterface $context): void
+    {
     }
 }
 
@@ -345,9 +342,8 @@ final class DiagnosticsInvalidInterceptor
 #[CommandHandler(message: DiagnosticsInvalidInterceptorMessage::class, middleware: [DiagnosticsInvalidInterceptor::class])]
 final class DiagnosticsInvalidInterceptorHandler
 {
-    public function __invoke(DiagnosticsInvalidInterceptorMessage $message, MessageContextInterface $context): string
+    public function __invoke(DiagnosticsInvalidInterceptorMessage $message, MessageContextInterface $context): void
     {
-        return 'ok';
     }
 }
 
@@ -366,30 +362,8 @@ final class DiagnosticsNewInterceptor
 #[CommandHandler(message: DiagnosticsNewInterceptorMessage::class, middleware: [DiagnosticsNewInterceptor::class])]
 final class DiagnosticsNewInterceptorHandler
 {
-    public function __invoke(DiagnosticsNewInterceptorMessage $message, MessageContextInterface $context): string
+    public function __invoke(DiagnosticsNewInterceptorMessage $message, MessageContextInterface $context): void
     {
-        return 'ok';
-    }
-}
-
-final class DiagnosticsLegacyInterceptorMessage
-{
-}
-
-final class DiagnosticsLegacyInterceptor
-{
-    public function __invoke(MessageContextInterface $context, PipelineInterface $pipeline): mixed
-    {
-        return $pipeline->continue();
-    }
-}
-
-#[CommandHandler(message: DiagnosticsLegacyInterceptorMessage::class, middleware: [DiagnosticsLegacyInterceptor::class])]
-final class DiagnosticsLegacyInterceptorHandler
-{
-    public function __invoke(DiagnosticsLegacyInterceptorMessage $message, MessageContextInterface $context): string
-    {
-        return 'ok';
     }
 }
 
@@ -400,9 +374,8 @@ final class DiagnosticsProjectRuleMessage
 #[CommandHandler(message: DiagnosticsProjectRuleMessage::class)]
 final class DiagnosticsProjectRuleHandler
 {
-    public function __invoke(DiagnosticsProjectRuleMessage $message, MessageContextInterface $context): string
+    public function __invoke(DiagnosticsProjectRuleMessage $message, MessageContextInterface $context): void
     {
-        return 'ok';
     }
 }
 

@@ -7,6 +7,7 @@ namespace Wolfcharaa\MessageBus\Middleware;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use Wolfcharaa\MessageBus\Context\MessageContextInterface;
+use Wolfcharaa\MessageBus\Interceptor\PipelineInterface;
 
 final class LoggingMiddleware
 {

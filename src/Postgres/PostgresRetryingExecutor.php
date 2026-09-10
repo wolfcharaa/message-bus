@@ -80,7 +80,6 @@ final class PostgresRetryingExecutor
         $pdo = $this->connectionProvider->connection();
 
         if ($transactional && $pdo->inTransaction()) {
-            // TODO(next-major): expose this nested-transaction decision through a MessageBus transaction boundary contract.
             return $callback($pdo);
         }
 

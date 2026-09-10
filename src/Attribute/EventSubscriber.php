@@ -8,6 +8,7 @@ use Attribute;
 use BackedEnum;
 use Wolfcharaa\MessageBus\Queue\QueueDeliveryOptions;
 use Wolfcharaa\MessageBus\Registry\HandlerBindingDefinition;
+use Wolfcharaa\MessageBus\Registry\HandlerInvocationMode;
 
 #[Attribute(Attribute::TARGET_CLASS | Attribute::IS_REPEATABLE)]
 final class EventSubscriber extends AbstractMessageHandlerAttribute
@@ -25,6 +26,7 @@ final class EventSubscriber extends AbstractMessageHandlerAttribute
         public readonly array $middleware = [],
         public readonly ?int $delaySeconds = null,
         public readonly ?string $retryPolicy = null,
+        public readonly bool $contextAware = true,
     ) {
         parent::__construct($message, $flow, $method, $priority);
     }
@@ -40,7 +42,15 @@ final class EventSubscriber extends AbstractMessageHandlerAttribute
             $this->bindingId,
             $this->middleware,
             $this->delivery(),
+            invocationMode: $this->invocationMode(),
         );
+    }
+
+    private function invocationMode(): HandlerInvocationMode
+    {
+        return $this->contextAware
+            ? HandlerInvocationMode::ContextAware
+            : HandlerInvocationMode::Contextless;
     }
 
     private function delivery(): ?QueueDeliveryOptions
