@@ -88,6 +88,8 @@ Flow управляет:
 - transport и queue для async;
 - delivery options.
 
+`FlowContract` может дополнительно описывать compile/bootstrap правила для named flow: обязательные semantic middleware roles, порядок ролей, stable `bindingId`, owner metadata и required policy registries. Сам `FlowDefinition` остается runtime definition, а contract подключается как validation rule.
+
 Рекомендация:
 
 - `default` держать sync flow для command/query.
@@ -105,6 +107,7 @@ Registry не создаёт services и не заменяет container. Он �
 - какой alias соответствует message class;
 - какой class соответствует alias;
 - какие flows и middleware участвуют в выполнении.
+- какие binding owner/source metadata были явно заданы.
 
 Production правило: registry лучше компилировать заранее и грузить из PHP-файла.
 

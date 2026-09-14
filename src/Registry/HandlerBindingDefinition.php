@@ -7,6 +7,8 @@ namespace Wolfcharaa\MessageBus\Registry;
 use BackedEnum;
 use Wolfcharaa\MessageBus\Cache\CachePolicy;
 use Wolfcharaa\MessageBus\Queue\QueueDeliveryOptions;
+use Wolfcharaa\MessageBus\Registry\Metadata\RegistryOwner;
+use Wolfcharaa\MessageBus\Registry\Metadata\RegistrySource;
 
 final class HandlerBindingDefinition
 {
@@ -28,6 +30,8 @@ final class HandlerBindingDefinition
         public readonly ?QueueDeliveryOptions $delivery = null,
         public readonly ?CachePolicy $cache = null,
         public readonly HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
+        public readonly ?RegistryOwner $owner = null,
+        public readonly ?RegistrySource $source = null,
     ) {
     }
 
@@ -43,6 +47,8 @@ final class HandlerBindingDefinition
         ?QueueDeliveryOptions $delivery = null,
         ?CachePolicy $cache = null,
         HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
+        ?RegistryOwner $owner = null,
+        ?RegistrySource $source = null,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -57,6 +63,8 @@ final class HandlerBindingDefinition
             $delivery,
             $cache,
             $invocationMode,
+            $owner,
+            $source,
         );
     }
 
@@ -71,6 +79,8 @@ final class HandlerBindingDefinition
         ?QueueDeliveryOptions $delivery = null,
         ?CachePolicy $cache = null,
         HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
+        ?RegistryOwner $owner = null,
+        ?RegistrySource $source = null,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -85,6 +95,8 @@ final class HandlerBindingDefinition
             $delivery,
             $cache,
             $invocationMode,
+            $owner,
+            $source,
         );
     }
 
@@ -99,6 +111,8 @@ final class HandlerBindingDefinition
         ?QueueDeliveryOptions $delivery = null,
         ?CachePolicy $cache = null,
         HandlerInvocationMode $invocationMode = HandlerInvocationMode::ContextAware,
+        ?RegistryOwner $owner = null,
+        ?RegistrySource $source = null,
     ): self {
         return new self(
             self::normalize($bindingId),
@@ -113,6 +127,8 @@ final class HandlerBindingDefinition
             $delivery,
             $cache,
             $invocationMode,
+            $owner,
+            $source,
         );
     }
 
@@ -131,6 +147,8 @@ final class HandlerBindingDefinition
             $this->delivery,
             $cache,
             $this->invocationMode,
+            $this->owner,
+            $this->source,
         );
     }
 
@@ -149,6 +167,8 @@ final class HandlerBindingDefinition
             $this->delivery,
             $this->cache,
             $this->invocationMode,
+            $this->owner,
+            $this->source,
         );
     }
 
@@ -167,6 +187,8 @@ final class HandlerBindingDefinition
             $this->delivery,
             $this->cache,
             $this->invocationMode,
+            $this->owner,
+            $this->source,
         );
     }
 
@@ -185,13 +207,35 @@ final class HandlerBindingDefinition
             $this->delivery,
             $this->cache,
             $invocationMode,
+            $this->owner,
+            $this->source,
+        );
+    }
+
+    public function withRegistrationMetadata(?RegistryOwner $owner, ?RegistrySource $source): self
+    {
+        return new self(
+            $this->bindingId,
+            $this->message,
+            $this->action,
+            $this->method,
+            $this->flow,
+            $this->kind,
+            $this->primary,
+            $this->priority,
+            $this->middleware,
+            $this->delivery,
+            $this->cache,
+            $this->invocationMode,
+            $owner,
+            $source,
         );
     }
 
     /** @return array<string, mixed> */
     public function toArray(): array
     {
-        return [
+        $data = [
             'bindingId' => $this->bindingId,
             'message' => $this->message,
             'action' => $this->action,
@@ -205,6 +249,16 @@ final class HandlerBindingDefinition
             'cache' => $this->cache?->toArray(),
             'invocationMode' => $this->invocationMode->value,
         ];
+
+        if ($this->owner !== null) {
+            $data['owner'] = $this->owner->toArray();
+        }
+
+        if ($this->source !== null) {
+            $data['source'] = $this->source->toArray();
+        }
+
+        return $data;
     }
 
     /** @param array<string, mixed> $data */
@@ -222,8 +276,38 @@ final class HandlerBindingDefinition
             $data['middleware'] ?? [],
             QueueDeliveryOptions::fromArray($data['delivery'] ?? null),
             CachePolicy::fromArray($data['cache'] ?? null),
-            HandlerInvocationMode::from($data['invocationMode']),
+            HandlerInvocationMode::from($data['invocationMode'] ?? HandlerInvocationMode::ContextAware->value),
+            self::ownerFromArray($data),
+            self::sourceFromArray($data),
         );
+    }
+
+    /** @param array<string, mixed> $data */
+    private static function ownerFromArray(array $data): ?RegistryOwner
+    {
+        if (!\array_key_exists('owner', $data) || $data['owner'] === null) {
+            return null;
+        }
+
+        if (!\is_array($data['owner'])) {
+            throw new \InvalidArgumentException('Binding owner metadata must be an array or null.');
+        }
+
+        return RegistryOwner::fromArray($data['owner']);
+    }
+
+    /** @param array<string, mixed> $data */
+    private static function sourceFromArray(array $data): ?RegistrySource
+    {
+        if (!\array_key_exists('source', $data) || $data['source'] === null) {
+            return null;
+        }
+
+        if (!\is_array($data['source'])) {
+            throw new \InvalidArgumentException('Binding source metadata must be an array or null.');
+        }
+
+        return RegistrySource::fromArray($data['source']);
     }
 
     private static function normalize(string|BackedEnum|null $value): ?string

@@ -304,7 +304,19 @@ final class MessageBus implements MessageBusInterface
             );
             $context = $this->createContext($flow, $envelope);
             $strategy = $forceSequential ? new SequentialExecutionStrategy() : $this->strategy($flow);
-            $result = $strategy->execute(new ExecutionRequest($flowBindings, $context, $flow, $options, $this->environment));
+            $result = $strategy->execute(new ExecutionRequest(
+                $flowBindings,
+                $context,
+                $flow,
+                $options,
+                $this->environment,
+                fn (HandlerBindingDefinition $binding): MessageContextInterface => $envelope->bindingId === $binding->bindingId
+                    ? $context
+                    : $this->createContext(
+                        $flow,
+                        $envelope->withFlowBinding($binding->flow, $binding->bindingId),
+                    ),
+            ));
             $results = [...$results, ...$result->all()];
         }
 

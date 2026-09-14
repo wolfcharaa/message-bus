@@ -14,6 +14,7 @@ final class RegistryDiagnosticCodes
     public const BINDING_DUPLICATE_ID = 'registry.binding.duplicate_id';
     public const FLOW_MISSING = 'registry.flow.missing';
     public const FLOW_INVALID = 'registry.flow.invalid';
+    public const FLOW_CONTRACT_VIOLATION = 'registry.flow.contract_violation';
     public const HANDLER_INVALID_SIGNATURE = 'registry.handler.invalid_signature';
     public const INTERCEPTOR_INVALID_SIGNATURE = 'registry.interceptor.invalid_signature';
     public const MESSAGE_ALIAS_REQUIRED = 'registry.message.alias_required';

@@ -1,5 +1,19 @@
 # Changelog
 
+## 6.1.0 - 2026-09-14
+
+### Added
+
+- Binding-specific `Envelope`/`MessageContextInterface` is now guaranteed for each built-in sequential middleware/handler invocation, including multi-binding sync fan-out.
+- `FlowContract`, `FlowContractRegistry`, `MiddlewareRoleRegistry` and `FlowContractValidationRule` for semantic middleware role/order checks, stable `bindingId` requirements, binding owner requirements and required binding policy registries.
+- Generic `RegistryOwner`, `RegistrySource` and `BindingRegistrationContext` metadata for compiled handler bindings.
+- Optional `Wolfcharaa\MessageBus\Idempotency` contracts: idempotency key, intent fingerprint, execution metadata, claim/completion/effect value objects, typed store decisions, provider/resolved policy registries and `RequiresIdempotencyKey` middleware.
+
+### Changed
+
+- Handler attributes can carry optional `ownerKind`, `ownerId` and source diagnostics metadata.
+- Compiled binding snapshots remain backward-compatible when owner/source metadata is absent.
+
 ## 6.0.0 - 2026-09-10
 
 v6 makes command/query semantics explicit and removes the temporary v5.2 migration APIs.

@@ -28,7 +28,13 @@
         "bin/message-bus-worker"
     ],
     "scripts": {
-        "test": "vendor/bin/phpunit"
+        "test": "vendor/bin/phpunit --do-not-cache-result",
+        "test:integration": "vendor/bin/phpunit -c phpunit.integration.xml.dist --do-not-cache-result",
+        "test:process": "vendor/bin/phpunit -c phpunit.process.xml.dist --do-not-cache-result",
+        "test:coverage": [
+            "php -d xdebug.mode=coverage vendor/bin/phpunit -c phpunit.coverage.xml.dist --coverage-clover /tmp/messagebus-coverage.xml --coverage-text --colors=never --only-summary-for-coverage-text --do-not-cache-result --cache-directory /tmp/messagebus-phpunit-cache",
+            "@php tools/assert-coverage.php /tmp/messagebus-coverage.xml 80"
+        ]
     },
     "authors": [
         {

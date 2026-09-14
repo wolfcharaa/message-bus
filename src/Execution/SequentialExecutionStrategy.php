@@ -22,7 +22,7 @@ final class SequentialExecutionStrategy implements HandlerExecutionStrategyInter
             try {
                 $pipeline = new Pipeline(
                     $binding,
-                    $request->context,
+                    $request->contextForBinding($binding),
                     $request->environment->invoker,
                     [...$request->flow->middleware, ...$binding->middleware],
                 );

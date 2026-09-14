@@ -26,6 +26,8 @@ MessageBus полезен, когда в приложении появляютс
 | Flows | Разделить sync, async, queue, middleware и execution strategy | [Core concepts](docs/reference/core-concepts.md) |
 | Compiled registry | Получить стабильную карту messages/handlers/aliases/bindings | [Core concepts](docs/reference/core-concepts.md) |
 | Registry diagnostics | Проверить bindings, signatures, flows и project rules в CLI/CI | [Registry compilation](docs/guides/registry-compilation.md) |
+| Flow contracts | Валидировать semantic middleware roles, order, binding owner и required policies для named flows | [Flow contracts](docs/reference/flow-contracts.md) |
+| Idempotency contracts | Защитить state-changing command/event execution через binding-scoped idempotency key | [Idempotency](docs/guides/idempotency.md) |
 | Payload serialization | Выбрать JSON, PHP serialize, protobuf или custom payload | [Payload serialization](docs/guides/payload-serialization.md) |
 | PostgreSQL queue | Поставить async jobs в БД и запускать workers | [Async queue](docs/guides/async-queue.md) |
 | Queue status/control | Вернуть frontend `queueMessageId`, polling status и cancel | [Queue and worker](docs/reference/queue-and-worker.md) |
@@ -51,6 +53,7 @@ message -> envelope -> registry -> flow -> handler -> result / queue job
 | Registry | Скомпилированная карта messages, handlers, aliases и bindings | Не искать handlers в runtime магией и не держать wiring в голове |
 | Envelope | Message плюс metadata | Передавать correlationId, causationId, headers, flow и bindingId |
 | Flow | Правило “как выполнять” | Разделить sync, async, middleware, queue и strategy |
+| Flow contract | Compile/bootstrap правило для flow | Проверить middleware roles, order, stable binding ids, owner и policy wiring |
 | Queue job | SerializedEnvelope в transport | Выполнить handler позже, в worker-е, с retry/status/cancel |
 | Worker | Runtime для queue jobs | Надёжно брать задачи, выполнять handlers и обновлять lifecycle |
 | Control plane | Команды управления workers | Pause, resume, drain, stop, kill, restart и status для production |
@@ -287,7 +290,7 @@ $definition = (new MessageRegistryCompiler())->compile(
         CreateUserHandler::class,
     ]),
     new FlowRegistry(),
-    '6.0.0',
+    '6.1.0',
 );
 
 $registry = new CompiledMessageRegistry($definition);
@@ -456,6 +459,14 @@ vendor/bin/message-bus worker:kill --bootstrap=config/message_bus_runtime.php --
 
 Подробности: [docs/guides/payload-serialization.md](docs/guides/payload-serialization.md).
 
+## Flow contracts и idempotency
+
+`FlowContract` позволяет приложению объявить обязательные execution правила для named flow: semantic middleware roles, порядок ролей, stable `bindingId`, binding owner metadata и required policy registries.
+
+Idempotency extension использует этот механизм для state-changing `CommandHandler`/`EventSubscriber` flows. `RequiresIdempotencyKey` middleware работает по текущему binding-specific `Envelope`, берёт policy по `bindingId`, выполняет claim через `IdempotencyStoreInterface`, коротко завершает same-intent replay как `void` no-op и мапит `InProgress`/`Conflict` в retryable/non-retryable failures.
+
+Подробности: [docs/reference/flow-contracts.md](docs/reference/flow-contracts.md) и [docs/guides/idempotency.md](docs/guides/idempotency.md).
+
 ## Миграция с v4 на v5
 
 v5 не сохраняет совместимость registry/schema с v4.
@@ -504,6 +515,8 @@ v6 уточняет contract message bus: `QueryHandler` является еди
 | Подробный быстрый старт | [docs/guides/quick-start.md](docs/guides/quick-start.md) |
 | Handler без MessageBus context | [docs/guides/contextless-handlers.md](docs/guides/contextless-handlers.md) |
 | Компиляция registry и CLI diagnostics | [docs/guides/registry-compilation.md](docs/guides/registry-compilation.md) |
+| Flow contracts и middleware roles | [docs/reference/flow-contracts.md](docs/reference/flow-contracts.md) |
+| Idempotency для command/event execution | [docs/guides/idempotency.md](docs/guides/idempotency.md) |
 | События, `MessageAlias` и `bindingId` | [docs/guides/events.md](docs/guides/events.md) |
 | Async очередь и запуск worker-а | [docs/guides/async-queue.md](docs/guides/async-queue.md) |
 | Сериализация payload | [docs/guides/payload-serialization.md](docs/guides/payload-serialization.md) |
@@ -527,6 +540,15 @@ composer test
 ```
 
 Default suite не запускает внешние integration tests.
+
+Coverage gate для полного набора unit + integration tests:
+
+```bash
+docker compose -f docker-compose.integration.yml up -d --wait
+composer test:coverage
+```
+
+`composer test:coverage` запускает все tests, пишет Clover report в `/tmp/messagebus-coverage.xml` и падает, если line coverage ниже 80%.
 
 PostgreSQL integration profile:
 

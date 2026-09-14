@@ -18,6 +18,7 @@ use Wolfcharaa\MessageBus\Execution\HandlerExecutionResultInterface;
 use Wolfcharaa\MessageBus\Execution\SequentialExecutionStrategy;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
+use Wolfcharaa\MessageBus\Interceptor\PipelineInterface;
 use Wolfcharaa\MessageBus\MessageBatchItem;
 use Wolfcharaa\MessageBus\MessageBus;
 use Wolfcharaa\MessageBus\MessageBusInterface;
@@ -136,6 +137,31 @@ final class MessageBusEdgeCasesTest extends TestCase
         $bus->dispatchAll(new MessageBusEdgeMessage('payload'));
     }
 
+    public function testSequentialMiddlewareReceivesBindingSpecificEnvelopeForEachBinding(): void
+    {
+        MessageBusEdgeBindingContextRecorder::$bindingIds = [];
+        $result = (new MessageRegistryCompiler())->compileWithDiagnostics(
+            new ClassListProvider([
+                MessageBusEdgeObservedMessage::class,
+                MessageBusEdgeObservedFirstHandler::class,
+                MessageBusEdgeObservedSecondHandler::class,
+                MessageBusEdgeBindingRecordingMiddleware::class,
+            ]),
+            new FlowRegistry(FlowDefinition::sync('observed')->middleware(MessageBusEdgeBindingRecordingMiddleware::class)),
+        );
+
+        self::assertTrue($result->hasDefinition(), \implode("\n", \array_map(
+            static fn ($diagnostic): string => $diagnostic->code . ': ' . $diagnostic->message,
+            $result->diagnostics,
+        )));
+        self::assertNotNull($result->definition);
+
+        $bus = $this->bus(new CompiledMessageRegistry($result->definition));
+        $bus->dispatchAll(new MessageBusEdgeObservedMessage());
+
+        self::assertSame(['edge.observed.second', 'edge.observed.first'], MessageBusEdgeBindingContextRecorder::$bindingIds);
+    }
+
     /**
      * @param list<class-string> $classes
      */
@@ -196,6 +222,52 @@ final class MessageBusEdgeMessage
 
 final class MessageBusWrongMessage
 {
+}
+
+final class MessageBusEdgeObservedMessage
+{
+}
+
+final class MessageBusEdgeBindingContextRecorder
+{
+    /** @var list<string|null> */
+    public static array $bindingIds = [];
+}
+
+final class MessageBusEdgeBindingRecordingMiddleware
+{
+    public function __invoke(MessageContextInterface $context, PipelineInterface $pipeline): mixed
+    {
+        MessageBusEdgeBindingContextRecorder::$bindingIds[] = $context->envelope()->bindingId;
+
+        return $pipeline->continue();
+    }
+}
+
+#[EventSubscriber(
+    message: MessageBusEdgeObservedMessage::class,
+    flow: 'observed',
+    bindingId: 'edge.observed.first',
+    priority: 1,
+)]
+final class MessageBusEdgeObservedFirstHandler
+{
+    public function __invoke(MessageBusEdgeObservedMessage $message, MessageContextInterface $context): void
+    {
+    }
+}
+
+#[EventSubscriber(
+    message: MessageBusEdgeObservedMessage::class,
+    flow: 'observed',
+    bindingId: 'edge.observed.second',
+    priority: 10,
+)]
+final class MessageBusEdgeObservedSecondHandler
+{
+    public function __invoke(MessageBusEdgeObservedMessage $message, MessageContextInterface $context): void
+    {
+    }
 }
 
 #[EventSubscriber(

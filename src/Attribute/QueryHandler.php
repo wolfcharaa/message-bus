@@ -24,6 +24,12 @@ final class QueryHandler extends AbstractMessageHandlerAttribute
         public readonly string|BackedEnum|null $bindingId = null,
         public readonly array $middleware = [],
         public readonly bool $contextAware = true,
+        public readonly ?string $ownerKind = null,
+        public readonly ?string $ownerId = null,
+        public readonly ?string $sourceType = null,
+        public readonly ?string $sourceName = null,
+        public readonly ?string $sourcePackage = null,
+        public readonly ?string $sourceLocation = null,
     ) {
         parent::__construct($message, $flow, $method, $priority);
     }
@@ -39,6 +45,14 @@ final class QueryHandler extends AbstractMessageHandlerAttribute
             $this->bindingId,
             $this->middleware,
             invocationMode: $this->invocationMode(),
+            owner: $this->registrationOwner($this->ownerKind, $this->ownerId),
+            source: $this->registrationSource(
+                $actionClass,
+                $this->sourceType,
+                $this->sourceName,
+                $this->sourcePackage,
+                $this->sourceLocation,
+            ),
         );
     }
 

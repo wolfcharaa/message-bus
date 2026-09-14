@@ -23,7 +23,7 @@ use Wolfcharaa\MessageBus\Interceptor\PipelineInterface as InterceptorPipelineIn
 final class MessageRegistryCompiler
 {
     public const SCHEMA_VERSION = 6;
-    public const LIBRARY_VERSION = '6.0.0';
+    public const LIBRARY_VERSION = '6.1.0';
 
     private const SOURCE_COMPILER = 'message_bus.registry.compiler';
     private const SOURCE_FLOW_VALIDATION = 'message_bus.registry.flow_validation';
