@@ -12,6 +12,12 @@ $container->set(MessageBusInterface::class, fn (ContainerInterface $c) => new Me
 
 Полный пример: [Generic PSR-11](docs/examples/frameworks/generic-psr11.md).
 
+Если приложение использует `dispatchWithFanOut()`, зарегистрируйте `MessageBusFanOutInterface` как alias на тот же singleton:
+
+```php
+$container->set(MessageBusFanOutInterface::class, fn (ContainerInterface $c) => $c->get(MessageBusInterface::class));
+```
+
 ## Symfony
 
 ```php

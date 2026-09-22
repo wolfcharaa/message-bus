@@ -46,10 +46,11 @@ use Wolfcharaa\MessageBus\Serialization\MessageNameResolverInterface;
 use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlInterface;
 use Wolfcharaa\MessageBus\Worker\WorkerRuntimeControlScope;
 
-final class MessageBus implements MessageBusInterface
+final class MessageBus implements MessageBusFanOutInterface
 {
     private readonly EnvelopeFactory $envelopeFactory;
     private readonly ExecutionEnvironment $environment;
+    private readonly MessageIdGenerator $messageIdGenerator;
     private readonly ?WorkerRuntimeControlInterface $workerRuntimeControl;
 
     public function __construct(
@@ -111,10 +112,8 @@ final class MessageBus implements MessageBusInterface
             $envelopeSerializer = new DefaultEnvelopeSerializer(new JsonMessageSerializer($registry));
         }
 
-        $this->envelopeFactory = new EnvelopeFactory(
-            $messageIdGenerator ?? new RandomMessageIdGenerator(),
-            $clock,
-        );
+        $this->messageIdGenerator = $messageIdGenerator;
+        $this->envelopeFactory = new EnvelopeFactory($this->messageIdGenerator, $clock);
         $this->environment = new ExecutionEnvironment($invoker, $envelopeSerializer, $clock, $queueProvider, $retryPolicyRegistry);
         $this->workerRuntimeControl = $workerRuntimeControl;
     }
@@ -153,6 +152,28 @@ final class MessageBus implements MessageBusInterface
         }
 
         return null;
+    }
+
+    public function dispatchWithFanOut(
+        object $message,
+        PublishOptions $options = new PublishOptions(),
+        ?Envelope $causation = null,
+    ): FanOutResult {
+        if ($this->asyncBindings($message::class) === []) {
+            throw new BindingNotFound(\sprintf(
+                'Message `%s` has no async fan-out bindings.',
+                $message::class,
+            ));
+        }
+
+        $fanOutOptions = $options->messageId === null
+            ? new PublishOptions($this->messageIdGenerator->generate(), $options->headers, $options->delivery)
+            : $options;
+
+        $dispatchResult = $this->dispatch($message, $fanOutOptions, $causation);
+        $fanOutResult = $this->publish($message, $fanOutOptions, $causation);
+
+        return new FanOutResult($dispatchResult, $fanOutResult);
     }
 
     public function dispatchAll(

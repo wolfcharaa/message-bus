@@ -22,6 +22,7 @@ MessageBus полезен, когда в приложении появляютс
 | --- | --- | --- |
 | `dispatch()` | Выполнить sync query с result или sync command без result | [Quick start](docs/guides/quick-start.md) |
 | `publish()` | Опубликовать event в один или несколько handlers | [Event guide](docs/guides/events.md) |
+| `dispatchWithFanOut()` | Выполнить sync command/saga и обязательно зарегистрировать async fan-out того же message | [Event fan-out и saga](docs/examples/event-fanout-saga.md) |
 | `SagaHandler` | Семантический alias для `CommandHandler`, когда command запускает orchestration/saga | [Core concepts](docs/reference/core-concepts.md) |
 | Contextless handlers | Выполнить небольшой handler без доступа к nested dispatch/publish | [Contextless handlers](docs/guides/contextless-handlers.md) |
 | Flows | Разделить sync, async, queue, middleware и execution strategy | [Core concepts](docs/reference/core-concepts.md) |
@@ -86,6 +87,8 @@ $bus->publish(new UserCreatedEvent($userId));
 Каждый subscriber получает свой `bindingId`, поэтому email, audit, webhook и analytics jobs становятся независимыми. Если один subscriber упал, остальные не обязаны падать вместе с ним.
 
 `dispatch()` не вызывает async event subscribers автоматически. Если command/saga должна запустить fan-out, делайте это явно через `$context->publish(new DomainEvent(...))` внутри handler или вызывайте `publish()` отдельным application-шагом после `dispatch()`.
+
+Если sync command и async fan-out должны считаться одним success-критерием, используйте расширенный контракт `MessageBusFanOutInterface::dispatchWithFanOut()`. Метод выполняет sync `dispatch()` и затем регистрирует async bindings того же message через `publish()`. Если async fan-out не настроен или регистрация queue jobs упала, операция завершается ошибкой.
 
 ### 3. Async job должен быть наблюдаемым
 

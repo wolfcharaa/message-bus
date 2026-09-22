@@ -149,6 +149,8 @@ Built-in serializers:
 
 `dispatch()` возвращает business result только для sync query. Для sync command или `SagaHandler` тот же метод выполняет primary command handler и возвращает `void`. Async event subscribers при этом не вызываются автоматически: saga должна явно вызвать `$context->publish(...)`, если после command нужно породить event fan-out.
 
+`MessageBusFanOutInterface::dispatchWithFanOut()` расширяет базовый `MessageBusInterface` без BC-break. Метод предназначен для saga command, где sync command handler и async bindings того же message должны быть success-критерием одной операции: сначала выполняется sync `dispatch()`, затем регистрируется async fan-out через `publish()`. Если async bindings отсутствуют или registration падает, метод выбрасывает исключение.
+
 `publish()` возвращает технический результат публикации:
 
 - какие bindings выполнены sync;
@@ -157,6 +159,8 @@ Built-in serializers:
 - какие `queueMessageId` можно вернуть frontend.
 
 Для event fan-out это принципиально: один event может породить несколько независимых executions.
+
+`dispatchWithFanOut()` возвращает `FanOutResult`: `dispatchResult` содержит результат sync dispatch, а `fanOutResult` содержит обычный `PublishResult` по async bindings.
 
 ## Queue lifecycle
 

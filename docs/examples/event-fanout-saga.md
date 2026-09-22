@@ -4,6 +4,8 @@
 
 `dispatch()` не вызывает async event subscribers автоматически. Это оставляет границу между command/saga orchestration и event fan-out явной: retry, status и `bindingId` остаются привязаны к конкретному опубликованному event subscriber.
 
+Если command и async fan-out должны быть единым success-критерием, используйте `dispatchWithFanOut()` из `MessageBusFanOutInterface`. Метод не добавлен в базовый `MessageBusInterface`, поэтому существующие project-specific реализации старого интерфейса не ломаются.
+
 ## Event fan-out
 
 ```php
@@ -74,3 +76,42 @@ final class RegisterIdentityDocumentSaga
 ```
 
 `SagaHandler` не создаёт новый handler kind и не меняет registry schema. Это тот же command binding, но с названием, которое лучше описывает orchestration-сценарий.
+
+## Saga command с обязательным fan-out
+
+```php
+use Wolfcharaa\MessageBus\MessageBusFanOutInterface;
+
+final class RegisterIdentityDocumentController
+{
+    public function __construct(private MessageBusFanOutInterface $bus)
+    {
+    }
+
+    public function __invoke(int $documentId): void
+    {
+        $this->bus->dispatchWithFanOut(new RegisterIdentityDocumentCommand($documentId));
+    }
+}
+```
+
+Для этого же `RegisterIdentityDocumentCommand` должны быть зарегистрированы async command bindings:
+
+```php
+use Wolfcharaa\MessageBus\Attribute\CommandHandler;
+
+#[CommandHandler(
+    message: RegisterIdentityDocumentCommand::class,
+    flow: 'async',
+    bindingId: 'identity_document.registration.pipeline',
+)]
+final class ContinueIdentityDocumentRegistration
+{
+    public function __invoke(RegisterIdentityDocumentCommand $command): void
+    {
+        // required async continuation
+    }
+}
+```
+
+Если async bindings отсутствуют, `dispatchWithFanOut()` падает до выполнения sync command. Если enqueue async job упал, метод пробрасывает `PublishFailed`: command-side handler уже мог выполниться, но операция не выглядит успешной для вызывающего кода. Для настоящей атомарности с записью бизнес-состояния используйте общий transaction boundary или transactional outbox.
