@@ -22,6 +22,7 @@ MessageBus полезен, когда в приложении появляютс
 | --- | --- | --- |
 | `dispatch()` | Выполнить sync query с result или sync command без result | [Quick start](docs/guides/quick-start.md) |
 | `publish()` | Опубликовать event в один или несколько handlers | [Event guide](docs/guides/events.md) |
+| `SagaHandler` | Семантический alias для `CommandHandler`, когда command запускает orchestration/saga | [Core concepts](docs/reference/core-concepts.md) |
 | Contextless handlers | Выполнить небольшой handler без доступа к nested dispatch/publish | [Contextless handlers](docs/guides/contextless-handlers.md) |
 | Flows | Разделить sync, async, queue, middleware и execution strategy | [Core concepts](docs/reference/core-concepts.md) |
 | Compiled registry | Получить стабильную карту messages/handlers/aliases/bindings | [Core concepts](docs/reference/core-concepts.md) |
@@ -72,7 +73,7 @@ message -> envelope -> registry -> flow -> handler -> result / queue job
 $bus->dispatch(new CreateUserCommand($email, $name));
 ```
 
-Дальше registry определяет primary command handler и flow. Если приложению нужен результат, используйте query message и `QueryHandler`.
+Дальше registry определяет primary command handler и flow. `SagaHandler` можно использовать как более говорящий alias `CommandHandler`, если handler оркестрирует несколько шагов saga, но runtime-семантика остается command: `dispatch()` выполняет sync primary handler и возвращает `void`. Если приложению нужен результат, используйте query message и `QueryHandler`.
 
 ### 2. Events должны быть fan-out, а не цепочкой ручных вызовов
 
@@ -83,6 +84,8 @@ $bus->publish(new UserCreatedEvent($userId));
 ```
 
 Каждый subscriber получает свой `bindingId`, поэтому email, audit, webhook и analytics jobs становятся независимыми. Если один subscriber упал, остальные не обязаны падать вместе с ним.
+
+`dispatch()` не вызывает async event subscribers автоматически. Если command/saga должна запустить fan-out, делайте это явно через `$context->publish(new DomainEvent(...))` внутри handler или вызывайте `publish()` отдельным application-шагом после `dispatch()`.
 
 ### 3. Async job должен быть наблюдаемым
 

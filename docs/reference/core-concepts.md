@@ -29,7 +29,7 @@ Binding отвечает за:
 - middleware;
 - retry/cache metadata.
 
-Для sync query binding может быть почти невидимым, потому что query всегда имеет ровно один handler. Для command primary flag определяет единственное правило обработки в `dispatch()`. Для async handler `bindingId` становится обязательной публичной идентичностью задачи.
+Для sync query binding может быть почти невидимым, потому что query всегда имеет ровно один handler. Для command primary flag определяет единственное правило обработки в `dispatch()`. `SagaHandler` является class alias для `CommandHandler`: используйте его, когда command handler по смыслу оркестрирует saga/process manager, но registry и runtime всё равно видят `HandlerKind::Command`. Для async handler `bindingId` становится обязательной публичной идентичностью задачи.
 
 ## Handler
 
@@ -48,7 +48,7 @@ public function __invoke(Message $message, MessageContextInterface $context): Re
 - Handler method принимает message и context, если binding не объявлен как `contextAware: false`.
 - `contextAware: false` означает, что handler method не получает `MessageContextInterface` и имеет форму `__invoke(Message $message): Result|void`.
 - Query handler обязан вернуть non-void result.
-- Command handler обязан вернуть `void`.
+- Command handler обязан вернуть `void`. `SagaHandler` подчиняется тем же правилам, потому что это alias `CommandHandler`.
 - Event handler обычно возвращает `void`.
 - Handler может вызывать nested `dispatch()` или `publish()` через context.
 
@@ -147,7 +147,7 @@ Built-in serializers:
 
 ## PublishResult
 
-`dispatch()` возвращает business result только для sync query. Для sync command тот же метод выполняет primary command handler и возвращает `void`.
+`dispatch()` возвращает business result только для sync query. Для sync command или `SagaHandler` тот же метод выполняет primary command handler и возвращает `void`. Async event subscribers при этом не вызываются автоматически: saga должна явно вызвать `$context->publish(...)`, если после command нужно породить event fan-out.
 
 `publish()` возвращает технический результат публикации:
 

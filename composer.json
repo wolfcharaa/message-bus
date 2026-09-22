@@ -16,7 +16,10 @@
     "autoload": {
         "psr-4": {
             "Wolfcharaa\\MessageBus\\": "src"
-        }
+        },
+        "files": [
+            "src/Attribute/SagaHandler.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
