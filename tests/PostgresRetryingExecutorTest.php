@@ -71,6 +71,34 @@ final class PostgresRetryingExecutorTest extends TestCase
         }
     }
 
+    public function testRollsBackOpenTransactionAfterNonTransactionalCallbackFailure(): void
+    {
+        $pdo = new RetryExecutorTransactionPdo();
+        $provider = new RetryExecutorStaticTestConnectionProvider($pdo);
+        $executor = new PostgresRetryingExecutor($provider, config: new PostgresRetryConfig(
+            attempts: 2,
+            initialDelayMilliseconds: 0,
+            jitter: false,
+        ));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('polling failed');
+
+        try {
+            $executor->execute(
+                'queue.next',
+                OperationSafety::NonIdempotent,
+                static function (PDO $pdo): never {
+                    $pdo->beginTransaction();
+                    throw new \RuntimeException('polling failed');
+                },
+            );
+        } finally {
+            self::assertFalse($pdo->inTransaction());
+            self::assertSame(0, $provider->resetCount);
+        }
+    }
+
     public function testRequiresIdempotencyKeyForUniqueKeyOperation(): void
     {
         $executor = new PostgresRetryingExecutor(
@@ -180,5 +208,52 @@ final class RetryExecutorTestConnectionProvider implements PdoConnectionProvider
     {
         ++$this->resetCount;
         $this->connection = null;
+    }
+}
+
+final class RetryExecutorStaticTestConnectionProvider implements PdoConnectionProviderInterface
+{
+    public int $resetCount = 0;
+
+    public function __construct(private readonly PDO $connection)
+    {
+    }
+
+    public function connection(): PDO
+    {
+        return $this->connection;
+    }
+
+    public function reset(): void
+    {
+        ++$this->resetCount;
+    }
+}
+
+final class RetryExecutorTransactionPdo extends PDO
+{
+    private bool $activeTransaction = false;
+
+    public function __construct()
+    {
+    }
+
+    public function beginTransaction(): bool
+    {
+        $this->activeTransaction = true;
+
+        return true;
+    }
+
+    public function rollBack(): bool
+    {
+        $this->activeTransaction = false;
+
+        return true;
+    }
+
+    public function inTransaction(): bool
+    {
+        return $this->activeTransaction;
     }
 }

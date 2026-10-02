@@ -1,5 +1,11 @@
 # Changelog
 
+## 5.1.3 - 2026-10-02
+
+### Fixed
+
+- Rolled back leaked PostgreSQL transactions after retry executor callback failures, preventing worker polling from failing with an already active transaction after transport errors.
+
 ## 5.1.2 - 2026-09-10
 
 ### Added

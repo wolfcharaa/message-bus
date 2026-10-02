@@ -95,6 +95,8 @@ final class PostgresRetryingExecutor
                 throw $error;
             }
         } catch (\Throwable $error) {
+            $this->rollback($pdo, $operation, $error);
+
             $reason = $this->detector->reason($error);
             if ($reason === null) {
                 throw $error;
