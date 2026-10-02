@@ -50,6 +50,7 @@ final class PostgresQueueStorage implements PostgresQueueStorageInterface
     public function enqueueMany(iterable $messages): QueueBatchEnqueueResult
     {
         $results = [];
+        $this->rollbackOpenTransaction();
         $this->pdo->beginTransaction();
         try {
             foreach ($messages as $message) {
@@ -57,7 +58,7 @@ final class PostgresQueueStorage implements PostgresQueueStorageInterface
             }
             $this->pdo->commit();
         } catch (\Throwable $e) {
-            $this->pdo->rollBack();
+            $this->rollbackOpenTransaction();
             throw $e;
         }
 
@@ -69,6 +70,7 @@ final class PostgresQueueStorage implements PostgresQueueStorageInterface
         $this->recoverStale($options);
         $now = $this->now();
 
+        $this->rollbackOpenTransaction();
         $this->pdo->beginTransaction();
         try {
             $where = [
@@ -121,9 +123,18 @@ final class PostgresQueueStorage implements PostgresQueueStorageInterface
 
             return $this->received($row);
         } catch (\Throwable $e) {
-            $this->pdo->rollBack();
+            $this->rollbackOpenTransaction();
             throw $e;
         }
+    }
+
+    private function rollbackOpenTransaction(): void
+    {
+        if (!$this->pdo->inTransaction()) {
+            return;
+        }
+
+        $this->pdo->rollBack();
     }
 
     public function ack(ReceivedQueueMessage $message): void
