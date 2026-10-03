@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.2.1 - 2026-10-03
+
+### Fixed
+
+- Rolled back leaked PostgreSQL transactions after retry executor callback failures.
+- Guarded queue batch/poll transactions against an already active transaction.
+- Reset reconnect-capable PostgreSQL providers in forked worker children before their first storage access, so parent and child processes do not reuse the same connection.
+
 ## 6.1.0 - 2026-09-14
 
 ### Added

@@ -6,7 +6,9 @@ namespace Wolfcharaa\MessageBus\Tests;
 
 use BackedEnum;
 use DateTimeImmutable;
+use PDO;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 use Wolfcharaa\MessageBus\Cli\ApplicationFactory;
@@ -20,6 +22,7 @@ use Wolfcharaa\MessageBus\Postgres\PostgresSchemaComponent;
 use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidationIssue;
 use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidationResult;
 use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidatorInterface;
+use Wolfcharaa\MessageBus\Postgres\StaticPdoConnectionProvider;
 use Wolfcharaa\MessageBus\PublishOptions;
 use Wolfcharaa\MessageBus\PublishResult;
 use Wolfcharaa\MessageBus\Queue\ConsumerOptions;
@@ -187,6 +190,25 @@ final class CliRuntimeV5Test extends TestCase
         self::assertStringContainsString('schema.object_missing', $tester->getDisplay());
     }
 
+    public function testWorkerRunAutoModeRejectsStaticPostgresConnectionBeforePolling(): void
+    {
+        $bootstrap = $this->bootstrap('return \\' . CliRuntimeV5Factory::class . '::runtimeWithStaticPostgresConnection();');
+
+        try {
+            $tester = new CommandTester(ApplicationFactory::create()->find('worker:run'));
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage('Auto worker mode cannot use a raw PDO connection');
+            $tester->execute([
+                '--bootstrap' => $bootstrap,
+                '--mode' => 'auto',
+                '--transport' => 'postgres',
+                '--stop-when-empty' => true,
+            ]);
+        } finally {
+            @\unlink($bootstrap);
+        }
+    }
+
     private function bootstrap(string $body): string
     {
         $file = \tempnam(\sys_get_temp_dir(), 'message-bus-cli-bootstrap-');
@@ -237,6 +259,19 @@ final class CliRuntimeV5Factory
             consumer: new CliRuntimeV5Consumer([]),
             worker: new CliRuntimeV5Worker(),
             postgresSchemaValidator: new CliRuntimeV5InvalidPostgresSchemaObjectValidator(),
+        );
+    }
+
+    public static function runtimeWithStaticPostgresConnection(): MessageBusRuntime
+    {
+        /** @var PDO $pdo */
+        $pdo = (new ReflectionClass(PDO::class))->newInstanceWithoutConstructor();
+
+        return new MessageBusRuntime(
+            new CliRuntimeV5Bus(),
+            consumer: new CliRuntimeV5Consumer([]),
+            worker: new CliRuntimeV5Worker(),
+            postgresConnectionProvider: new StaticPdoConnectionProvider($pdo),
         );
     }
 

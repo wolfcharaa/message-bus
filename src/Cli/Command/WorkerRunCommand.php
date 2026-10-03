@@ -93,6 +93,8 @@ final class WorkerRunCommand extends Command
                 return $schemaExitCode;
             }
 
+            $runtime->assertPostgresConnectionCanResetAfterFork();
+
             $bootstrap = $input->getOption('bootstrap');
             $childRuntime = static function () use ($bootstrap): MessageBusRuntime {
                 static $runtime = null;
@@ -130,6 +132,7 @@ final class WorkerRunCommand extends Command
                 },
                 workerControlRuntime: $runtime->workerControlRuntime(),
                 output: $outputWriter,
+                afterForkInChild: static fn () => $runtime->resetPostgresConnectionAfterFork(),
             ))->run(
                 $consumerOptions,
                 new PcntlAutoWorkerRunnerOptions(

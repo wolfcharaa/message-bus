@@ -115,10 +115,14 @@ final class WriteAuditLogAction {}
 `MessageBusRuntime::postgres()` собирает готовую инфраструктуру для producer и worker.
 
 ```php
+use PDO;
+use Wolfcharaa\MessageBus\Postgres\CallbackPdoConnectionProvider;
 use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
 
 $runtime = MessageBusRuntime::postgres(
-    pdo: $pdo,
+    pdo: new CallbackPdoConnectionProvider(
+        static fn (): PDO => new PDO($dsn, $user, $password),
+    ),
     registry: $registry,
     container: $container,
     flows: $flows,
@@ -343,16 +347,17 @@ Worker запускается отдельным процессом. Ему ну
 declare(strict_types=1);
 
 use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
+use Wolfcharaa\MessageBus\Postgres\PdoConnectionProviderInterface;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 $container = require __DIR__ . '/container.php';
-$pdo = $container->get(PDO::class);
+$connectionProvider = $container->get(PdoConnectionProviderInterface::class);
 $registry = $container->get(CompiledMessageRegistry::class);
 $flows = $container->get(FlowRegistry::class);
 
 return MessageBusRuntime::postgres(
-    pdo: $pdo,
+    pdo: $connectionProvider,
     registry: $registry,
     container: $container,
     flows: $flows,
@@ -414,6 +419,7 @@ vendor/bin/message-bus worker:run \
 - ставит heartbeat для контроля зависших worker-ов.
 
 В auto mode главный процесс создаёт child processes. Каждый child заново загружает bootstrap, поэтому database connection и container resources создаются внутри child process.
+Перед повторной загрузкой bootstrap child вызывает `PdoConnectionProviderInterface::reset()` для унаследованного PostgreSQL provider. Это происходит до первого storage call: parent сохраняет своё соединение, child лениво открывает новое. Готовый `PDO`/`StaticPdoConnectionProvider` для auto mode не подходит; используйте `CallbackPdoConnectionProvider` или собственный reconnect-capable provider.
 
 Auto mode требует `ext-pcntl` и `ext-posix`.
 

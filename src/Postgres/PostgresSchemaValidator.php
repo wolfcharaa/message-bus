@@ -10,16 +10,18 @@ use Wolfcharaa\MessageBus\Worker\WorkerControlTableDefinition;
 
 final class PostgresSchemaValidator implements PostgresSchemaValidatorInterface
 {
+    private readonly PdoConnectionProviderInterface $connectionProvider;
     private readonly PostgresSchemaVersionTableDefinition $schemaVersions;
     private readonly QueueTableDefinition $queue;
     private readonly WorkerControlTableDefinition $workerControl;
 
     public function __construct(
-        private readonly PDO $pdo,
+        PDO|PdoConnectionProviderInterface $pdo,
         ?PostgresSchemaVersionTableDefinition $schemaVersions = null,
         ?QueueTableDefinition $queue = null,
         ?WorkerControlTableDefinition $workerControl = null,
     ) {
+        $this->connectionProvider = $pdo instanceof PDO ? new StaticPdoConnectionProvider($pdo) : $pdo;
         $this->schemaVersions = $schemaVersions ?? new PostgresSchemaVersionTableDefinition();
         $this->queue = $queue ?? new QueueTableDefinition();
         $this->workerControl = $workerControl ?? new WorkerControlTableDefinition();
@@ -174,7 +176,7 @@ final class PostgresSchemaValidator implements PostgresSchemaValidatorInterface
 
     private function currentVersion(PostgresSchemaComponent $component): ?string
     {
-        $statement = $this->pdo->prepare('SELECT version FROM ' . $this->quoteIdentifier($this->schemaVersions->tableName) . ' WHERE component = :component');
+        $statement = $this->connectionProvider->connection()->prepare('SELECT version FROM ' . $this->quoteIdentifier($this->schemaVersions->tableName) . ' WHERE component = :component');
         $statement->execute([':component' => $component->value]);
         $version = $statement->fetchColumn();
 
@@ -183,7 +185,7 @@ final class PostgresSchemaValidator implements PostgresSchemaValidatorInterface
 
     private function relationExists(string $name): bool
     {
-        $statement = $this->pdo->prepare('SELECT to_regclass(:name) IS NOT NULL');
+        $statement = $this->connectionProvider->connection()->prepare('SELECT to_regclass(:name) IS NOT NULL');
         $statement->execute([':name' => $name]);
 
         return (bool) $statement->fetchColumn();
@@ -191,7 +193,7 @@ final class PostgresSchemaValidator implements PostgresSchemaValidatorInterface
 
     private function columnExists(string $table, string $column): bool
     {
-        $statement = $this->pdo->prepare(
+        $statement = $this->connectionProvider->connection()->prepare(
             'SELECT EXISTS (
                 SELECT 1
                 FROM pg_attribute

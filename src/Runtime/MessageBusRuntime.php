@@ -60,6 +60,7 @@ final class MessageBusRuntime
         private readonly ?QueueJobControlInterface $queueControl = null,
         private readonly ?WorkerControlRuntime $workerControlRuntime = null,
         private readonly ?PostgresSchemaValidatorInterface $postgresSchemaValidator = null,
+        private readonly ?PdoConnectionProviderInterface $postgresConnectionProvider = null,
     ) {
     }
 
@@ -108,6 +109,21 @@ final class MessageBusRuntime
         return $this->postgresSchemaValidator;
     }
 
+    public function assertPostgresConnectionCanResetAfterFork(): void
+    {
+        if ($this->postgresConnectionProvider instanceof StaticPdoConnectionProvider) {
+            throw new RuntimeException(
+                'Auto worker mode cannot use a raw PDO connection because a child process must discard the inherited connection after fork. '
+                . 'Pass CallbackPdoConnectionProvider or a custom reconnect-capable PdoConnectionProviderInterface.',
+            );
+        }
+    }
+
+    public function resetPostgresConnectionAfterFork(): void
+    {
+        $this->postgresConnectionProvider?->reset();
+    }
+
     public static function fromContainer(ContainerInterface $container): self
     {
         return new self(
@@ -120,6 +136,7 @@ final class MessageBusRuntime
             self::optional($container, QueueJobControlInterface::class, 'message_bus.queue_control', QueueJobControlInterface::class, 'queue job control'),
             self::optional($container, WorkerControlRuntime::class, 'message_bus.worker_control_runtime', WorkerControlRuntime::class, 'worker control runtime'),
             self::optional($container, PostgresSchemaValidatorInterface::class, 'message_bus.postgres_schema_validator', PostgresSchemaValidatorInterface::class, 'PostgreSQL schema validator'),
+            self::optional($container, PdoConnectionProviderInterface::class, 'message_bus.pdo_connection_provider', PdoConnectionProviderInterface::class, 'PostgreSQL connection provider'),
         );
     }
 
@@ -142,7 +159,6 @@ final class MessageBusRuntime
         );
 
         $connectionProvider = $pdo instanceof PDO ? new StaticPdoConnectionProvider($pdo) : $pdo;
-        $connection = $connectionProvider->connection();
         $postgresRetryExecutor = new PostgresRetryingExecutor(
             $connectionProvider,
             detector: $postgresTransientFailureDetector,
@@ -175,10 +191,11 @@ final class MessageBusRuntime
             $storage,
             $workerControlRuntime,
             new PostgresSchemaValidator(
-                $connection,
+                $connectionProvider,
                 queue: new QueueTableDefinition($tableName),
                 workerControl: new WorkerControlTableDefinition(),
             ),
+            $connectionProvider,
         );
     }
 

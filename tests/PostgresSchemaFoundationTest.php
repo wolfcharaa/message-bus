@@ -7,6 +7,7 @@ namespace Wolfcharaa\MessageBus\Tests;
 use PDO;
 use PDOStatement;
 use PHPUnit\Framework\TestCase;
+use Wolfcharaa\MessageBus\Postgres\PdoConnectionProviderInterface;
 use Wolfcharaa\MessageBus\Postgres\PostgresSchemaComponent;
 use Wolfcharaa\MessageBus\Postgres\PostgresSchemaValidator;
 use Wolfcharaa\MessageBus\Postgres\PostgresSchemaVersion;
@@ -95,6 +96,59 @@ final class PostgresSchemaFoundationTest extends TestCase
         self::assertTrue($result->hasIssueCode('schema.missing_column'));
         self::assertTrue($result->hasIssueCode('schema.missing_index'));
         self::assertSame(['queue' => '5.0'], $result->currentVersions);
+    }
+
+    public function testSchemaValidatorUsesFreshProviderConnectionAfterReset(): void
+    {
+        $queue = new QueueTableDefinition('queue_jobs');
+        $worker = new WorkerControlTableDefinition(
+            commandsTable: 'worker_commands',
+            desiredStatesTable: 'worker_desired_states',
+            workerInstancesTable: 'worker_instances',
+            childInstancesTable: 'worker_children',
+            acknowledgementsTable: 'worker_acks',
+            commandDeliveriesTable: 'worker_deliveries',
+            commandAuditTable: 'worker_audit',
+            schemaVersionsTable: 'schema_versions',
+        );
+        $provider = new PostgresSchemaValidatorConnectionProvider(
+            new PostgresSchemaValidatorFakePdo([], [], []),
+            PostgresSchemaValidatorFakePdo::complete($queue, $worker),
+        );
+        $validator = new PostgresSchemaValidator(
+            $provider,
+            new PostgresSchemaVersionTableDefinition('schema_versions'),
+            $queue,
+            $worker,
+        );
+
+        self::assertFalse($validator->validate()->isValid());
+
+        $provider->reset();
+
+        self::assertTrue($validator->validate()->isValid());
+    }
+}
+
+final class PostgresSchemaValidatorConnectionProvider implements PdoConnectionProviderInterface
+{
+    /** @var list<PDO> */
+    private array $connections;
+    private ?PDO $connection = null;
+
+    public function __construct(PDO ...$connections)
+    {
+        $this->connections = $connections;
+    }
+
+    public function connection(): PDO
+    {
+        return $this->connection ??= \array_shift($this->connections);
+    }
+
+    public function reset(): void
+    {
+        $this->connection = null;
     }
 }
 

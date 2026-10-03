@@ -20,6 +20,8 @@ use Wolfcharaa\MessageBus\Flow\FlowRegistry;
 use Wolfcharaa\MessageBus\MessageBatchItem;
 use Wolfcharaa\MessageBus\MessageBusInterface;
 use Wolfcharaa\MessageBus\Postgres\CallbackPdoConnectionProvider;
+use Wolfcharaa\MessageBus\Postgres\PdoConnectionProviderInterface;
+use Wolfcharaa\MessageBus\Postgres\StaticPdoConnectionProvider;
 use Wolfcharaa\MessageBus\Queue\MessageConsumerInterface;
 use Wolfcharaa\MessageBus\Queue\MessageBusQueueWorker;
 use Wolfcharaa\MessageBus\Queue\Postgres\PostgresMessageConsumer;
@@ -192,6 +194,33 @@ final class RuntimeContractsTest extends TestCase
         $provider->connection();
     }
 
+    public function testRuntimeResetsReconnectablePostgresConnectionAfterFork(): void
+    {
+        $provider = new RuntimeContractsConnectionProvider();
+        $runtime = new MessageBusRuntime(
+            new RuntimeContractsBus(),
+            postgresConnectionProvider: $provider,
+        );
+
+        $runtime->assertPostgresConnectionCanResetAfterFork();
+        $runtime->resetPostgresConnectionAfterFork();
+
+        self::assertSame(1, $provider->resetCount);
+    }
+
+    public function testRuntimeRejectsStaticPostgresConnectionForForkedWorkers(): void
+    {
+        $runtime = new MessageBusRuntime(
+            new RuntimeContractsBus(),
+            postgresConnectionProvider: new StaticPdoConnectionProvider(self::pdoWithoutConnection()),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Auto worker mode cannot use a raw PDO connection');
+
+        $runtime->assertPostgresConnectionCanResetAfterFork();
+    }
+
     public function testWorkerIdentityRoundTripPreservesPublicContract(): void
     {
         $identity = new WorkerIdentity(
@@ -269,6 +298,21 @@ final class RuntimeContractsFactory
         return new TestContainer([
             MessageBusInterface::class => new RuntimeContractsBus(),
         ], autowireClasses: false);
+    }
+}
+
+final class RuntimeContractsConnectionProvider implements PdoConnectionProviderInterface
+{
+    public int $resetCount = 0;
+
+    public function connection(): PDO
+    {
+        return (new ReflectionClass(PDO::class))->newInstanceWithoutConstructor();
+    }
+
+    public function reset(): void
+    {
+        ++$this->resetCount;
     }
 }
 
