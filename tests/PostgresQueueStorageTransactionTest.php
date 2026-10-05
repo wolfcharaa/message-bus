@@ -41,6 +41,22 @@ final class PostgresQueueStorageTransactionTest extends TestCase
         self::assertFalse($pdo->inTransaction());
         self::assertCount(2, $pdo->preparedSql);
     }
+
+    public function testClaimNextAvailableDoesNotRecoverStaleJobs(): void
+    {
+        $pdo = new QueueStorageTransactionPdo(activeTransaction: true);
+        $storage = new PostgresQueueStorage($pdo);
+
+        $message = $storage->claimNextAvailable(new ConsumerOptions('postgres', 'default'));
+
+        self::assertNull($message);
+        self::assertSame(1, $pdo->rollbackCount);
+        self::assertSame(1, $pdo->beginCount);
+        self::assertSame(1, $pdo->commitCount);
+        self::assertFalse($pdo->inTransaction());
+        self::assertCount(1, $pdo->preparedSql);
+        self::assertStringContainsString('FOR UPDATE SKIP LOCKED LIMIT 1', $pdo->preparedSql[0]);
+    }
 }
 
 final class QueueStorageTransactionPdo extends PDO

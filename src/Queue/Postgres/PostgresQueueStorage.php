@@ -68,6 +68,12 @@ final class PostgresQueueStorage implements PostgresQueueStorageInterface
     public function next(ConsumerOptions $options): ?ReceivedQueueMessage
     {
         $this->recoverStale($options);
+
+        return $this->claimNextAvailable($options);
+    }
+
+    public function claimNextAvailable(ConsumerOptions $options): ?ReceivedQueueMessage
+    {
         $now = $this->now();
 
         $this->rollbackOpenTransaction();
