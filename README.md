@@ -361,7 +361,7 @@ $runtime = MessageBusRuntime::postgres(
 ```
 
 Для production workers лучше передавать reconnect-capable provider, например `CallbackPdoConnectionProvider`.
-Если передать готовый `PDO`, runtime обернет его в `StaticPdoConnectionProvider`: обычные запросы будут работать, но reconnect невозможен, и при transient disconnect библиотека упадет с явной ошибкой.
+Если передать готовый `PDO`, runtime обернет его в `StaticPdoConnectionProvider`: обычные запросы будут работать, но reconnect невозможен, при transient disconnect библиотека упадет с явной ошибкой, а `worker:run --mode=auto` откажется стартовать.
 
 Создать schema:
 
@@ -400,6 +400,8 @@ vendor/bin/message-bus worker:run \
   --storage-failure-backoff=1000 \
   --max-heartbeat-failures=3
 ```
+
+Сразу после `fork()` child сбрасывает унаследованное соединение через `PdoConnectionProviderInterface::reset()`, до создания child consumer/worker и первого обращения к storage. Следующий `connection()` открывает отдельное соединение, а parent продолжает использовать своё. Поэтому для auto mode передавайте `CallbackPdoConnectionProvider` или свой reconnect-capable provider, а не готовый `PDO`.
 
 `--output-verbosity` управляет stdout/stderr событиями worker-а: `quiet`, `normal`, `debug`, `trace`.
 `--output-format` может быть `text` для Docker logs или `json` для log collectors.

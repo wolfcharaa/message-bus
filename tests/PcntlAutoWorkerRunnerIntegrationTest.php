@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Wolfcharaa\MessageBus\Tests;
 
 use DateTimeImmutable;
+use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
@@ -19,6 +20,7 @@ use Wolfcharaa\MessageBus\Queue\QueueMessage;
 use Wolfcharaa\MessageBus\Queue\QueueWorkerInterface;
 use Wolfcharaa\MessageBus\Queue\ReceivedQueueMessage;
 use Wolfcharaa\MessageBus\Queue\RetryPolicySnapshot;
+use Wolfcharaa\MessageBus\Postgres\PdoConnectionProviderInterface;
 use Wolfcharaa\MessageBus\Serialization\SerializedMessage;
 use Wolfcharaa\MessageBus\Tests\Support\WorkerControlMemoryRuntime;
 use Wolfcharaa\MessageBus\Worker\WorkerChildState;
@@ -77,6 +79,8 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
         $logFile = \tempnam(\sys_get_temp_dir(), 'message-bus-pcntl-control-');
         self::assertIsString($logFile);
         $control = new WorkerControlMemoryRuntime();
+        $connectionProvider = new PcntlAutoWorkerConnectionProvider($logFile);
+        $connectionProvider->connection();
 
         try {
             $runner = new PcntlAutoWorkerRunner(
@@ -84,12 +88,24 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
                     $this->received('success', attempts: 0, maxAttempts: 3),
                 ]),
                 new PcntlAutoWorkerChildWorker([]),
-                childConsumerFactory: static fn (): PcntlAutoWorkerChildConsumer => new PcntlAutoWorkerChildConsumer($logFile),
-                childWorkerFactory: static fn (): PcntlAutoWorkerChildWorker => new PcntlAutoWorkerChildWorker([]),
+                childConsumerFactory: static function () use ($connectionProvider, $logFile): PcntlAutoWorkerChildConsumer {
+                    $connectionProvider->connection();
+                    \file_put_contents($logFile, "child-consumer-factory\n", FILE_APPEND | LOCK_EX);
+
+                    return new PcntlAutoWorkerChildConsumer($logFile);
+                },
+                childWorkerFactory: static function () use ($logFile): PcntlAutoWorkerChildWorker {
+                    \file_put_contents($logFile, "child-worker-factory\n", FILE_APPEND | LOCK_EX);
+
+                    return new PcntlAutoWorkerChildWorker([]);
+                },
                 workerControlRuntime: $control->runtime(),
                 beforeFork: static fn (): int|false => \file_put_contents($logFile, "before-fork\n", FILE_APPEND | LOCK_EX),
                 afterForkInParent: static fn (ReceivedQueueMessage $message, string $childInstanceId, int $pid): int|false => \file_put_contents($logFile, 'after-fork-parent:' . $pid . "\n", FILE_APPEND | LOCK_EX),
-                afterForkInChild: static fn (): int|false => \file_put_contents($logFile, "after-fork-child\n", FILE_APPEND | LOCK_EX),
+                afterForkInChild: static function () use ($connectionProvider, $logFile): void {
+                    $connectionProvider->reset();
+                    \file_put_contents($logFile, "after-fork-child\n", FILE_APPEND | LOCK_EX);
+                },
             );
 
             $result = $runner->run(
@@ -117,7 +133,22 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
             self::assertIsArray($events);
             self::assertContains('before-fork', $events);
             self::assertContains('after-fork-child', $events);
+            self::assertContains('connection-parent', $events);
+            self::assertContains('connection-reset-child', $events);
+            self::assertContains('connection-child', $events);
             self::assertTrue(\count(\preg_grep('/^after-fork-parent:\d+$/', $events)) === 1);
+            self::assertLessThan(
+                \array_search('child-consumer-factory', $events, true),
+                \array_search('after-fork-child', $events, true),
+            );
+            self::assertLessThan(
+                \array_search('connection-child', $events, true),
+                \array_search('connection-reset-child', $events, true),
+            );
+            self::assertLessThan(
+                \array_search('child-worker-factory', $events, true),
+                \array_search('after-fork-child', $events, true),
+            );
         } finally {
             @\unlink($logFile);
         }
@@ -245,6 +276,39 @@ final class PcntlAutoWorkerOutputBuffer implements WorkerCliOutputWriterInterfac
         WorkerCliOutputVerbosity $verbosity = WorkerCliOutputVerbosity::Normal,
     ): void {
         $this->events[] = $event;
+    }
+}
+
+final class PcntlAutoWorkerConnectionProvider implements PdoConnectionProviderInterface
+{
+    private readonly int $parentPid;
+    private ?PDO $connection = null;
+
+    public function __construct(private readonly string $logFile)
+    {
+        $this->parentPid = \getmypid();
+    }
+
+    public function connection(): PDO
+    {
+        $role = \getmypid() === $this->parentPid ? 'parent' : 'child';
+        \file_put_contents($this->logFile, 'connection-' . $role . "\n", FILE_APPEND | LOCK_EX);
+
+        return $this->connection ??= new PcntlAutoWorkerPdo();
+    }
+
+    public function reset(): void
+    {
+        $role = \getmypid() === $this->parentPid ? 'parent' : 'child';
+        \file_put_contents($this->logFile, 'connection-reset-' . $role . "\n", FILE_APPEND | LOCK_EX);
+        $this->connection = null;
+    }
+}
+
+final class PcntlAutoWorkerPdo extends PDO
+{
+    public function __construct()
+    {
     }
 }
 

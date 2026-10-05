@@ -1,5 +1,12 @@
 # Changelog
 
+## 5.1.5 - 2026-10-05
+
+### Fixed
+
+- Reset reconnect-capable PostgreSQL providers in forked auto-worker children before the first child storage access, preventing parent and child processes from sharing an inherited PostgreSQL SSL connection.
+- Rejected raw/static PDO connections for `worker:run --mode=auto`, because forked children must be able to discard inherited connections and open fresh ones.
+
 ## 5.1.3 - 2026-10-02
 
 ### Fixed

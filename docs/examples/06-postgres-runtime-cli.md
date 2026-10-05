@@ -6,8 +6,10 @@ Bootstrap file may return `MessageBusRuntime`, `QueueWorkerRunner` or a PSR-11 c
 <?php
 
 use DI\ContainerBuilder;
+use PDO;
 use Wolfcharaa\MessageBus\Flow\FlowDefinition;
 use Wolfcharaa\MessageBus\Flow\FlowRegistry;
+use Wolfcharaa\MessageBus\Postgres\CallbackPdoConnectionProvider;
 use Wolfcharaa\MessageBus\Registry\CompiledMessageRegistry;
 use Wolfcharaa\MessageBus\Runtime\MessageBusRuntime;
 
@@ -15,7 +17,6 @@ $container = (new ContainerBuilder())
     ->useAutowiring(true)
     ->build();
 
-$pdo = new PDO($_ENV['DATABASE_DSN'], $_ENV['DATABASE_USER'], $_ENV['DATABASE_PASSWORD']);
 $registry = CompiledMessageRegistry::fromFile(__DIR__ . '/../var/cache/message_bus_registry.php');
 $flows = new FlowRegistry(
     FlowDefinition::sync('default'),
@@ -23,7 +24,13 @@ $flows = new FlowRegistry(
 );
 
 return MessageBusRuntime::postgres(
-    pdo: $pdo,
+    pdo: new CallbackPdoConnectionProvider(
+        static fn (): PDO => new PDO(
+            $_ENV['DATABASE_DSN'],
+            $_ENV['DATABASE_USER'],
+            $_ENV['DATABASE_PASSWORD'],
+        ),
+    ),
     registry: $registry,
     container: $container,
     flows: $flows,
@@ -51,4 +58,4 @@ vendor/bin/message-bus worker:run \
   --workers=4
 ```
 
-In auto mode each child process resolves bootstrap again, so database/container resources are fresh in the child process.
+In auto mode each child process first resets the inherited PostgreSQL provider and then resolves bootstrap again, so it opens a fresh connection before its first storage call. A raw `PDO`/`StaticPdoConnectionProvider` is therefore rejected in auto mode; use `CallbackPdoConnectionProvider` or another reconnect-capable provider.
