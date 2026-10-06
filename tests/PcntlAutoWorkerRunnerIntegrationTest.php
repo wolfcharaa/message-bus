@@ -101,7 +101,10 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
                 },
                 workerControlRuntime: $control->runtime(),
                 beforeFork: static fn (): int|false => \file_put_contents($logFile, "before-fork\n", FILE_APPEND | LOCK_EX),
-                afterForkInParent: static fn (ReceivedQueueMessage $message, string $childInstanceId, int $pid): int|false => \file_put_contents($logFile, 'after-fork-parent:' . $pid . "\n", FILE_APPEND | LOCK_EX),
+                afterForkInParent: static function (ReceivedQueueMessage $message, string $childInstanceId, int $pid) use ($connectionProvider, $logFile): void {
+                    $connectionProvider->reset();
+                    \file_put_contents($logFile, 'after-fork-parent:' . $pid . "\n", FILE_APPEND | LOCK_EX);
+                },
                 afterForkInChild: static function () use ($connectionProvider, $logFile): void {
                     $connectionProvider->reset();
                     \file_put_contents($logFile, "after-fork-child\n", FILE_APPEND | LOCK_EX);
@@ -134,6 +137,7 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
             self::assertContains('before-fork', $events);
             self::assertContains('after-fork-child', $events);
             self::assertContains('connection-parent', $events);
+            self::assertContains('connection-reset-parent', $events);
             self::assertContains('connection-reset-child', $events);
             self::assertContains('connection-child', $events);
             self::assertTrue(\count(\preg_grep('/^after-fork-parent:\d+$/', $events)) === 1);

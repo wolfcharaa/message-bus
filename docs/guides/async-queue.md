@@ -419,7 +419,7 @@ vendor/bin/message-bus worker:run \
 - ставит heartbeat для контроля зависших worker-ов.
 
 В auto mode главный процесс создаёт child processes. Каждый child заново загружает bootstrap, поэтому database connection и container resources создаются внутри child process.
-Перед повторной загрузкой bootstrap child вызывает `PdoConnectionProviderInterface::reset()` для унаследованного PostgreSQL provider. Это происходит до первого storage call: parent сохраняет своё соединение, child лениво открывает новое. Готовый `PDO`/`StaticPdoConnectionProvider` для auto mode не подходит; используйте `CallbackPdoConnectionProvider` или собственный reconnect-capable provider.
+После `fork()` parent и child вызывают `PdoConnectionProviderInterface::reset()` для своих копий унаследованного PostgreSQL provider. Parent делает это до следующего storage call, child — до повторной загрузки bootstrap и создания consumer/worker. Оба процесса затем лениво открывают независимые соединения. Готовый `PDO`/`StaticPdoConnectionProvider` для auto mode не подходит; используйте `CallbackPdoConnectionProvider` или собственный reconnect-capable provider.
 
 Auto mode требует `ext-pcntl` и `ext-posix`.
 

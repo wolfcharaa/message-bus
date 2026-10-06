@@ -132,6 +132,7 @@ final class WorkerRunCommand extends Command
                 },
                 workerControlRuntime: $runtime->workerControlRuntime(),
                 output: $outputWriter,
+                afterForkInParent: static fn () => $runtime->resetPostgresConnectionAfterFork(),
                 afterForkInChild: static fn () => $runtime->resetPostgresConnectionAfterFork(),
             ))->run(
                 $consumerOptions,

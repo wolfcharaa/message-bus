@@ -523,7 +523,7 @@ Default TTL:
 - heartbeat-ит children из master loop;
 - применяет `drain/stop/kill/restart`.
 
-Сразу после `fork()` и до создания child consumer/worker CLI сбрасывает унаследованный PostgreSQL provider через `PdoConnectionProviderInterface::reset()`. Это не меняет connection parent process, но гарантирует fresh connection при первом DB access в child. Runtime, собранный через `MessageBusRuntime::postgres()`, делает это автоматически; при `MessageBusRuntime::fromContainer()` зарегистрируйте reconnect-capable provider как `PdoConnectionProviderInterface` или `message_bus.pdo_connection_provider`. Raw `PDO` и `StaticPdoConnectionProvider` несовместимы с auto mode.
+Сразу после `fork()` CLI сбрасывает через `PdoConnectionProviderInterface::reset()` обе process-local копии унаследованного PostgreSQL provider: в parent — до следующего storage call, в child — до создания consumer/worker. Поэтому каждый процесс открывает fresh connection самостоятельно и не продолжает использовать общий SSL socket. Runtime, собранный через `MessageBusRuntime::postgres()`, делает это автоматически; при `MessageBusRuntime::fromContainer()` зарегистрируйте reconnect-capable provider как `PdoConnectionProviderInterface` или `message_bus.pdo_connection_provider`. Raw `PDO` и `StaticPdoConnectionProvider` несовместимы с auto mode.
 
 Полезные параметры:
 

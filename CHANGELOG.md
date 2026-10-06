@@ -1,5 +1,12 @@
 # Changelog
 
+## 6.2.2 - 2026-10-06
+
+### Fixed
+
+- Reset both parent and child PostgreSQL provider copies after `fork()`, preventing either process from keeping the inherited SSL connection.
+- Run stale-job recovery as its own idempotent resilient operation before the non-idempotent queue claim, allowing safe reconnect/retry during recovery.
+
 ## 6.2.1 - 2026-10-03
 
 ### Fixed

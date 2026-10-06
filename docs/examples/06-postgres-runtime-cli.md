@@ -57,4 +57,4 @@ vendor/bin/message-bus worker:run \
   --workers=4
 ```
 
-In auto mode each child process first resets the inherited PostgreSQL provider and then resolves bootstrap again, so it opens a fresh connection before its first storage call. A raw `PDO`/`StaticPdoConnectionProvider` is therefore rejected in auto mode; use `CallbackPdoConnectionProvider` or another reconnect-capable provider.
+In auto mode both parent and child reset their process-local copies of the inherited PostgreSQL provider immediately after `fork()`. The parent reconnects before its next storage call; the child resolves bootstrap again and opens its own connection before handling the job. A raw `PDO`/`StaticPdoConnectionProvider` is therefore rejected in auto mode; use `CallbackPdoConnectionProvider` or another reconnect-capable provider.

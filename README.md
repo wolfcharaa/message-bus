@@ -413,7 +413,7 @@ vendor/bin/message-bus worker:run \
   --max-heartbeat-failures=3
 ```
 
-Сразу после `fork()` child сбрасывает унаследованное соединение через `PdoConnectionProviderInterface::reset()`, до создания child consumer/worker и первого обращения к storage. Следующий `connection()` открывает отдельное соединение, а parent продолжает использовать своё. Поэтому для auto mode передавайте `CallbackPdoConnectionProvider` или свой reconnect-capable provider, а не готовый `PDO`.
+Сразу после `fork()` parent и child сбрасывают свои копии унаследованного соединения через `PdoConnectionProviderInterface::reset()`. Это происходит до следующего обращения parent к storage и до создания child consumer/worker. Следующий `connection()` в каждом процессе открывает отдельное соединение. Поэтому для auto mode передавайте `CallbackPdoConnectionProvider` или свой reconnect-capable provider, а не готовый `PDO`.
 
 `--output-verbosity` управляет stdout/stderr событиями worker-а: `quiet`, `normal`, `debug`, `trace`.
 `--output-format` может быть `text` для Docker logs или `json` для log collectors.

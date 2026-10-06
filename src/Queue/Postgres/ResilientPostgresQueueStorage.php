@@ -49,10 +49,12 @@ final class ResilientPostgresQueueStorage implements PostgresQueueStorageInterfa
 
     public function next(ConsumerOptions $options): ?ReceivedQueueMessage
     {
+        $this->recoverStale($options);
+
         return $this->executor->execute(
             'queue.next',
             OperationSafety::NonIdempotent,
-            fn (PDO $pdo): ?ReceivedQueueMessage => $this->storage($pdo)->next($options),
+            fn (PDO $pdo): ?ReceivedQueueMessage => $this->storage($pdo)->claimNextAvailable($options),
         );
     }
 
