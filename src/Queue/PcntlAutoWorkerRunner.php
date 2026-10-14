@@ -215,12 +215,13 @@ final class PcntlAutoWorkerRunner
                     'state' => $lifecycle,
                     'activity' => $children === [] ? WorkerActivityState::Idle : WorkerActivityState::Busy,
                     'children' => \count($children),
+                    'active_children' => $this->activeChildren($children),
                     'handled' => $handled,
                     'succeeded' => $succeeded,
                     'retried' => $retried,
                     'rejected' => $rejected,
                     'cancelled' => $cancelled,
-                ], WorkerCliOutputVerbosity::Debug);
+                ], $children === [] ? WorkerCliOutputVerbosity::Debug : WorkerCliOutputVerbosity::Normal);
             }
 
             if (($draining || $stopping || $killing || $restarting) && $children === []) {
@@ -296,14 +297,14 @@ final class PcntlAutoWorkerRunner
                         'exception' => $error,
                     ]);
                 }
-                $this->output('debug', 'worker.child_started', 'Worker child process started.', [
+                $this->output('info', 'worker.child_started', 'Worker child process started.', [
                     'worker_instance_id' => $identity->workerInstanceId,
                     'child_instance_id' => $childInstanceId,
                     'pid' => $pid,
                     'queue_message_id' => $message->queueMessageId,
                     'message_id' => $message->message->messageId,
                     'binding_id' => $message->message->bindingId,
-                ], WorkerCliOutputVerbosity::Debug);
+                ]);
             }
 
             $this->idle($options);
@@ -410,8 +411,13 @@ final class PcntlAutoWorkerRunner
 
             $child = $children[$pid] ?? null;
             unset($children[$pid]);
-            $exitCode = \pcntl_wifexited($status) ? \pcntl_wexitstatus($status) : self::EXIT_REJECTED;
-            $childState = $this->childState($exitCode, $status, $workerLifecycle);
+            $termination = $this->termination($status);
+            $processExitCode = \pcntl_wifexited($status) ? \pcntl_wexitstatus($status) : null;
+            $exitCode = $processExitCode ?? self::EXIT_REJECTED;
+            if ($termination !== null && $child !== null) {
+                $exitCode = $this->settleTerminatedChild($child['message'], $termination);
+            }
+            $childState = $this->childState($exitCode, $status);
 
             match ($exitCode) {
                 self::EXIT_SUCCEEDED => ++$succeeded,
@@ -422,21 +428,32 @@ final class PcntlAutoWorkerRunner
 
             if ($child !== null) {
                 try {
-                    $this->finishChild($child['childInstanceId'], $childState);
-                    $this->output('debug', 'worker.child_finished', 'Worker child process finished.', [
-                        'child_instance_id' => $child['childInstanceId'],
-                        'pid' => $pid,
-                        'state' => $childState,
-                        'exit_code' => $exitCode,
-                        'queue_message_id' => $child['message']->queueMessageId,
-                        'message_id' => $child['message']->message->messageId,
-                    ], WorkerCliOutputVerbosity::Debug);
+                    $this->finishChild($child['childInstanceId'], $childState, $termination);
+                    $this->output(
+                        $termination === null ? 'info' : 'error',
+                        $termination === null ? 'worker.child_finished' : 'worker.child_signaled',
+                        $termination === null
+                            ? 'Worker child process finished.'
+                            : 'Worker child process was terminated by a signal.',
+                        [
+                            'child_instance_id' => $child['childInstanceId'],
+                            'pid' => $pid,
+                            'state' => $childState,
+                            'exit_code' => $processExitCode,
+                            'settlement_exit_code' => $exitCode,
+                            'termination' => $termination,
+                            'queue_message_id' => $child['message']->queueMessageId,
+                            'message_id' => $child['message']->message->messageId,
+                            'binding_id' => $child['message']->message->bindingId,
+                        ],
+                    );
                 } catch (\Throwable $error) {
                     $this->output('error', 'worker.child_finish_failed', 'Worker child finalization failed after retry policy.', [
                         'child_instance_id' => $child['childInstanceId'],
                         'pid' => $pid,
                         'state' => $childState,
-                        'exit_code' => $exitCode,
+                        'exit_code' => $processExitCode,
+                        'settlement_exit_code' => $exitCode,
                         'queue_message_id' => $child['message']->queueMessageId,
                         'message_id' => $child['message']->message->messageId,
                         'exception' => $error,
@@ -624,6 +641,7 @@ final class PcntlAutoWorkerRunner
     private function heartbeatChildren(array $children): void
     {
         foreach ($children as $child) {
+            $this->queueControl?->heartbeat($child['message']->queueMessageId);
             $this->workerControlRuntime?->workerRegistry()->heartbeatChild(
                 $child['childInstanceId'],
                 WorkerChildState::Running,
@@ -632,13 +650,89 @@ final class PcntlAutoWorkerRunner
         }
     }
 
-    private function finishChild(string $childInstanceId, WorkerChildState $state): void
+    private function finishChild(
+        string $childInstanceId,
+        WorkerChildState $state,
+        ?string $failureMessage = null,
+    ): void
     {
         $this->workerControlRuntime?->workerRegistry()->finishChild(
             $childInstanceId,
             $state,
             $this->now(),
+            $failureMessage,
         );
+    }
+
+    /**
+     * @param array<int, array{childInstanceId: string, message: ReceivedQueueMessage}> $children
+     *
+     * @return list<array{pid: int, queue_message_id: string, message_id: string, binding_id: string}>
+     */
+    private function activeChildren(array $children): array
+    {
+        $active = [];
+        foreach ($children as $pid => $child) {
+            $active[] = [
+                'pid' => $pid,
+                'queue_message_id' => $child['message']->queueMessageId,
+                'message_id' => $child['message']->message->messageId,
+                'binding_id' => $child['message']->message->bindingId,
+            ];
+        }
+
+        return $active;
+    }
+
+    private function termination(int $status): ?string
+    {
+        if (!\pcntl_wifsignaled($status)) {
+            return null;
+        }
+
+        $signal = \pcntl_wtermsig($status);
+        $description = \function_exists('pcntl_strerror') ? \pcntl_strerror($signal) : '';
+
+        return $description === ''
+            ? \sprintf('signal %d', $signal)
+            : \sprintf('signal %d (%s)', $signal, $description);
+    }
+
+    private function settleTerminatedChild(ReceivedQueueMessage $message, string $termination): int
+    {
+        $reason = new RuntimeException('Worker child process terminated by ' . $termination . '.');
+
+        try {
+            if ($this->shouldRetry($message)) {
+                $this->consumer->retry($message, $reason);
+                $exitCode = self::EXIT_RETRIED;
+                $settlement = 'retry';
+            } else {
+                $this->consumer->reject($message, $reason);
+                $exitCode = self::EXIT_REJECTED;
+                $settlement = 'reject';
+            }
+
+            $this->output('error', 'worker.child_queue_settled', 'Terminated child queue job was settled.', [
+                'queue_message_id' => $message->queueMessageId,
+                'message_id' => $message->message->messageId,
+                'binding_id' => $message->message->bindingId,
+                'termination' => $termination,
+                'settlement' => $settlement,
+            ]);
+
+            return $exitCode;
+        } catch (\Throwable $error) {
+            $this->output('error', 'worker.child_queue_settlement_failed', 'Unable to settle terminated child queue job.', [
+                'queue_message_id' => $message->queueMessageId,
+                'message_id' => $message->message->messageId,
+                'binding_id' => $message->message->bindingId,
+                'termination' => $termination,
+                'exception' => $error,
+            ]);
+
+            return self::EXIT_REJECTED;
+        }
     }
 
     private function runtimeControl(ReceivedQueueMessage $message, string $childInstanceId): ?WorkerRuntimeControlInterface
@@ -668,9 +762,9 @@ final class PcntlAutoWorkerRunner
         );
     }
 
-    private function childState(int $exitCode, int $status, WorkerLifecycleState $workerLifecycle): WorkerChildState
+    private function childState(int $exitCode, int $status): WorkerChildState
     {
-        if (!\pcntl_wifexited($status) && $workerLifecycle === WorkerLifecycleState::Killing) {
+        if (\pcntl_wifsignaled($status)) {
             return WorkerChildState::Killed;
         }
 

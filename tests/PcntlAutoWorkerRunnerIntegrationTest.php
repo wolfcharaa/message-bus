@@ -17,6 +17,7 @@ use Wolfcharaa\MessageBus\Queue\MessageConsumerInterface;
 use Wolfcharaa\MessageBus\Queue\PcntlAutoWorkerRunner;
 use Wolfcharaa\MessageBus\Queue\PcntlAutoWorkerRunnerOptions;
 use Wolfcharaa\MessageBus\Queue\QueueMessage;
+use Wolfcharaa\MessageBus\Queue\QueueJobControlInterface;
 use Wolfcharaa\MessageBus\Queue\QueueWorkerInterface;
 use Wolfcharaa\MessageBus\Queue\ReceivedQueueMessage;
 use Wolfcharaa\MessageBus\Queue\RetryPolicySnapshot;
@@ -158,6 +159,78 @@ final class PcntlAutoWorkerRunnerIntegrationTest extends TestCase
         }
     }
 
+    public function testParentHeartbeatsRunningQueueJobAndReportsBusyChildAtNormalVerbosity(): void
+    {
+        $queueControl = new PcntlAutoWorkerQueueControl();
+        $output = new PcntlAutoWorkerOutputBuffer();
+        $runner = new PcntlAutoWorkerRunner(
+            new PcntlAutoWorkerParentConsumer([
+                $this->received('slow', attempts: 0, maxAttempts: 3),
+            ]),
+            new PcntlAutoWorkerChildWorker([], 50000),
+            queueControl: $queueControl,
+            output: $output,
+        );
+
+        $result = $runner->run(
+            new ConsumerOptions('postgres', 'default'),
+            new PcntlAutoWorkerRunnerOptions(
+                maxWorkers: 1,
+                stopWhenEmpty: true,
+                sleepWhenIdleMilliseconds: 1,
+                heartbeatIntervalMilliseconds: 1,
+            ),
+        );
+
+        self::assertSame(1, $result->succeeded);
+        self::assertContains('job-slow', $queueControl->heartbeats);
+        self::assertContains('worker.child_started', $output->events);
+        self::assertContains('worker.child_finished', $output->events);
+
+        $busyHeartbeats = \array_values(\array_filter(
+            $output->records,
+            static fn (array $record): bool => $record['event'] === 'worker.heartbeat'
+                && ($record['context']['children'] ?? 0) > 0,
+        ));
+        self::assertNotEmpty($busyHeartbeats);
+        self::assertSame(WorkerCliOutputVerbosity::Normal, $busyHeartbeats[0]['verbosity']);
+        self::assertSame('job-slow', $busyHeartbeats[0]['context']['active_children'][0]['queue_message_id'] ?? null);
+    }
+
+    public function testReportsSignalThatTerminatedChildProcess(): void
+    {
+        $control = new WorkerControlMemoryRuntime();
+        $output = new PcntlAutoWorkerOutputBuffer();
+        $consumer = new PcntlAutoWorkerParentConsumer([
+            $this->received('signaled', attempts: 0, maxAttempts: 3),
+        ]);
+        $runner = new PcntlAutoWorkerRunner(
+            $consumer,
+            new PcntlAutoWorkerChildWorker([], signal: SIGKILL),
+            workerControlRuntime: $control->runtime(),
+            output: $output,
+        );
+
+        $result = $runner->run(
+            new ConsumerOptions('postgres', 'default'),
+            new PcntlAutoWorkerRunnerOptions(
+                maxWorkers: 1,
+                stopWhenEmpty: true,
+                sleepWhenIdleMilliseconds: 1,
+                heartbeatIntervalMilliseconds: 1,
+            ),
+        );
+
+        self::assertSame(1, $result->retried);
+        self::assertSame(['job-signaled'], $consumer->retried);
+        self::assertContains('worker.child_signaled', $output->events);
+        self::assertContains('worker.child_queue_settled', $output->events);
+        $child = \array_values($control->children)[0] ?? null;
+        self::assertNotNull($child);
+        self::assertSame(WorkerChildState::Killed, $child->state);
+        self::assertStringContainsString('signal ' . SIGKILL, (string) $child->failureMessage);
+    }
+
     public function testAutoRunnerForksChildrenAndReportsAllOutcomes(): void
     {
         $logFile = \tempnam(\sys_get_temp_dir(), 'message-bus-pcntl-');
@@ -272,6 +345,9 @@ final class PcntlAutoWorkerOutputBuffer implements WorkerCliOutputWriterInterfac
     /** @var list<string> */
     public array $events = [];
 
+    /** @var list<array{level: string, event: string, context: array<string, mixed>, verbosity: WorkerCliOutputVerbosity}> */
+    public array $records = [];
+
     public function write(
         string $level,
         string $event,
@@ -280,6 +356,36 @@ final class PcntlAutoWorkerOutputBuffer implements WorkerCliOutputWriterInterfac
         WorkerCliOutputVerbosity $verbosity = WorkerCliOutputVerbosity::Normal,
     ): void {
         $this->events[] = $event;
+        $this->records[] = [
+            'level' => $level,
+            'event' => $event,
+            'context' => $context,
+            'verbosity' => $verbosity,
+        ];
+    }
+}
+
+final class PcntlAutoWorkerQueueControl implements QueueJobControlInterface
+{
+    /** @var list<string> */
+    public array $heartbeats = [];
+
+    public function cancel(string $queueMessageId): void
+    {
+    }
+
+    public function requestCancellation(string $queueMessageId): void
+    {
+    }
+
+    public function heartbeat(string $queueMessageId): void
+    {
+        $this->heartbeats[] = $queueMessageId;
+    }
+
+    public function isCancellationRequested(string $queueMessageId): bool
+    {
+        return false;
     }
 }
 
@@ -353,6 +459,9 @@ final class PcntlAutoWorkerParentConsumer implements MessageConsumerInterface
     /** @var list<ReceivedQueueMessage> */
     private array $messages;
 
+    /** @var list<string> */
+    public array $retried = [];
+
     /** @param list<ReceivedQueueMessage> $messages */
     public function __construct(array $messages)
     {
@@ -370,6 +479,7 @@ final class PcntlAutoWorkerParentConsumer implements MessageConsumerInterface
 
     public function retry(ReceivedQueueMessage $message, \Throwable $reason): void
     {
+        $this->retried[] = $message->queueMessageId;
     }
 
     public function reject(ReceivedQueueMessage $message, \Throwable $reason): void
@@ -421,12 +531,23 @@ final class PcntlAutoWorkerChildConsumer implements MessageConsumerInterface
 final class PcntlAutoWorkerChildWorker implements QueueWorkerInterface
 {
     /** @param array<string, \Throwable> $failuresByMessageId */
-    public function __construct(private readonly array $failuresByMessageId)
-    {
+    public function __construct(
+        private readonly array $failuresByMessageId,
+        private readonly int $sleepMicroseconds = 0,
+        private readonly ?int $signal = null,
+    ) {
     }
 
     public function handle(SerializedEnvelope $envelope): mixed
     {
+        if ($this->signal !== null) {
+            \posix_kill(\getmypid(), $this->signal);
+        }
+
+        if ($this->sleepMicroseconds > 0) {
+            \usleep($this->sleepMicroseconds);
+        }
+
         $failure = $this->failuresByMessageId[$envelope->messageId] ?? null;
 
         if ($failure !== null) {

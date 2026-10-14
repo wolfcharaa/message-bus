@@ -1,5 +1,13 @@
 # Changelog
 
+## 6.2.3 - 2026-10-14
+
+### Fixed
+
+- Refresh running queue-job heartbeats from the auto-worker parent while a child is busy, so blocking handler work cannot make a live job stale.
+- Report child start, busy heartbeat, normal completion and signal termination at normal worker verbosity with PID, queue job and binding context.
+- Settle a queue job immediately when its child is terminated by a signal, and persist the signal description in worker-child diagnostics.
+
 ## 6.2.2 - 2026-10-06
 
 ### Fixed
