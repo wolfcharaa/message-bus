@@ -172,7 +172,7 @@ final readonly class SchemaManifest
  */
 final readonly class PostgresSchemaManager
 {
-    private const string LIBRARY_VERSION = '7.0.0-alpha.2';
+    private const string LIBRARY_VERSION = '7.0.0-alpha.3';
 
     public function __construct(
         private \PDO $pdo,

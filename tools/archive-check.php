@@ -15,10 +15,10 @@ try {
         '/usr/bin/composer',
         'archive',
         '--format=zip',
-        '--file=message-bus-7.0.0-alpha.2',
+        '--file=message-bus-7.0.0-alpha.3',
         '--dir=' . $temporary,
     ], $root);
-    $archive = $temporary . '/message-bus-7.0.0-alpha.2.zip';
+    $archive = $temporary . '/message-bus-7.0.0-alpha.3.zip';
     if (!is_file($archive)) {
         throw new RuntimeException('Composer did not create the expected ZIP.');
     }
@@ -111,7 +111,7 @@ try {
     if (!is_array($package)) {
         throw new RuntimeException('Package composer.json did not decode to an object.');
     }
-    $package['version'] = '7.0.0-alpha.2';
+    $package['version'] = '7.0.0-alpha.3';
     $package['dist'] = ['type' => 'zip', 'url' => 'file://' . $archive];
     $clock = json_decode((string) file_get_contents($root . '/vendor/psr/clock/composer.json'), true, 512, JSON_THROW_ON_ERROR);
     if (!is_array($clock)) {

@@ -529,6 +529,11 @@ final class PcntlWorkerSupervisor
                         $claim,
                         $this->process->currentPid(),
                     );
+                    // A normal PHP shutdown would destruct inherited parent resources (notably PDO)
+                    // and can send a protocol-level disconnect over the parent's still-live socket.
+                    // The single-attempt child has already settled its delivery through fresh resources,
+                    // so terminate without running the inherited object graph's destructors.
+                    $this->process->signal($this->process->currentPid(), SIGKILL);
                     exit($result === WorkerIteration::Succeeded ? 0 : 1);
                 }
                 $children[$pid] = [
