@@ -1,0 +1,9 @@
+{
+    "schema": 1,
+    "codes": [
+        "MBR001", "MBR002", "MBR003", "MBR004", "MBR005", "MBR006",
+        "MBR007", "MBR008", "MBR009", "MBR010", "MBR011", "MBR012",
+        "MBR013", "MBR014", "MBR015", "MBR016", "MBR017",
+        "MBC001", "MBC002", "MBC003", "MBC004", "MBC005", "MBC006", "MBC007"
+    ]
+}

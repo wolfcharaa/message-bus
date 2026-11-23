@@ -1,0 +1,333 @@
+{
+    "schema": 1,
+    "default_expressions": {
+        "message_bus__schema_migrations.applied_at": "clock_timestamp()",
+        "message_bus__deliveries.enqueue_sequence": "identity",
+        "message_bus__deliveries.route": "'postgres'::text",
+        "message_bus__deliveries.attempt_count": "0",
+        "message_bus__deliveries.available_at": "clock_timestamp()",
+        "message_bus__deliveries.cancellation_requested": "false",
+        "message_bus__deliveries.accepted_at": "clock_timestamp()",
+        "message_bus__deliveries.updated_at": "clock_timestamp()",
+        "message_bus__delivery_attempts.state": "'running'::text",
+        "message_bus__delivery_attempts.started_at": "clock_timestamp()",
+        "message_bus__delivery_attempts.heartbeat_at": "clock_timestamp()",
+        "message_bus__delivery_operations.initiator_metadata": "'{}'::jsonb",
+        "message_bus__delivery_operations.recorded_at": "clock_timestamp()",
+        "message_bus__legacy_delivery_map.imported_at": "clock_timestamp()",
+        "message_bus__worker_desired_states.updated_at": "clock_timestamp()",
+        "message_bus__worker_instances.active_attempts": "0",
+        "message_bus__worker_instances.applied_global_revision": "0",
+        "message_bus__worker_instances.applied_profile_revision": "0",
+        "message_bus__worker_instances.started_at": "clock_timestamp()",
+        "message_bus__worker_instances.heartbeat_at": "clock_timestamp()",
+        "message_bus__worker_control_operations.accepted_at": "clock_timestamp()",
+        "message_bus__idempotency_records.claimed_at": "clock_timestamp()"
+    },
+    "constraint_definitions": {
+        "message_bus__messages.message_bus__messages_payload_version_check": "CHECK (payload_version > 0)",
+        "message_bus__messages.message_bus__messages_role_check": "CHECK (role = ANY (ARRAY['command'::text, 'event'::text]))",
+        "message_bus__deliveries.message_bus__deliveries_attempt_count_check": "CHECK (attempt_count >= 0)",
+        "message_bus__deliveries.message_bus__deliveries_current_attempt_fk": "FOREIGN KEY (current_attempt_id) REFERENCES message_bus__delivery_attempts(attempt_id) DEFERRABLE INITIALLY DEFERRED",
+        "message_bus__deliveries.message_bus__deliveries_message_id_fkey": "FOREIGN KEY (message_id) REFERENCES message_bus__messages(message_id) ON DELETE CASCADE",
+        "message_bus__deliveries.message_bus__deliveries_replay_of_fkey": "FOREIGN KEY (replay_of) REFERENCES message_bus__deliveries(delivery_id)",
+        "message_bus__deliveries.message_bus__deliveries_state_check": "CHECK (state = ANY (ARRAY['staged'::text, 'accepted'::text, 'running'::text, 'retry_wait'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text, 'outcome_unknown'::text]))",
+        "message_bus__delivery_attempts.message_bus__delivery_attempts_attempt_number_check": "CHECK (attempt_number > 0)",
+        "message_bus__delivery_attempts.message_bus__delivery_attempts_delivery_id_fkey": "FOREIGN KEY (delivery_id) REFERENCES message_bus__deliveries(delivery_id) ON DELETE CASCADE",
+        "message_bus__delivery_attempts.message_bus__delivery_attempts_state_check": "CHECK (state = ANY (ARRAY['running'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text, 'lost'::text, 'outcome_unknown'::text]))",
+        "message_bus__delivery_operations.message_bus__delivery_operations_delivery_id_fkey": "FOREIGN KEY (delivery_id) REFERENCES message_bus__deliveries(delivery_id) ON DELETE CASCADE",
+        "message_bus__delivery_operations.message_bus__delivery_operations_kind_check": "CHECK (kind = ANY (ARRAY['cancel'::text, 'replay'::text]))",
+        "message_bus__worker_desired_states.message_bus__worker_desired_states_desired_state_check": "CHECK (desired_state = ANY (ARRAY['running'::text, 'paused'::text]))",
+        "message_bus__worker_desired_states.message_bus__worker_desired_states_revision_check": "CHECK (revision > 0)",
+        "message_bus__worker_instances.message_bus__worker_instances_capacity_check": "CHECK (capacity > 0)",
+        "message_bus__worker_instances.message_bus__worker_instances_active_attempts_check": "CHECK (active_attempts >= 0)",
+        "message_bus__worker_instances.message_bus__worker_instances_lifecycle_check": "CHECK (lifecycle = ANY (ARRAY['starting'::text, 'running'::text, 'paused'::text, 'draining'::text, 'stopped'::text, 'failed'::text]))",
+        "message_bus__worker_control_operations.message_bus__worker_control_operations_outcome_check": "CHECK (outcome = ANY (ARRAY['applied'::text, 'already_desired'::text, 'revision_conflict'::text]))",
+        "message_bus__idempotency_records.message_bus__idempotency_records_delivery_id_fkey": "FOREIGN KEY (delivery_id) REFERENCES message_bus__deliveries(delivery_id) ON DELETE CASCADE",
+        "message_bus__idempotency_records.message_bus__idempotency_records_state_check": "CHECK (state = ANY (ARRAY['claimed'::text, 'completed'::text]))"
+    },
+    "index_definitions": {
+        "message_bus__messages.message_bus__messages_correlation_idx": {"unique": false, "columns": ["correlation_id", "recorded_at", "message_id"], "predicate": ""},
+        "message_bus__deliveries.message_bus__deliveries_claim_idx": {"unique": false, "columns": ["lane", "priority DESC", "available_at", "enqueue_sequence"], "predicate": "state = ANY (ARRAY['accepted'::text, 'retry_wait'::text]) AND cancellation_requested = false"},
+        "message_bus__deliveries.message_bus__deliveries_terminal_idx": {"unique": false, "columns": ["finished_at", "delivery_id"], "predicate": "state = ANY (ARRAY['succeeded'::text, 'failed'::text, 'cancelled'::text, 'outcome_unknown'::text])"},
+        "message_bus__deliveries.message_bus__deliveries_message_target_idx": {"unique": false, "columns": ["message_id", "target_id", "delivery_id"], "predicate": ""},
+        "message_bus__delivery_attempts.message_bus__delivery_attempts_recovery_idx": {"unique": false, "columns": ["lease_expires_at", "attempt_id"], "predicate": "finished_at IS NULL"},
+        "message_bus__delivery_operations.message_bus__delivery_operations_delivery_idx": {"unique": false, "columns": ["delivery_id", "recorded_at"], "predicate": ""},
+        "message_bus__delivery_operations.message_bus__delivery_operations_idempotency_idx": {"unique": true, "columns": ["idempotency_key"], "predicate": "idempotency_key IS NOT NULL"},
+        "message_bus__worker_instances.message_bus__worker_instances_profile_idx": {"unique": false, "columns": ["profile", "heartbeat_at", "worker_instance_id"], "predicate": ""},
+        "message_bus__worker_control_operations.message_bus__worker_control_operations_scope_idx": {"unique": false, "columns": ["scope", "accepted_at", "operation_id"], "predicate": ""},
+        "message_bus__idempotency_records.message_bus__idempotency_records_delivery_idx": {"unique": false, "columns": ["delivery_id"], "predicate": ""},
+        "message_bus__idempotency_records.message_bus__idempotency_records_retention_idx": {"unique": false, "columns": ["retain_until", "target_id", "key_digest"], "predicate": "state = 'completed'::text"}
+    },
+    "legacy_objects": [
+        "message_bus__queue_jobs",
+        "message_bus__worker_commands",
+        "message_bus__worker_command_deliveries",
+        "message_bus__worker_children",
+        "message_bus__worker_registry"
+    ],
+    "tables": {
+        "message_bus__schema_migrations": {
+            "columns": [
+                ["component", "text", false],
+                ["migration_id", "text", false],
+                ["artifact_checksum", "character(64)", false],
+                ["installation_fingerprint", "character(64)", false],
+                ["library_version", "text", false],
+                ["applied_at", "timestamp with time zone", false]
+            ],
+            "defaults": ["applied_at"],
+            "constraints": ["message_bus__schema_migrations_pkey"],
+            "indexes": ["message_bus__schema_migrations_pkey"]
+        },
+        "message_bus__messages": {
+            "columns": [
+                ["message_id", "text", false],
+                ["correlation_id", "text", false],
+                ["causation_id", "text", true],
+                ["role", "text", false],
+                ["message_name", "text", false],
+                ["payload_version", "integer", false],
+                ["codec", "text", false],
+                ["content_type", "text", false],
+                ["object_graph_fingerprint", "character(64)", true],
+                ["payload", "bytea", false],
+                ["payload_digest", "character(64)", false],
+                ["metadata", "jsonb", false],
+                ["recorded_at", "timestamp with time zone", false]
+            ],
+            "defaults": [],
+            "constraints": [
+                "message_bus__messages_payload_version_check",
+                "message_bus__messages_pkey",
+                "message_bus__messages_role_check"
+            ],
+            "indexes": ["message_bus__messages_correlation_idx", "message_bus__messages_pkey"]
+        },
+        "message_bus__deliveries": {
+            "columns": [
+                ["delivery_id", "text", false],
+                ["enqueue_sequence", "bigint", false],
+                ["message_id", "text", false],
+                ["target_id", "text", false],
+                ["handler_class", "text", false],
+                ["handler_method", "text", false],
+                ["route", "text", false],
+                ["lane", "text", false],
+                ["policy", "jsonb", false],
+                ["state", "text", false],
+                ["priority", "integer", false],
+                ["attempt_count", "integer", false],
+                ["current_attempt_id", "text", true],
+                ["available_at", "timestamp with time zone", false],
+                ["cancellation_requested", "boolean", false],
+                ["cancellation_requested_at", "timestamp with time zone", true],
+                ["replay_of", "text", true],
+                ["last_failure_category", "text", true],
+                ["accepted_at", "timestamp with time zone", false],
+                ["started_at", "timestamp with time zone", true],
+                ["updated_at", "timestamp with time zone", false],
+                ["finished_at", "timestamp with time zone", true]
+            ],
+            "defaults": [
+                "enqueue_sequence", "route", "attempt_count", "available_at",
+                "cancellation_requested", "accepted_at", "updated_at"
+            ],
+            "constraints": [
+                "message_bus__deliveries_attempt_count_check",
+                "message_bus__deliveries_current_attempt_fk",
+                "message_bus__deliveries_enqueue_sequence_key",
+                "message_bus__deliveries_message_id_fkey",
+                "message_bus__deliveries_pkey",
+                "message_bus__deliveries_replay_of_fkey",
+                "message_bus__deliveries_state_check"
+            ],
+            "indexes": [
+                "message_bus__deliveries_claim_idx",
+                "message_bus__deliveries_enqueue_sequence_key",
+                "message_bus__deliveries_message_target_idx",
+                "message_bus__deliveries_pkey",
+                "message_bus__deliveries_terminal_idx"
+            ]
+        },
+        "message_bus__delivery_attempts": {
+            "columns": [
+                ["attempt_id", "text", false],
+                ["delivery_id", "text", false],
+                ["attempt_number", "integer", false],
+                ["worker_id", "text", false],
+                ["child_pid", "integer", true],
+                ["lease_token", "text", false],
+                ["state", "text", false],
+                ["started_at", "timestamp with time zone", false],
+                ["handler_started_at", "timestamp with time zone", true],
+                ["heartbeat_at", "timestamp with time zone", false],
+                ["lease_expires_at", "timestamp with time zone", false],
+                ["finished_at", "timestamp with time zone", true],
+                ["lost_at", "timestamp with time zone", true],
+                ["outcome", "text", true],
+                ["failure_category", "text", true],
+                ["failure_summary", "text", true],
+                ["scheduling_decision", "text", true]
+            ],
+            "defaults": ["state", "heartbeat_at", "started_at"],
+            "constraints": [
+                "message_bus__delivery_attempts_attempt_number_check",
+                "message_bus__delivery_attempts_delivery_id_attempt_number_key",
+                "message_bus__delivery_attempts_delivery_id_fkey",
+                "message_bus__delivery_attempts_pkey",
+                "message_bus__delivery_attempts_state_check"
+            ],
+            "indexes": [
+                "message_bus__delivery_attempts_delivery_id_attempt_number_key",
+                "message_bus__delivery_attempts_pkey",
+                "message_bus__delivery_attempts_recovery_idx"
+            ]
+        },
+        "message_bus__delivery_operations": {
+            "columns": [
+                ["operation_id", "text", false],
+                ["delivery_id", "text", false],
+                ["idempotency_key", "text", true],
+                ["kind", "text", false],
+                ["actor", "text", false],
+                ["reason", "text", false],
+                ["reference", "text", true],
+                ["initiator_metadata", "jsonb", false],
+                ["outcome", "text", false],
+                ["recorded_at", "timestamp with time zone", false]
+            ],
+            "defaults": ["initiator_metadata", "recorded_at"],
+            "constraints": [
+                "message_bus__delivery_operations_delivery_id_fkey",
+                "message_bus__delivery_operations_kind_check",
+                "message_bus__delivery_operations_pkey"
+            ],
+            "indexes": [
+                "message_bus__delivery_operations_delivery_idx",
+                "message_bus__delivery_operations_idempotency_idx",
+                "message_bus__delivery_operations_pkey"
+            ]
+        },
+        "message_bus__legacy_delivery_map": {
+            "columns": [
+                ["legacy_queue_job_id", "bigint", false],
+                ["delivery_id", "text", false],
+                ["imported_at", "timestamp with time zone", false]
+            ],
+            "defaults": ["imported_at"],
+            "constraints": [
+                "message_bus__legacy_delivery_map_delivery_id_fkey",
+                "message_bus__legacy_delivery_map_delivery_id_key",
+                "message_bus__legacy_delivery_map_pkey"
+            ],
+            "indexes": [
+                "message_bus__legacy_delivery_map_delivery_id_key",
+                "message_bus__legacy_delivery_map_pkey"
+            ]
+        },
+        "message_bus__worker_desired_states": {
+            "columns": [
+                ["scope", "text", false],
+                ["desired_state", "text", false],
+                ["revision", "bigint", false],
+                ["actor", "text", false],
+                ["reason", "text", false],
+                ["updated_at", "timestamp with time zone", false]
+            ],
+            "defaults": ["updated_at"],
+            "constraints": [
+                "message_bus__worker_desired_states_desired_state_check",
+                "message_bus__worker_desired_states_pkey",
+                "message_bus__worker_desired_states_revision_check"
+            ],
+            "indexes": ["message_bus__worker_desired_states_pkey"]
+        },
+        "message_bus__worker_instances": {
+            "columns": [
+                ["worker_instance_id", "text", false],
+                ["profile", "text", false],
+                ["lane", "text", false],
+                ["host", "text", false],
+                ["pid", "integer", false],
+                ["build_id", "text", false],
+                ["registry_hash", "character(64)", false],
+                ["lifecycle", "text", false],
+                ["capacity", "integer", false],
+                ["active_attempts", "integer", false],
+                ["applied_global_revision", "bigint", false],
+                ["applied_profile_revision", "bigint", false],
+                ["started_at", "timestamp with time zone", false],
+                ["heartbeat_at", "timestamp with time zone", false],
+                ["stopped_at", "timestamp with time zone", true]
+            ],
+            "defaults": [
+                "active_attempts", "applied_global_revision", "applied_profile_revision",
+                "heartbeat_at", "started_at"
+            ],
+            "constraints": [
+                "message_bus__worker_instances_active_attempts_check",
+                "message_bus__worker_instances_applied_global_revision_check",
+                "message_bus__worker_instances_applied_profile_revision_check",
+                "message_bus__worker_instances_capacity_check",
+                "message_bus__worker_instances_lifecycle_check",
+                "message_bus__worker_instances_pkey"
+            ],
+            "indexes": ["message_bus__worker_instances_pkey", "message_bus__worker_instances_profile_idx"]
+        },
+        "message_bus__worker_control_operations": {
+            "columns": [
+                ["operation_id", "text", false],
+                ["idempotency_key", "text", false],
+                ["scope", "text", false],
+                ["previous_state", "text", false],
+                ["desired_state", "text", false],
+                ["outcome", "text", false],
+                ["resulting_revision", "bigint", false],
+                ["actor", "text", false],
+                ["reason", "text", false],
+                ["accepted_at", "timestamp with time zone", false]
+            ],
+            "defaults": ["accepted_at"],
+            "constraints": [
+                "message_bus__worker_control_operations_desired_state_check",
+                "message_bus__worker_control_operations_idempotency_key_key",
+                "message_bus__worker_control_operations_outcome_check",
+                "message_bus__worker_control_operations_pkey",
+                "message_bus__worker_control_operations_previous_state_check",
+                "message_bus__worker_control_operations_resulting_revision_check"
+            ],
+            "indexes": [
+                "message_bus__worker_control_operations_idempotency_key_key",
+                "message_bus__worker_control_operations_pkey",
+                "message_bus__worker_control_operations_scope_idx"
+            ]
+        },
+        "message_bus__idempotency_records": {
+            "columns": [
+                ["target_id", "text", false],
+                ["key_digest", "character(64)", false],
+                ["fingerprint_algorithm", "text", false],
+                ["fingerprint_version", "integer", false],
+                ["fingerprint_digest", "character(64)", false],
+                ["delivery_id", "text", false],
+                ["state", "text", false],
+                ["claimed_at", "timestamp with time zone", false],
+                ["completed_at", "timestamp with time zone", true],
+                ["retain_until", "timestamp with time zone", false]
+            ],
+            "defaults": ["claimed_at"],
+            "constraints": [
+                "message_bus__idempotency_records_delivery_id_fkey",
+                "message_bus__idempotency_records_fingerprint_version_check",
+                "message_bus__idempotency_records_pkey",
+                "message_bus__idempotency_records_state_check"
+            ],
+            "indexes": [
+                "message_bus__idempotency_records_delivery_idx",
+                "message_bus__idempotency_records_pkey",
+                "message_bus__idempotency_records_retention_idx"
+            ]
+        }
+    }
+}

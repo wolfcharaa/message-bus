@@ -1,0 +1,565 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Wolfcharaa\MessageBus\Registry;
+
+use Wolfcharaa\MessageBus\Attribute\Handler;
+use Wolfcharaa\MessageBus\Attribute\MessageName;
+use Wolfcharaa\MessageBus\Context\MessageContext;
+use Wolfcharaa\MessageBus\Context\MessageContextFactories;
+use Wolfcharaa\MessageBus\Context\MessageContextFactoryResolver;
+use Wolfcharaa\MessageBus\Contract\Command;
+use Wolfcharaa\MessageBus\Contract\Event;
+use Wolfcharaa\MessageBus\Contract\Message;
+use Wolfcharaa\MessageBus\Contract\Query;
+use Wolfcharaa\MessageBus\Contract\Request;
+use Wolfcharaa\MessageBus\Exception\InvalidMessageBusConfiguration;
+
+/**
+ *  Message role derived exclusively from the message class marker.
+ *
+ * @api tooling
+ */
+enum MessageRole: string
+{
+    case Query = 'query';
+    case Request = 'request';
+    case Command = 'command';
+    case Event = 'event';
+}
+
+/**
+ *  One validated method-level handler binding.
+ *
+ * @api tooling
+ */
+final readonly class HandlerBinding
+{
+    /**
+     * @param class-string<Message<mixed>> $messageClass
+     * @param class-string $handlerClass
+     * @param class-string<MessageContext>|null $contextClass
+     */
+    public function __construct(
+        public string $id,
+        public string $messageClass,
+        public MessageRole $role,
+        public string $handlerClass,
+        public string $method,
+        public ?string $contextClass,
+        public ?string $subscriptionId,
+    ) {}
+}
+
+/**
+ *  Immutable compiled registry consumed by dispatch and worker runtimes.
+ *
+ * @api tooling
+ */
+final readonly class CompiledRegistry
+{
+    /** @param array<class-string<Message<mixed>>, list<HandlerBinding>> $bindings */
+    public function __construct(
+        private array $bindings,
+        public string $fingerprint,
+    ) {}
+
+    /**
+     * @param Message<mixed> $message
+     * @return list<HandlerBinding>
+     */
+    public function handlersFor(Message $message): array
+    {
+        return $this->bindings[$message::class] ?? [];
+    }
+
+    /** @return array<class-string<Message<mixed>>, list<HandlerBinding>> */
+    public function bindings(): array
+    {
+        return $this->bindings;
+    }
+}
+
+/**
+ *  Bounded source of candidate handler classes for registry compilation.
+ *
+ * @api spi
+ */
+interface RegistryClassSource
+{
+    /** @return iterable<class-string> */
+    public function classes(): iterable;
+}
+
+/**
+ *  Explicit deterministic class source suitable for production composition.
+ *
+ * @api tooling
+ */
+final readonly class ExplicitClassSource implements RegistryClassSource
+{
+    /** @param list<class-string> $classes */
+    public function __construct(private array $classes) {}
+
+    public function classes(): iterable
+    {
+        yield from $this->classes;
+    }
+}
+
+/**
+ *  Bounded Composer classmap source filtered by explicit namespace prefixes.
+ *
+ * @api tooling
+ */
+final readonly class ComposerClassMapSource implements RegistryClassSource
+{
+    /**
+     * @param list<string> $classMapFiles
+     * @param non-empty-list<string> $namespacePrefixes
+     */
+    public function __construct(
+        private array $classMapFiles,
+        private array $namespacePrefixes,
+    ) {
+        if ($this->classMapFiles === [] || $this->namespacePrefixes === []) {
+            throw new \InvalidArgumentException('Composer classmap source requires files and namespace prefixes.');
+        }
+    }
+
+    public function classes(): iterable
+    {
+        $classes = [];
+        foreach ($this->classMapFiles as $file) {
+            $map = require $file;
+            if (!\is_array($map)) {
+                throw new \RuntimeException('Composer classmap file did not return an array: ' . $file);
+            }
+            foreach (array_keys($map) as $class) {
+                if (!\is_string($class)) {
+                    continue;
+                }
+                $allowed = false;
+                foreach ($this->namespacePrefixes as $prefix) {
+                    if (str_starts_with($class, $prefix)) {
+                        $allowed = true;
+                        break;
+                    }
+                }
+                if (!$allowed || (!class_exists($class) && !interface_exists($class))) {
+                    continue;
+                }
+                $classes[$class] = true;
+            }
+        }
+        $result = array_keys($classes);
+        sort($result, SORT_STRING);
+
+        yield from $result;
+    }
+}
+
+/**
+ *  Additive validation rule run against the complete deterministic registry.
+ *
+ * @api spi
+ */
+interface RegistryValidationRule
+{
+    /** @return list<RegistryDiagnostic> */
+    public function validate(CompiledRegistry $registry): array;
+}
+
+/**
+ *  Severity of a stable compiler diagnostic.
+ *
+ * @api tooling
+ */
+enum DiagnosticSeverity: string
+{
+    case Error = 'error';
+    case Warning = 'warning';
+}
+
+/**
+ *  Machine-readable registry compiler diagnostic.
+ *
+ * @api tooling
+ */
+final readonly class RegistryDiagnostic
+{
+    public function __construct(
+        public string $code,
+        public DiagnosticSeverity $severity,
+        public string $message,
+        public ?string $symbol = null,
+    ) {}
+}
+
+/**
+ *  Registry compilation outcome with a stable diagnostic catalog.
+ *
+ * @api tooling
+ */
+final readonly class RegistryCompilationResult
+{
+    /** @param list<RegistryDiagnostic> $diagnostics */
+    public function __construct(
+        public ?CompiledRegistry $registry,
+        public array $diagnostics,
+    ) {}
+
+    public function isValid(): bool
+    {
+        foreach ($this->diagnostics as $diagnostic) {
+            if ($diagnostic->severity === DiagnosticSeverity::Error) {
+                return false;
+            }
+        }
+
+        return $this->registry instanceof CompiledRegistry;
+    }
+
+    public function requireRegistry(): CompiledRegistry
+    {
+        if (!$this->isValid()) {
+            throw new InvalidMessageBusConfiguration('MessageBus registry is invalid.');
+        }
+
+        return $this->registry ?? throw new \LogicException('Valid compilation has no registry.');
+    }
+}
+
+/**
+ *  Compiles method attributes and signatures into a deterministic registry.
+ *
+ * @api tooling
+ */
+final readonly class RegistryCompiler
+{
+    /** @param list<RegistryValidationRule> $rules */
+    public function __construct(
+        private MessageContextFactoryResolver $contextFactories = new MessageContextFactories(),
+        private array $rules = [],
+    ) {}
+
+    public function compile(RegistryClassSource $source): RegistryCompilationResult
+    {
+        $bindings = $this->emptyBindings();
+        $diagnostics = $this->emptyDiagnostics();
+        $messageRoles = $this->emptyRoles();
+        $messageNames = [];
+        $classes = iterator_to_array($source->classes(), false);
+        sort($classes, SORT_STRING);
+
+        foreach (array_values(array_unique($classes)) as $class) {
+            if (!class_exists($class)) {
+                $diagnostics[] = $this->error('MBR001', 'Handler class does not exist.', $class);
+
+                continue;
+            }
+
+            $reflection = new \ReflectionClass($class);
+            $messageClass = $this->messageClass($class);
+            if (!$reflection->isInterface() && $messageClass !== null) {
+                $role = $this->role($messageClass, $diagnostics, $class);
+                if ($role instanceof MessageRole) {
+                    $messageRoles[$messageClass] = $role;
+                    $bindings[$messageClass] ??= [];
+                    if ($role === MessageRole::Command || $role === MessageRole::Event) {
+                        $attributes = $reflection->getAttributes(MessageName::class);
+                        if (\count($attributes) !== 1) {
+                            $diagnostics[] = $this->error('MBR012', 'Durable message classes require one #[MessageName].', $class);
+                        } else {
+                            try {
+                                $name = $attributes[0]->newInstance()->value;
+                            } catch (\Throwable $failure) {
+                                $diagnostics[] = $this->error('MBR017', $failure->getMessage(), $class);
+
+                                continue;
+                            }
+                            if (isset($messageNames[$name]) && $messageNames[$name] !== $class) {
+                                $diagnostics[] = $this->error('MBR016', 'Durable MessageName must be unique.', $name);
+                            }
+                            $messageNames[$name] = $class;
+                        }
+                    }
+                }
+            }
+            foreach ($reflection->getMethods() as $method) {
+                $attributes = $method->getAttributes(Handler::class);
+                if ($attributes === []) {
+                    continue;
+                }
+
+                $this->compileMethod($reflection, $method, $attributes, $bindings, $messageRoles, $diagnostics);
+            }
+        }
+
+        $this->validateCardinality($bindings, $messageRoles, $diagnostics);
+        ksort($bindings, SORT_STRING);
+        foreach ($bindings as &$messageBindings) {
+            usort($messageBindings, static fn(HandlerBinding $a, HandlerBinding $b): int => $a->id <=> $b->id);
+        }
+        unset($messageBindings);
+
+        if ($this->hasErrors($diagnostics)) {
+            return new RegistryCompilationResult(null, $diagnostics);
+        }
+
+        $fingerprintData = [];
+        foreach ($bindings as $messageClass => $messageBindings) {
+            foreach ($messageBindings as $binding) {
+                $fingerprintData[] = [$messageClass, $binding->id, $binding->contextClass];
+            }
+        }
+        $registry = new CompiledRegistry(
+            $bindings,
+            hash('sha256', json_encode($fingerprintData, JSON_THROW_ON_ERROR)),
+        );
+
+        foreach ($this->rules as $rule) {
+            array_push($diagnostics, ...$rule->validate($registry));
+        }
+
+        return new RegistryCompilationResult(
+            $this->hasErrors($diagnostics) ? null : $registry,
+            $diagnostics,
+        );
+    }
+
+    /**
+     * @param list<\ReflectionAttribute<Handler>> $attributes
+     * @param \ReflectionClass<object> $class
+     * @param array<class-string<Message<mixed>>, list<HandlerBinding>> $bindings
+     * @param-out array<class-string<Message<mixed>>, list<HandlerBinding>> $bindings
+     * @param array<class-string<Message<mixed>>, MessageRole> $messageRoles
+     * @param-out array<class-string<Message<mixed>>, MessageRole> $messageRoles
+     * @param list<RegistryDiagnostic> $diagnostics
+     * @param-out list<RegistryDiagnostic> $diagnostics
+     */
+    private function compileMethod(
+        \ReflectionClass $class,
+        \ReflectionMethod $method,
+        array $attributes,
+        array &$bindings,
+        array &$messageRoles,
+        array &$diagnostics,
+    ): void {
+        $symbol = $class->getName() . '::' . $method->getName();
+        if (\count($attributes) !== 1 || !$method->isPublic() || $method->isStatic()) {
+            $diagnostics[] = $this->error('MBR002', '#[Handler] requires one public non-static method.', $symbol);
+
+            return;
+        }
+
+        $parameters = $method->getParameters();
+        if (\count($parameters) < 1 || \count($parameters) > 2) {
+            $diagnostics[] = $this->error('MBR003', 'Handler must accept one message and optional context.', $symbol);
+
+            return;
+        }
+        foreach ($parameters as $parameter) {
+            if ($parameter->isOptional() || $parameter->isVariadic()) {
+                $diagnostics[] = $this->error('MBR003', 'Handler parameters cannot be optional or variadic.', $symbol);
+
+                return;
+            }
+        }
+
+        $namedMessageClass = $this->namedClass($parameters[0]->getType());
+        $messageClass = $namedMessageClass === null ? null : $this->messageClass($namedMessageClass);
+        if ($messageClass === null) {
+            $diagnostics[] = $this->error('MBR004', 'First handler parameter must be one concrete Message class.', $symbol);
+
+            return;
+        }
+        if (!(new \ReflectionClass($messageClass))->isInstantiable()) {
+            $diagnostics[] = $this->error('MBR004', 'Handler message type must be concrete.', $symbol);
+
+            return;
+        }
+
+        $role = $this->role($messageClass, $diagnostics, $symbol);
+        if (!$role instanceof MessageRole) {
+            return;
+        }
+        $messageRoles[$messageClass] = $role;
+
+        $contextClass = null;
+        if (isset($parameters[1])) {
+            $contextClass = $this->namedClass($parameters[1]->getType());
+            if ($contextClass === null || !is_a($contextClass, MessageContext::class, true)) {
+                $diagnostics[] = $this->error('MBR005', 'Second handler parameter must extend MessageContext.', $symbol);
+
+                return;
+            }
+            if (!$this->contextFactories->has($contextClass)) {
+                $diagnostics[] = $this->error('MBR006', 'No exact context factory is registered.', $contextClass);
+
+                return;
+            }
+        }
+
+        $return = $method->getReturnType();
+        if (($role === MessageRole::Command || $role === MessageRole::Event)
+            && (!$return instanceof \ReflectionNamedType || $return->getName() !== 'void')) {
+            $diagnostics[] = $this->error('MBR007', 'Command and Event handlers must explicitly return void.', $symbol);
+
+            return;
+        }
+
+        if (($role === MessageRole::Query || $role === MessageRole::Request) && !$return instanceof \ReflectionType) {
+            $diagnostics[] = $this->error('MBR008', 'Query and Request handlers need an explicit return type.', $symbol);
+
+            return;
+        }
+
+        if ($role === MessageRole::Query && $return instanceof \ReflectionNamedType && $return->getName() === 'void') {
+            $diagnostics[] = $this->error('MBR009', 'Query handlers cannot return void.', $symbol);
+
+            return;
+        }
+
+        try {
+            $attribute = $attributes[0]->newInstance();
+        } catch (\Throwable $failure) {
+            $diagnostics[] = $this->error('MBR017', $failure->getMessage(), $symbol);
+
+            return;
+        }
+        if ($role === MessageRole::Event && ($attribute->subscriptionId === null || $attribute->subscriptionId === '')) {
+            $diagnostics[] = $this->error('MBR010', 'Event handlers require a stable subscriptionId.', $symbol);
+
+            return;
+        }
+        if ($role !== MessageRole::Event && $attribute->subscriptionId !== null) {
+            $diagnostics[] = $this->error('MBR011', 'subscriptionId is valid only for Event handlers.', $symbol);
+
+            return;
+        }
+        if (($role === MessageRole::Command || $role === MessageRole::Event)
+            && \count((new \ReflectionClass($messageClass))->getAttributes(MessageName::class)) !== 1) {
+            $diagnostics[] = $this->error('MBR012', 'Durable message classes require one #[MessageName].', $messageClass);
+
+            return;
+        }
+
+        $id = $role === MessageRole::Event
+            ? $attribute->subscriptionId
+            : $messageClass;
+        $bindings[$messageClass][] = new HandlerBinding(
+            id: (string) $id,
+            messageClass: $messageClass,
+            role: $role,
+            handlerClass: $class->getName(),
+            method: $method->getName(),
+            contextClass: $contextClass,
+            subscriptionId: $attribute->subscriptionId,
+        );
+    }
+
+    /**
+     * @param class-string<Message<mixed>> $messageClass
+     * @param list<RegistryDiagnostic> $diagnostics
+     * @param-out list<RegistryDiagnostic> $diagnostics
+     */
+    private function role(string $messageClass, array &$diagnostics, string $symbol): ?MessageRole
+    {
+        $roles = array_filter([
+            MessageRole::Query->value => is_a($messageClass, Query::class, true),
+            MessageRole::Request->value => is_a($messageClass, Request::class, true),
+            MessageRole::Command->value => is_a($messageClass, Command::class, true),
+            MessageRole::Event->value => is_a($messageClass, Event::class, true),
+        ]);
+        if (\count($roles) !== 1) {
+            $diagnostics[] = $this->error('MBR013', 'Message class must implement exactly one role.', $symbol);
+
+            return null;
+        }
+
+        return MessageRole::from(array_key_first($roles));
+    }
+
+    /**
+     * @param array<class-string<Message<mixed>>, list<HandlerBinding>> $bindings
+     * @param array<class-string<Message<mixed>>, MessageRole> $messageRoles
+     * @param list<RegistryDiagnostic> $diagnostics
+     * @param-out list<RegistryDiagnostic> $diagnostics
+     */
+    private function validateCardinality(array $bindings, array $messageRoles, array &$diagnostics): void
+    {
+        foreach ($bindings as $messageClass => $messageBindings) {
+            $role = $messageRoles[$messageClass];
+            if ($role !== MessageRole::Event && \count($messageBindings) !== 1) {
+                $diagnostics[] = $this->error('MBR014', 'Query, Request and Command require exactly one handler.', $messageClass);
+            }
+
+            $ids = array_map(static fn(HandlerBinding $binding): string => $binding->id, $messageBindings);
+            if (\count($ids) !== \count(array_unique($ids))) {
+                $diagnostics[] = $this->error('MBR015', 'Handler binding identity must be unique.', $messageClass);
+            }
+        }
+    }
+
+    /** @return class-string|null */
+    private function namedClass(?\ReflectionType $type): ?string
+    {
+        if (!$type instanceof \ReflectionNamedType || $type->isBuiltin()) {
+            return null;
+        }
+
+        $name = $type->getName();
+        if (!class_exists($name) && !interface_exists($name)) {
+            return null;
+        }
+
+        return $name;
+    }
+
+    /** @return class-string<Message<mixed>>|null */
+    private function messageClass(string $class): ?string
+    {
+        if (!class_exists($class) || !is_a($class, Message::class, true)) {
+            return null;
+        }
+
+        return $class;
+    }
+
+    private function error(string $code, string $message, ?string $symbol): RegistryDiagnostic
+    {
+        return new RegistryDiagnostic($code, DiagnosticSeverity::Error, $message, $symbol);
+    }
+
+    /** @param list<RegistryDiagnostic> $diagnostics */
+    private function hasErrors(array $diagnostics): bool
+    {
+        foreach ($diagnostics as $diagnostic) {
+            if ($diagnostic->severity === DiagnosticSeverity::Error) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<class-string<Message<mixed>>, list<HandlerBinding>> */
+    private function emptyBindings(): array
+    {
+        return [];
+    }
+
+    /** @return array<class-string<Message<mixed>>, MessageRole> */
+    private function emptyRoles(): array
+    {
+        return [];
+    }
+
+    /** @return list<RegistryDiagnostic> */
+    private function emptyDiagnostics(): array
+    {
+        return [];
+    }
+}

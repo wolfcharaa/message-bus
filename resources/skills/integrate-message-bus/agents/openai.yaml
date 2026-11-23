@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integrate MessageBus"
+  short_description: "Map and safely wire a MessageBus runtime"
+  default_prompt: "Use $integrate-message-bus to inspect this application, choose the smallest runtime profile, and verify its MessageBus integration."

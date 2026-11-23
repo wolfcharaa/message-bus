@@ -1,0 +1,2963 @@
+{
+    "schema": "message-bus-public-api/v1",
+    "package": "romanfedorskij/message-bus",
+    "php": "^8.3",
+    "symbols": [
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\InMemoryDeliveryBackend",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Deterministic process-local conformance/test backend.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend"
+            ],
+            "methods": [
+                "__construct(Psr\\Clock\\ClockInterface $clock = new Wolfcharaa\\MessageBus\\SystemClock, Wolfcharaa\\MessageBus\\Identity\\IdentityGenerator $identities = new Wolfcharaa\\MessageBus\\Identity\\RandomIdentityGenerator): mixed",
+                "accept(Wolfcharaa\\MessageBus\\Delivery\\DeliveryDraft $delivery): Wolfcharaa\\MessageBus\\Delivery\\DeliveryAcceptance",
+                "cancel(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\CancellationReceipt",
+                "cancellationRequested(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "claim(string $lane, string $workerId): ?Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery",
+                "fail(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, Wolfcharaa\\MessageBus\\Delivery\\FailureCategory $category, string $summary): bool",
+                "heartbeat(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "markHandlerStarted(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, ?int $childPid = NULL): bool",
+                "prune(DateTimeImmutable $terminalBefore, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+                "recoverExpired(int $limit): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+                "replay(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\ReplayReceipt",
+                "status(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId): ?Wolfcharaa\\MessageBus\\Delivery\\DeliveryStatus",
+                "succeed(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Postgres\\PostgresAtomicIdempotencyBoundary",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "PostgreSQL atomic idempotency boundary sharing the application's PDO transaction.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Idempotency\\AtomicIdempotencyBoundary"
+            ],
+            "methods": [
+                "__construct(PDO $pdo, string $schema = 'public'): mixed",
+                "execute(Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyAttempt $attempt, callable $effect): Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyResult"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Postgres\\PostgresDeliveryBackend",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "PostgreSQL durable backend using database time, SKIP LOCKED and fenced CAS.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend"
+            ],
+            "methods": [
+                "__construct(PDO $pdo, Wolfcharaa\\MessageBus\\Identity\\IdentityGenerator $identities = new Wolfcharaa\\MessageBus\\Identity\\RandomIdentityGenerator, string $schema = 'public'): mixed",
+                "accept(Wolfcharaa\\MessageBus\\Delivery\\DeliveryDraft $delivery): Wolfcharaa\\MessageBus\\Delivery\\DeliveryAcceptance",
+                "cancel(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\CancellationReceipt",
+                "cancellationRequested(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "claim(string $lane, string $workerId): ?Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery",
+                "fail(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, Wolfcharaa\\MessageBus\\Delivery\\FailureCategory $category, string $summary): bool",
+                "heartbeat(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "markHandlerStarted(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, ?int $childPid = NULL): bool",
+                "prune(DateTimeImmutable $terminalBefore, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+                "recoverExpired(int $limit): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+                "replay(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\ReplayReceipt",
+                "status(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId): ?Wolfcharaa\\MessageBus\\Delivery\\DeliveryStatus",
+                "succeed(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Postgres\\PostgresIdempotencyMaintenance",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "PostgreSQL bounded retention adapter; dry-run is selected by the caller.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyMaintenance"
+            ],
+            "methods": [
+                "__construct(PDO $pdo, string $schema = 'public'): mixed",
+                "pruneExpired(DateTimeImmutable $at, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Postgres\\PostgresSchemaManager",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Applies and validates immutable package migrations using host-owned tooling.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(PDO $pdo, string $schema = 'public', Wolfcharaa\\MessageBus\\Adapter\\Postgres\\SchemaManifest $manifest = new Wolfcharaa\\MessageBus\\Adapter\\Postgres\\SchemaManifest): mixed",
+                "installationFingerprint(): string",
+                "migrate(): void",
+                "validate(): void",
+                "validateCatalog(): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Postgres\\PostgresWorkerControl",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "PostgreSQL revisioned worker control and status adapter.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Worker\\WorkerControlOperations"
+            ],
+            "methods": [
+                "__construct(PDO $pdo, string $schema = 'public'): mixed",
+                "pause(Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope, string $actor, string $reason, string $idempotencyKey, ?int $expectedRevision = NULL): Wolfcharaa\\MessageBus\\Worker\\WorkerControlReceipt",
+                "prune(DateTimeImmutable $olderThan, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Worker\\WorkerPruneReport",
+                "report(Wolfcharaa\\MessageBus\\Worker\\WorkerStatus $status): void",
+                "resume(Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope, string $actor, string $reason, string $idempotencyKey, ?int $expectedRevision = NULL): Wolfcharaa\\MessageBus\\Worker\\WorkerControlReceipt",
+                "state(Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope): Wolfcharaa\\MessageBus\\Worker\\WorkerControlState",
+                "statuses(Wolfcharaa\\MessageBus\\Worker\\WorkerStatusFilter $filter = new Wolfcharaa\\MessageBus\\Worker\\WorkerStatusFilter): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Postgres\\SchemaManifest",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Loads the ordered append-only packaged migration manifest fail-closed.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(?string $resources = NULL): mixed",
+                "catalog(): array",
+                "migrations(): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Postgres\\SchemaMigration",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "One immutable package migration plus its verified artifact hash.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $component, string $migrationId, string $sql, string $checksum): mixed",
+                "key(): string"
+            ],
+            "properties": [
+                "readonly string $checksum",
+                "readonly string $component",
+                "readonly string $migrationId",
+                "readonly string $sql"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Adapter\\Symfony\\Console",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Optional Symfony Console ready composition; core does not require Symfony.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "static delivery(Wolfcharaa\\MessageBus\\Delivery\\DeliveryOperations $operations, Wolfcharaa\\MessageBus\\Delivery\\DeliveryMaintenance $maintenance, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicies $policies): Symfony\\Component\\Console\\Application",
+                "static idempotency(Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyMaintenance $maintenance): Symfony\\Component\\Console\\Application",
+                "static registry(Wolfcharaa\\MessageBus\\Registry\\RegistryCompiler $compiler, Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource $source, string $artifactPath, ?string $applicationBuildId = NULL): Symfony\\Component\\Console\\Application",
+                "static schema(Wolfcharaa\\MessageBus\\Adapter\\Postgres\\PostgresSchemaManager $schema): Symfony\\Component\\Console\\Application",
+                "static worker(Wolfcharaa\\MessageBus\\Worker\\PcntlWorkerSupervisor $supervisor, Wolfcharaa\\MessageBus\\Worker\\WorkerProfile $profile, Wolfcharaa\\MessageBus\\Worker\\WorkerControlOperations $control): Symfony\\Component\\Console\\Application"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Attribute\\Handler",
+            "kind": "class",
+            "role": "application",
+            "summary": "Marks one public handler method; Event subscriptions require a stable ID.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(?string $subscriptionId = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?string $subscriptionId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Attribute\\MessageName",
+            "kind": "class",
+            "role": "application",
+            "summary": "Declares the canonical durable wire identity of a Command or Event.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $value): mixed"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Attribute\\Payload",
+            "kind": "class",
+            "role": "application",
+            "summary": "Declares the current payload version and codec identity for durable messages.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(int $version = 1, string $codec = 'json'): mixed"
+            ],
+            "properties": [
+                "readonly int $version",
+                "readonly string $codec"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\EncodedPayload",
+            "kind": "class",
+            "role": "application",
+            "summary": "Canonical versioned payload at the durable boundary.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $messageName, int $version, string $codec, string $bytes, ?string $objectGraphFingerprint = NULL): mixed",
+                "contentType(): string"
+            ],
+            "properties": [
+                "readonly ?string $objectGraphFingerprint",
+                "readonly int $version",
+                "readonly string $bytes",
+                "readonly string $codec",
+                "readonly string $messageName"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\JsonMessageCodec",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "JSON codec for immutable DTO messages with public constructor properties.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Codec\\MessageCodec"
+            ],
+            "methods": [
+                "__construct(string $messageClass): mixed",
+                "decode(string $payload): Wolfcharaa\\MessageBus\\Contract\\Message",
+                "encode(Wolfcharaa\\MessageBus\\Contract\\Message $message): string"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\MessageCodec",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Explicit codec for one message type and payload version.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "decode(string $payload): Wolfcharaa\\MessageBus\\Contract\\Message",
+                "encode(Wolfcharaa\\MessageBus\\Contract\\Message $message): string"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\MessageCodecs",
+            "kind": "class",
+            "role": "application",
+            "summary": "Exact per-message/per-version codec registry.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $encoders, array $decoders): mixed",
+                "canEncode(string $messageClass): bool",
+                "decode(Wolfcharaa\\MessageBus\\Codec\\EncodedPayload $payload): Wolfcharaa\\MessageBus\\Contract\\Message",
+                "encode(Wolfcharaa\\MessageBus\\Contract\\Message $message): Wolfcharaa\\MessageBus\\Codec\\EncodedPayload"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\MessageUpcaster",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Transforms one historical decoded JSON shape into the next version.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "upcast(array $payload): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\PhpNativeMessageCodec",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Explicit bounded native-PHP codec for legacy object graphs.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Codec\\MessageCodec"
+            ],
+            "methods": [
+                "__construct(string $messageClass, Wolfcharaa\\MessageBus\\Codec\\PhpNativeTypeGraph $typeGraph): mixed",
+                "compatibilityFingerprint(): string",
+                "decode(string $payload): Wolfcharaa\\MessageBus\\Contract\\Message",
+                "encode(Wolfcharaa\\MessageBus\\Contract\\Message $message): string"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\PhpNativeTypeGraph",
+            "kind": "class",
+            "role": "application",
+            "summary": "Normalized per-message native serialization graph and compatibility hash.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $classes, array $properties, string $fingerprint): mixed",
+                "toJson(): string"
+            ],
+            "properties": [
+                "readonly array $classes",
+                "readonly array $properties",
+                "readonly string $fingerprint"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\PhpNativeTypeGraphCompiler",
+            "kind": "class",
+            "role": "application",
+            "summary": "Compiles a minimal native-PHP allowed_classes graph from declared property types.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "compile(string $messageClass, array $concretePaths = array (\n)): Wolfcharaa\\MessageBus\\Codec\\PhpNativeTypeGraph"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Codec\\UpcastingJsonMessageCodec",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "JSON decoder that applies every explicit shape transition before construction.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Codec\\MessageCodec"
+            ],
+            "methods": [
+                "__construct(string $messageClass, array $upcasters): mixed",
+                "decode(string $payload): Wolfcharaa\\MessageBus\\Contract\\Message",
+                "encode(Wolfcharaa\\MessageBus\\Contract\\Message $message): string"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\CancellationRequested",
+            "kind": "class",
+            "role": "application",
+            "summary": "Raised only after a handler explicitly observes a cancellation request.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\CancellationSignal",
+            "kind": "interface",
+            "role": "application",
+            "summary": "Read-only cooperative cancellation capability exposed to long handlers.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "isRequested(): bool",
+                "throwIfRequested(): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\DefaultMessageContext",
+            "kind": "class",
+            "role": "application",
+            "summary": "Default immutable context.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Context\\MessageContext"
+            ],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Context\\MessageContextSeed $seed): mixed",
+                "cancellation(): Wolfcharaa\\MessageBus\\Context\\CancellationSignal",
+                "dispatch(Wolfcharaa\\MessageBus\\Contract\\Message $message): mixed",
+                "metadata(): Wolfcharaa\\MessageBus\\Metadata\\MessageMetadata"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\DefaultMessageContextFactory",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Context\\MessageContextFactory"
+            ],
+            "methods": [
+                "create(Wolfcharaa\\MessageBus\\Context\\MessageContextSeed $seed): Wolfcharaa\\MessageBus\\Context\\MessageContext"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\MessageContext",
+            "kind": "interface",
+            "role": "application",
+            "summary": "Handler-side view of nested dispatch, portable metadata and cancellation.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "cancellation(): Wolfcharaa\\MessageBus\\Context\\CancellationSignal",
+                "dispatch(Wolfcharaa\\MessageBus\\Contract\\Message $message): mixed",
+                "metadata(): Wolfcharaa\\MessageBus\\Metadata\\MessageMetadata"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\MessageContextFactories",
+            "kind": "class",
+            "role": "application",
+            "summary": "Exact fixed factory map for applications that do not need scoped resolution.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Context\\MessageContextFactoryResolver"
+            ],
+            "methods": [
+                "__construct(array $factories = array (\n)): mixed",
+                "factory(string $context): Wolfcharaa\\MessageBus\\Context\\MessageContextFactory",
+                "has(string $context): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\MessageContextFactory",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Creates the exact context type requested by a handler's second parameter.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "create(Wolfcharaa\\MessageBus\\Context\\MessageContextSeed $seed): Wolfcharaa\\MessageBus\\Context\\MessageContext"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\MessageContextSeed",
+            "kind": "class",
+            "role": "application",
+            "summary": "Restricted input from which a context factory creates one invocation context.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Contract\\MessageBus $dispatcher, Wolfcharaa\\MessageBus\\Metadata\\MessageMetadata $metadata, Wolfcharaa\\MessageBus\\Context\\CancellationSignal $cancellation): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Context\\CancellationSignal $cancellation",
+                "readonly Wolfcharaa\\MessageBus\\Contract\\MessageBus $dispatcher",
+                "readonly Wolfcharaa\\MessageBus\\Metadata\\MessageMetadata $metadata"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Context\\NullCancellationSignal",
+            "kind": "class",
+            "role": "application",
+            "summary": "Cancellation signal for inline execution and non-cancellable work.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Context\\CancellationSignal"
+            ],
+            "methods": [
+                "isRequested(): bool",
+                "throwIfRequested(): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Contract\\Command",
+            "kind": "interface",
+            "role": "application",
+            "summary": "",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Contract\\Message"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Contract\\Event",
+            "kind": "interface",
+            "role": "application",
+            "summary": "",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Contract\\Message"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Contract\\Message",
+            "kind": "interface",
+            "role": "application",
+            "summary": "Root role contract for every dispatchable message.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Contract\\MessageBus",
+            "kind": "interface",
+            "role": "application",
+            "summary": "Single application dispatch boundary for all four message roles.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "dispatch(Wolfcharaa\\MessageBus\\Contract\\Message $message): mixed"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Contract\\Query",
+            "kind": "interface",
+            "role": "application",
+            "summary": "",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Contract\\Message"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Contract\\Request",
+            "kind": "interface",
+            "role": "application",
+            "summary": "",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Contract\\Message"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\DefaultMessageBus",
+            "kind": "class",
+            "role": "application",
+            "summary": "Main v7 runtime implementing the single generic dispatch boundary.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Contract\\MessageBus"
+            ],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, Wolfcharaa\\MessageBus\\HandlerServiceResolver $handlers, Wolfcharaa\\MessageBus\\Routing\\DeliveryRoutes $routes, Wolfcharaa\\MessageBus\\Context\\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\\MessageBus\\Context\\MessageContextFactories, Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver $middleware = new Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewares, ?Wolfcharaa\\MessageBus\\DurableRuntime $durable = NULL, Psr\\Clock\\ClockInterface $clock = new Wolfcharaa\\MessageBus\\SystemClock, Wolfcharaa\\MessageBus\\Identity\\IdentityGenerator $identities = new Wolfcharaa\\MessageBus\\Identity\\RandomIdentityGenerator, Wolfcharaa\\MessageBus\\Metadata\\MetadataSchema $metadataSchema = new Wolfcharaa\\MessageBus\\Metadata\\MetadataSchema, ?Wolfcharaa\\MessageBus\\Metadata\\MetadataEnricher $metadataEnricher = NULL, Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver $observer = new Wolfcharaa\\MessageBus\\Observability\\NullRuntimeObserver, Wolfcharaa\\MessageBus\\Observability\\ObserverFailureSink $observerFailureSink = new Wolfcharaa\\MessageBus\\Observability\\NullObserverFailureSink): mixed",
+                "dispatch(Wolfcharaa\\MessageBus\\Contract\\Message $message): mixed"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\CancellationOutcome",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Observable cancellation race outcome.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "CancelledBeforeStart",
+                "RequestedRunning",
+                "AlreadyRequested",
+                "AlreadyTerminal",
+                "NotFound"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\CancellationReceipt",
+            "kind": "class",
+            "role": "application",
+            "summary": "Immutable result of one idempotent cancellation request.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\CancellationOutcome $outcome, DateTimeImmutable $recordedAt): mixed"
+            ],
+            "properties": [
+                "readonly DateTimeImmutable $recordedAt",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\CancellationOutcome $outcome",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery",
+            "kind": "class",
+            "role": "spi",
+            "summary": "Claimed work plus its fenced attempt credential.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Delivery\\DeliveryDraft $delivery, Wolfcharaa\\MessageBus\\Delivery\\DeliveryAttempt $attempt, Wolfcharaa\\MessageBus\\Identity\\LeaseToken $leaseToken, DateTimeImmutable $leaseExpiresAt): mixed"
+            ],
+            "properties": [
+                "readonly DateTimeImmutable $leaseExpiresAt",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryAttempt $attempt",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryDraft $delivery",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\LeaseToken $leaseToken"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\ControlActor",
+            "kind": "class",
+            "role": "application",
+            "summary": "Trusted audit metadata supplied after application authorization.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $actor, string $reason, ?string $reference = NULL, ?string $operationId = NULL, ?string $idempotencyKey = NULL, array $metadata = array (\n)): mixed"
+            ],
+            "properties": [
+                "readonly ?string $idempotencyKey",
+                "readonly ?string $operationId",
+                "readonly ?string $reference",
+                "readonly array $metadata",
+                "readonly string $actor",
+                "readonly string $reason"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryAcceptance",
+            "kind": "class",
+            "role": "spi",
+            "summary": "Result of a successful durable staging/acceptance operation.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryState $state): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryState $state",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryAttempt",
+            "kind": "class",
+            "role": "spi",
+            "summary": "One immutable execution attempt in delivery history.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId, Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, int $number, DateTimeImmutable $startedAt, ?DateTimeImmutable $finishedAt = NULL, ?string $outcome = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?DateTimeImmutable $finishedAt",
+                "readonly ?string $outcome",
+                "readonly DateTimeImmutable $startedAt",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId",
+                "readonly int $number"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryDraft",
+            "kind": "class",
+            "role": "spi",
+            "summary": "Durable acceptance input for one target.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Metadata\\MessageMetadata $metadata, Wolfcharaa\\MessageBus\\Codec\\EncodedPayload $payload, string $targetId, string $handlerClass, string $handlerMethod, string $lane, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy, ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $replayOf = NULL, Wolfcharaa\\MessageBus\\Registry\\MessageRole $role = Wolfcharaa\\MessageBus\\Registry\\MessageRole::Command): mixed"
+            ],
+            "properties": [
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $replayOf",
+                "readonly Wolfcharaa\\MessageBus\\Codec\\EncodedPayload $payload",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId",
+                "readonly Wolfcharaa\\MessageBus\\Metadata\\MessageMetadata $metadata",
+                "readonly Wolfcharaa\\MessageBus\\Registry\\MessageRole $role",
+                "readonly string $handlerClass",
+                "readonly string $handlerMethod",
+                "readonly string $lane",
+                "readonly string $targetId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryMaintenance",
+            "kind": "class",
+            "role": "application",
+            "summary": "Explicit bounded recovery and retention operations for schedulers/operators.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend $backend): mixed",
+                "prune(DateTimeImmutable $terminalBefore, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+                "recoverExpired(int $limit): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryOperations",
+            "kind": "class",
+            "role": "application",
+            "summary": "Application-facing status and recovery operations.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend $backend): mixed",
+                "cancel(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\CancellationReceipt",
+                "replay(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\ReplayReceipt",
+                "status(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId): ?Wolfcharaa\\MessageBus\\Delivery\\DeliveryStatus"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicies",
+            "kind": "class",
+            "role": "application",
+            "summary": "Complete named policy map resolved during composition.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $policies): mixed",
+                "get(string $name): Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy",
+                "has(string $name): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy",
+            "kind": "class",
+            "role": "application",
+            "summary": "Fully resolved and persisted retry/deadline/priority policy.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $name, int $maxAttempts = 1, int $retryDelaySeconds = 0, int $leaseSeconds = 60, int $maxElapsedSeconds = 300, int $priority = 0, bool $idempotent = false, int $idempotencyRetentionSeconds = 86400, int $replayWindowSeconds = 0, int $idempotencySafetyMarginSeconds = 60, bool $retryLostAttempts = false): mixed"
+            ],
+            "properties": [
+                "readonly bool $idempotent",
+                "readonly bool $retryLostAttempts",
+                "readonly int $idempotencyRetentionSeconds",
+                "readonly int $idempotencySafetyMarginSeconds",
+                "readonly int $leaseSeconds",
+                "readonly int $maxAttempts",
+                "readonly int $maxElapsedSeconds",
+                "readonly int $priority",
+                "readonly int $replayWindowSeconds",
+                "readonly int $retryDelaySeconds",
+                "readonly string $name"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryState",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Current backend-neutral lifecycle state of one target delivery.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "isTerminal(): bool",
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Staged",
+                "Accepted",
+                "Running",
+                "RetryWait",
+                "Succeeded",
+                "Failed",
+                "Cancelled",
+                "OutcomeUnknown"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryStatus",
+            "kind": "class",
+            "role": "application",
+            "summary": "Snapshot of the current state; it is not an immutable history record.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId, string $targetId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryState $state, int $attempts, DateTimeImmutable $updatedAt, ?string $lastFailureCategory = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?string $lastFailureCategory",
+                "readonly DateTimeImmutable $updatedAt",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryState $state",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId",
+                "readonly int $attempts",
+                "readonly string $targetId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Complete durable runtime port. Implementations must pass the package",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "accept(Wolfcharaa\\MessageBus\\Delivery\\DeliveryDraft $delivery): Wolfcharaa\\MessageBus\\Delivery\\DeliveryAcceptance",
+                "cancel(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\CancellationReceipt",
+                "cancellationRequested(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "claim(string $lane, string $workerId): ?Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery",
+                "fail(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, Wolfcharaa\\MessageBus\\Delivery\\FailureCategory $category, string $summary): bool",
+                "heartbeat(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "markHandlerStarted(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, ?int $childPid = NULL): bool",
+                "prune(DateTimeImmutable $terminalBefore, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+                "recoverExpired(int $limit): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+                "replay(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy, Wolfcharaa\\MessageBus\\Delivery\\ControlActor $actor): Wolfcharaa\\MessageBus\\Delivery\\ReplayReceipt",
+                "status(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId): ?Wolfcharaa\\MessageBus\\Delivery\\DeliveryStatus",
+                "succeed(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\FailureCategory",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Failure category controls retry without coupling handlers to a transport.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Retryable",
+                "Terminal",
+                "Incompatible",
+                "ClassifierError",
+                "Cancelled",
+                "OutcomeUnknown"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\FailureClassifier",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Classifies a thrown handler/runtime failure in an ordered classifier chain.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "classify(Throwable $failure): ?Wolfcharaa\\MessageBus\\Delivery\\FailureCategory"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\FailureClassifiers",
+            "kind": "class",
+            "role": "application",
+            "summary": "Ordered classifier chain with a conservative terminal fallback.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(?Wolfcharaa\\MessageBus\\Delivery\\FailureClassifier $application = NULL): mixed",
+                "classify(Throwable $failure): Wolfcharaa\\MessageBus\\Delivery\\FailureCategory"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport",
+            "kind": "class",
+            "role": "application",
+            "summary": "Bounded maintenance operation counters.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(int $examined, int $changed, bool $hasMore): mixed"
+            ],
+            "properties": [
+                "readonly bool $hasMore",
+                "readonly int $changed",
+                "readonly int $examined"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\ReplayReceipt",
+            "kind": "class",
+            "role": "application",
+            "summary": "Replay acceptance links old and new immutable delivery histories.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $originalDeliveryId, Wolfcharaa\\MessageBus\\Identity\\DeliveryId $newDeliveryId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $newDeliveryId",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $originalDeliveryId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\DurableRuntime",
+            "kind": "class",
+            "role": "application",
+            "summary": "Cohesive durable capability required by Command and durable Event routes.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend $backend, Wolfcharaa\\MessageBus\\Codec\\MessageCodecs $codecs, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicies $policies): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Codec\\MessageCodecs $codecs",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicies $policies",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend $backend"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Exception\\CommandNotAccepted",
+            "kind": "class",
+            "role": "application",
+            "summary": "Raised when a Command could not reach durable acceptance.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Exception\\IncompatibleDeliveryFailure",
+            "kind": "class",
+            "role": "application",
+            "summary": "Terminal persisted payload/codec/target incompatibility.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Exception\\InvalidMessageBusConfiguration",
+            "kind": "class",
+            "role": "application",
+            "summary": "Stable configuration/registry diagnostic promoted to an exception.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Exception\\PublicationFailed",
+            "kind": "class",
+            "role": "application",
+            "summary": "Raised after every Event subscription was attempted and at least one failed.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Receipt\\PublicationReceipt $receipt): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Receipt\\PublicationReceipt $receipt"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Exception\\TerminalDeliveryFailure",
+            "kind": "class",
+            "role": "application",
+            "summary": "Explicit terminal classification for a known handler failure.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\HandlerServices",
+            "kind": "class",
+            "role": "application",
+            "summary": "Exact fixed object map for applications that do not need scoped resolution.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\HandlerServiceResolver"
+            ],
+            "methods": [
+                "__construct(array $services): mixed",
+                "get(string $class): object",
+                "has(string $class): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\AtomicIdempotencyBoundary",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Transaction boundary coupling idempotency claim, domain effect and completion.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "execute(Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyAttempt $attempt, callable $effect): Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyResult"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyAttempt",
+            "kind": "class",
+            "role": "application",
+            "summary": "One retained target execution protected by the atomic boundary.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentity $identity, Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, DateTimeImmutable $retainUntil): mixed"
+            ],
+            "properties": [
+                "readonly DateTimeImmutable $retainUntil",
+                "readonly Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentity $identity",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentity",
+            "kind": "class",
+            "role": "application",
+            "summary": "Stable target-scoped idempotency identity and intent fingerprint.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $targetId, Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyKey $key, Wolfcharaa\\MessageBus\\Idempotency\\IntentFingerprint $fingerprint): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyKey $key",
+                "readonly Wolfcharaa\\MessageBus\\Idempotency\\IntentFingerprint $fingerprint",
+                "readonly string $targetId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentityResolver",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Resolves application identity only for explicitly idempotent Command/Event targets.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "resolve(Wolfcharaa\\MessageBus\\Contract\\Message $message, string $targetId): Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentity"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentityResolvers",
+            "kind": "class",
+            "role": "application",
+            "summary": "Complete target-scoped resolver map; duplicate declarations fail closed.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $resolvers): mixed",
+                "has(string $targetId): bool",
+                "resolve(Wolfcharaa\\MessageBus\\Contract\\Message $message, string $targetId): Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentity",
+                "targetIds(): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyKey",
+            "kind": "class",
+            "role": "application",
+            "summary": "Normalized application idempotency key; persistence stores only its digest.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $value): mixed",
+                "digest(): string"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyMaintenance",
+            "kind": "interface",
+            "role": "application",
+            "summary": "Bounded retention for completed records whose safety horizon has expired.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "pruneExpired(DateTimeImmutable $at, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Delivery\\MaintenanceReport"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyOutcome",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Atomic idempotency outcome.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Executed",
+                "Replayed"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyResult",
+            "kind": "class",
+            "role": "application",
+            "summary": "Result of an atomic target effect.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyOutcome $outcome): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyOutcome $outcome"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyRuntime",
+            "kind": "class",
+            "role": "application",
+            "summary": "Complete runtime capability enabled only for targets declared idempotent.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentityResolvers $identities, Wolfcharaa\\MessageBus\\Idempotency\\AtomicIdempotencyBoundary $boundary): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Idempotency\\AtomicIdempotencyBoundary $boundary",
+                "readonly Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentityResolvers $identities"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\IntentFingerprint",
+            "kind": "class",
+            "role": "application",
+            "summary": "Versioned digest of canonical business intent.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $algorithm, int $version, string $digest): mixed"
+            ],
+            "properties": [
+                "readonly int $version",
+                "readonly string $algorithm",
+                "readonly string $digest"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Idempotency\\TargetIdempotencyResolver",
+            "kind": "class",
+            "role": "application",
+            "summary": "One exact target-to-resolver declaration used by registry validation.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $targetId, Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentityResolver $resolver): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyIdentityResolver $resolver",
+                "readonly string $targetId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Identity\\AttemptId",
+            "kind": "class",
+            "role": "application",
+            "summary": "Stable identity of one claimed execution attempt.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Stringable"
+            ],
+            "methods": [
+                "__construct(string $value): mixed",
+                "__toString(): string"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Identity\\CorrelationId",
+            "kind": "class",
+            "role": "application",
+            "summary": "Correlates a top-level dispatch and all causally nested messages.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Stringable"
+            ],
+            "methods": [
+                "__construct(string $value): mixed",
+                "__toString(): string"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Identity\\DeliveryId",
+            "kind": "class",
+            "role": "application",
+            "summary": "Stable identity of one independently tracked durable target delivery.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Stringable"
+            ],
+            "methods": [
+                "__construct(string $value): mixed",
+                "__toString(): string"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Identity\\IdentityGenerator",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Generates unpredictable technical identities without application input.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "attemptId(): Wolfcharaa\\MessageBus\\Identity\\AttemptId",
+                "correlationId(): Wolfcharaa\\MessageBus\\Identity\\CorrelationId",
+                "deliveryId(): Wolfcharaa\\MessageBus\\Identity\\DeliveryId",
+                "leaseToken(): Wolfcharaa\\MessageBus\\Identity\\LeaseToken",
+                "messageId(): Wolfcharaa\\MessageBus\\Identity\\MessageId"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Identity\\LeaseToken",
+            "kind": "class",
+            "role": "application",
+            "summary": "Opaque fenced credential for compare-and-set attempt settlement.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Stringable"
+            ],
+            "methods": [
+                "__construct(string $value): mixed",
+                "__toString(): string"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Identity\\MessageId",
+            "kind": "class",
+            "role": "application",
+            "summary": "Stable identity shared by all deliveries produced by one dispatch.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Stringable"
+            ],
+            "methods": [
+                "__construct(string $value): mixed",
+                "__toString(): string"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Identity\\RandomIdentityGenerator",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Cryptographic default identity generator.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Identity\\IdentityGenerator"
+            ],
+            "methods": [
+                "attemptId(): Wolfcharaa\\MessageBus\\Identity\\AttemptId",
+                "correlationId(): Wolfcharaa\\MessageBus\\Identity\\CorrelationId",
+                "deliveryId(): Wolfcharaa\\MessageBus\\Identity\\DeliveryId",
+                "leaseToken(): Wolfcharaa\\MessageBus\\Identity\\LeaseToken",
+                "messageId(): Wolfcharaa\\MessageBus\\Identity\\MessageId"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Metadata\\MessageMetadata",
+            "kind": "class",
+            "role": "application",
+            "summary": "Immutable portable application metadata carried across process boundaries.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId, Wolfcharaa\\MessageBus\\Identity\\CorrelationId $correlationId, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $causationId, DateTimeImmutable $createdAt, array $application = array (\n)): mixed"
+            ],
+            "properties": [
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\MessageId $causationId",
+                "readonly DateTimeImmutable $createdAt",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\CorrelationId $correlationId",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId",
+                "readonly array $application"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Metadata\\MetadataEnricher",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Pure application hook that contributes schema-bounded portable metadata.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "enrich(object $message): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Metadata\\MetadataSchema",
+            "kind": "class",
+            "role": "application",
+            "summary": "Validates keys allowed in application metadata and rejects system spoofing.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $allowedKeys = array (\n)): mixed",
+                "validate(array $values): void"
+            ],
+            "properties": [
+                "readonly array $allowedKeys"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddleware",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "One handler-attempt middleware extension point.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "process(object $message, Wolfcharaa\\MessageBus\\Context\\MessageContext $context, Wolfcharaa\\MessageBus\\Middleware\\NextHandler $next): mixed"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Middleware\\NextHandler",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "One-shot continuation. A middleware may call it once or short-circuit.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "handle(): mixed"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\NullObserverFailureSink",
+            "kind": "class",
+            "role": "application",
+            "summary": "Default no-op emergency sink.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Observability\\ObserverFailureSink"
+            ],
+            "methods": [
+                "report(Throwable $failure, Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\NullRuntimeObserver",
+            "kind": "class",
+            "role": "application",
+            "summary": "Default zero-cost observer.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver"
+            ],
+            "methods": [
+                "observe(Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\ObserverFailureSink",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Process-local last-resort reporting for observer adapter failures.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "report(Throwable $failure, Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\PsrLogRuntimeObserver",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Optional PSR-3 adapter; psr/log is only a suggested package dependency.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver"
+            ],
+            "methods": [
+                "__construct(Psr\\Log\\LoggerInterface $logger): mixed",
+                "observe(Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent",
+            "kind": "class",
+            "role": "application",
+            "summary": "Safe typed library fact; business payload and credentials are never included.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Observability\\RuntimeEventType $type, DateTimeImmutable $occurredAt, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\CorrelationId $correlationId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $causationId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId = NULL, ?string $messageName = NULL, ?string $targetId = NULL, ?string $workerId = NULL, ?string $route = NULL, ?string $profile = NULL, ?int $attemptNumber = NULL, ?int $durationMicroseconds = NULL, ?string $outcome = NULL, ?string $failureCategory = NULL, ?string $failureClass = NULL, ?string $errorFingerprint = NULL, int $schemaVersion = 1): mixed",
+                "normalized(): array",
+                "severity(): Wolfcharaa\\MessageBus\\Observability\\RuntimeEventSeverity"
+            ],
+            "properties": [
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId",
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\CorrelationId $correlationId",
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId",
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\MessageId $causationId",
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId",
+                "readonly ?int $attemptNumber",
+                "readonly ?int $durationMicroseconds",
+                "readonly ?string $errorFingerprint",
+                "readonly ?string $failureCategory",
+                "readonly ?string $failureClass",
+                "readonly ?string $messageName",
+                "readonly ?string $outcome",
+                "readonly ?string $profile",
+                "readonly ?string $route",
+                "readonly ?string $targetId",
+                "readonly ?string $workerId",
+                "readonly DateTimeImmutable $occurredAt",
+                "readonly Wolfcharaa\\MessageBus\\Observability\\RuntimeEventType $type",
+                "readonly int $schemaVersion"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\RuntimeEventSeverity",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Recommended adapter-independent event severity.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Debug",
+                "Warning",
+                "Error"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\RuntimeEventType",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Stable runtime fact category emitted by the package.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "severity(): Wolfcharaa\\MessageBus\\Observability\\RuntimeEventSeverity",
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "DispatchStarted",
+                "DispatchCompleted",
+                "DispatchFailed",
+                "DeliveryAccepted",
+                "AttemptStarted",
+                "AttemptSucceeded",
+                "AttemptFailed",
+                "DeliveryRecovered"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "One observer extension for metrics, traces and structured logs.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "observe(Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Receipt\\CommandReceipt",
+            "kind": "class",
+            "role": "application",
+            "summary": "Historical receipt proving initial Command staging or acceptance only.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId, Wolfcharaa\\MessageBus\\Receipt\\PublicationEntry $entry): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId",
+                "readonly Wolfcharaa\\MessageBus\\Receipt\\PublicationEntry $entry"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Receipt\\PublicationEntry",
+            "kind": "class",
+            "role": "application",
+            "summary": "Immutable initial outcome of one target at dispatch time.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $targetId, Wolfcharaa\\MessageBus\\Receipt\\PublicationOutcome $outcome, ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId = NULL, ?string $failureCategory = NULL, ?string $failureSummary = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId",
+                "readonly ?string $failureCategory",
+                "readonly ?string $failureSummary",
+                "readonly Wolfcharaa\\MessageBus\\Receipt\\PublicationOutcome $outcome",
+                "readonly string $targetId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Receipt\\PublicationOutcome",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Initial observable outcome of one subscription or Command target.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Completed",
+                "Staged",
+                "Accepted",
+                "TestInlineCompleted",
+                "Failed"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Receipt\\PublicationReceipt",
+            "kind": "class",
+            "role": "application",
+            "summary": "Aggregate Event publication receipt including every independent target.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId, array $entries): mixed",
+                "isComplete(): bool"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId",
+                "readonly array $entries"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Immutable compiled registry consumed by dispatch and worker runtimes.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $bindings, string $fingerprint): mixed",
+                "bindings(): array",
+                "handlersFor(Wolfcharaa\\MessageBus\\Contract\\Message $message): array"
+            ],
+            "properties": [
+                "readonly string $fingerprint"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\ComposerClassMapSource",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Bounded Composer classmap source filtered by explicit namespace prefixes.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource"
+            ],
+            "methods": [
+                "__construct(array $classMapFiles, array $namespacePrefixes): mixed",
+                "classes(): iterable"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity",
+            "kind": "enum",
+            "role": "tooling",
+            "summary": "Severity of a stable compiler diagnostic.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Error",
+                "Warning"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\ExplicitClassSource",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Explicit deterministic class source suitable for production composition.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource"
+            ],
+            "methods": [
+                "__construct(array $classes): mixed",
+                "classes(): iterable"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\HandlerBinding",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "One validated method-level handler binding.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $id, string $messageClass, Wolfcharaa\\MessageBus\\Registry\\MessageRole $role, string $handlerClass, string $method, ?string $contextClass, ?string $subscriptionId): mixed"
+            ],
+            "properties": [
+                "readonly ?string $contextClass",
+                "readonly ?string $subscriptionId",
+                "readonly Wolfcharaa\\MessageBus\\Registry\\MessageRole $role",
+                "readonly string $handlerClass",
+                "readonly string $id",
+                "readonly string $messageClass",
+                "readonly string $method"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\MessageRole",
+            "kind": "enum",
+            "role": "tooling",
+            "summary": "Message role derived exclusively from the message class marker.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Query",
+                "Request",
+                "Command",
+                "Event"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Self-hashed portable compiled-registry artifact.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $registryFingerprint, array $bindings, ?string $applicationBuildId, string $contentHash): mixed",
+                "assertApplicationBuildId(string $expected): void",
+                "registry(): Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry",
+                "static fromJson(string $json): Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact",
+                "static fromRegistry(Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, ?string $applicationBuildId = NULL): Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact",
+                "toJson(): string"
+            ],
+            "properties": [
+                "readonly ?string $applicationBuildId",
+                "readonly array $bindings",
+                "readonly string $contentHash",
+                "readonly string $registryFingerprint"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryArtifactStore",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Public tooling root for atomic artifact writes and verified loads.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "load(string $path, ?string $expectedApplicationBuildId = NULL): Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact",
+                "write(Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact $artifact, string $path): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Bounded source of candidate handler classes for registry compilation.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "classes(): iterable"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryCompilationResult",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Registry compilation outcome with a stable diagnostic catalog.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(?Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, array $diagnostics): mixed",
+                "isValid(): bool",
+                "requireRegistry(): Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry"
+            ],
+            "properties": [
+                "readonly ?Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry",
+                "readonly array $diagnostics"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryCompiler",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Compiles method attributes and signatures into a deterministic registry.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Context\\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\\MessageBus\\Context\\MessageContextFactories, array $rules = array (\n)): mixed",
+                "compile(Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource $source): Wolfcharaa\\MessageBus\\Registry\\RegistryCompilationResult"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryDiagnostic",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Machine-readable registry compiler diagnostic.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $code, Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?string $symbol",
+                "readonly Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity",
+                "readonly string $code",
+                "readonly string $message"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryValidationRule",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Additive validation rule run against the complete deterministic registry.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "validate(Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Routing\\DeliveryMode",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Execution boundary selected for one Command owner or Event subscription.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Inline",
+                "Durable",
+                "TestInline"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Routing\\DeliveryRoute",
+            "kind": "class",
+            "role": "application",
+            "summary": "Immutable route for one independently tracked target.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Routing\\DeliveryMode $mode, string $policy = 'default', string $lane = 'default'): mixed"
+            ],
+            "properties": [
+                "readonly Wolfcharaa\\MessageBus\\Routing\\DeliveryMode $mode",
+                "readonly string $lane",
+                "readonly string $policy"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Routing\\DeliveryRoutes",
+            "kind": "class",
+            "role": "application",
+            "summary": "Complete deterministic route map; no environment fallback occurs at runtime.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $routes): mixed",
+                "has(Wolfcharaa\\MessageBus\\Registry\\HandlerBinding $binding): bool",
+                "route(Wolfcharaa\\MessageBus\\Registry\\HandlerBinding $binding): Wolfcharaa\\MessageBus\\Routing\\DeliveryRoute"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Routing\\RuntimeConfigurationRule",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Validates the complete route, policy and target-scoped idempotency plan.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryValidationRule"
+            ],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Routing\\DeliveryRoutes $routes, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicies $policies, ?Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyRuntime $idempotency = NULL): mixed",
+                "validate(Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\SystemClock",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Immutable package clock backed by the PHP wall clock.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Psr\\Clock\\ClockInterface"
+            ],
+            "methods": [
+                "now(): DateTimeImmutable"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6ImportConfiguration",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Complete fail-closed migration map; no legacy name or binding fallback exists.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $messages, array $targets): mixed",
+                "message(string $legacyName): Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6MessageMigration",
+                "target(string $legacyBindingId): Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6TargetMigration"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6ImportFailed",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Row-specific fail-closed importer diagnostic.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [
+                "__construct(string $legacyQueueJobId, Throwable $previous): mixed"
+            ],
+            "properties": [
+                "readonly string $legacyQueueJobId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6ImportReport",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "One bounded offline import result.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(int $examined, int $imported, int $alreadyImported, bool $hasMore, bool $dryRun): mixed"
+            ],
+            "properties": [
+                "readonly bool $dryRun",
+                "readonly bool $hasMore",
+                "readonly int $alreadyImported",
+                "readonly int $examined",
+                "readonly int $imported"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6MessageMigration",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Explicit legacy decoder for one v6 wire name.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(callable $decode): mixed"
+            ],
+            "properties": [
+                "readonly Closure $decode"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6QueueImporter",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Offline standard-v6 importer; it never deletes or dual-writes the legacy table.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(PDO $pdo, Wolfcharaa\\MessageBus\\Adapter\\Postgres\\PostgresDeliveryBackend $backend, Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, Wolfcharaa\\MessageBus\\Codec\\MessageCodecs $codecs, Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicies $policies, Wolfcharaa\\MessageBus\\Identity\\IdentityGenerator $identities, Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6ImportConfiguration $configuration, string $schema = 'public'): mixed",
+                "import(DateTimeImmutable $terminalCutoff, int $limit = 100, bool $execute = false): Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6ImportReport"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Tooling\\Migration\\V6TargetMigration",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Explicit legacy binding to current target/lane/policy mapping.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $targetId, string $lane, string $policy): mixed"
+            ],
+            "properties": [
+                "readonly string $lane",
+                "readonly string $policy",
+                "readonly string $targetId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\ChildExecutionFactory",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Creates a fresh child execution runtime after every inherited resource reset.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "createAfterFork(): Wolfcharaa\\MessageBus\\Worker\\DeliveryWorkerRuntime"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\ChildRuntimeBuilder",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Builds process-local handler services and connections in an already reset child.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "create(): Wolfcharaa\\MessageBus\\Worker\\DeliveryWorkerRuntime"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\DefaultFailureClassifier",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Built-in classification for cancellation and explicit terminal failures.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Delivery\\FailureClassifier"
+            ],
+            "methods": [
+                "classify(Throwable $failure): ?Wolfcharaa\\MessageBus\\Delivery\\FailureCategory"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\DeliveryWorkerRuntime",
+            "kind": "class",
+            "role": "application",
+            "summary": "Claims and executes one fenced durable attempt.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend $backend, Wolfcharaa\\MessageBus\\Codec\\MessageCodecs $codecs, Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, Wolfcharaa\\MessageBus\\HandlerServiceResolver $handlers, Wolfcharaa\\MessageBus\\Contract\\MessageBus $dispatcher, Wolfcharaa\\MessageBus\\Context\\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\\MessageBus\\Context\\MessageContextFactories, Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver $middleware = new Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewares, Wolfcharaa\\MessageBus\\Delivery\\FailureClassifiers $classifiers = new Wolfcharaa\\MessageBus\\Delivery\\FailureClassifiers, Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver $observer = new Wolfcharaa\\MessageBus\\Observability\\NullRuntimeObserver, Wolfcharaa\\MessageBus\\Observability\\ObserverFailureSink $observerFailureSink = new Wolfcharaa\\MessageBus\\Observability\\NullObserverFailureSink, Psr\\Clock\\ClockInterface $clock = new Wolfcharaa\\MessageBus\\SystemClock, ?Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyRuntime $idempotency = NULL): mixed",
+                "cancellationRequested(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "claim(Wolfcharaa\\MessageBus\\Worker\\WorkerProfile $profile, string $workerId): ?Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery",
+                "execute(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, ?int $childPid = NULL): Wolfcharaa\\MessageBus\\Worker\\WorkerIteration",
+                "forkFailed(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): Wolfcharaa\\MessageBus\\Worker\\WorkerIteration",
+                "heartbeat(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
+                "runOnce(Wolfcharaa\\MessageBus\\Worker\\WorkerProfile $profile, string $workerId): Wolfcharaa\\MessageBus\\Worker\\WorkerIteration"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\ForkResourceReset",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Fork-sensitive application resource reset before child runtime creation.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "resetAfterFork(): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\NativeWorkerProcessSystem",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Native Unix process adapter used by the production supervisor.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Worker\\WorkerProcessSystem"
+            ],
+            "methods": [
+                "available(): bool",
+                "currentPid(): int",
+                "fork(): int",
+                "host(): string",
+                "installStopSignals(callable $stop): void",
+                "monotonicTime(): float",
+                "signal(int $pid, int $signal): void",
+                "sleep(int $microseconds): void",
+                "waitNoHang(int $pid): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\PcntlWorkerSupervisor",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "PCNTL parent supervisor: one fresh child process per claimed attempt.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Worker\\DeliveryWorkerRuntime $runtime, Wolfcharaa\\MessageBus\\Worker\\ChildExecutionFactory $childRuntimeFactory, ?Wolfcharaa\\MessageBus\\Worker\\WorkerControlOperations $control = NULL, string $buildId = 'unknown', string $registryHash = '0000000000000000000000000000000000000000000000000000000000000000', Wolfcharaa\\MessageBus\\Worker\\WorkerProcessSystem $process = new Wolfcharaa\\MessageBus\\Worker\\NativeWorkerProcessSystem): mixed",
+                "run(Wolfcharaa\\MessageBus\\Worker\\WorkerProfile $profile, ?callable $shouldStop = NULL): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\ResettingChildExecutionFactory",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "Ordered resource reset followed by fresh child runtime construction.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Worker\\ChildExecutionFactory"
+            ],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Worker\\ChildRuntimeBuilder $builder, array $resets): mixed",
+                "createAfterFork(): Wolfcharaa\\MessageBus\\Worker\\DeliveryWorkerRuntime"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerControlOperations",
+            "kind": "interface",
+            "role": "application",
+            "summary": "Public pause/resume/status operations; process start/stop stays external.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "pause(Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope, string $actor, string $reason, string $idempotencyKey, ?int $expectedRevision = NULL): Wolfcharaa\\MessageBus\\Worker\\WorkerControlReceipt",
+                "prune(DateTimeImmutable $olderThan, int $limit, bool $execute): Wolfcharaa\\MessageBus\\Worker\\WorkerPruneReport",
+                "report(Wolfcharaa\\MessageBus\\Worker\\WorkerStatus $status): void",
+                "resume(Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope, string $actor, string $reason, string $idempotencyKey, ?int $expectedRevision = NULL): Wolfcharaa\\MessageBus\\Worker\\WorkerControlReceipt",
+                "state(Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope): Wolfcharaa\\MessageBus\\Worker\\WorkerControlState",
+                "statuses(Wolfcharaa\\MessageBus\\Worker\\WorkerStatusFilter $filter = new Wolfcharaa\\MessageBus\\Worker\\WorkerStatusFilter): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerControlOutcome",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Observable result of one idempotent pause/resume operation.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Applied",
+                "AlreadyDesired",
+                "RevisionConflict"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerControlReceipt",
+            "kind": "class",
+            "role": "application",
+            "summary": "Receipt for a revisioned worker control change.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Worker\\WorkerControlState $state, Wolfcharaa\\MessageBus\\Worker\\WorkerControlOutcome $outcome, ?string $operationId = NULL, ?DateTimeImmutable $acceptedAt = NULL, ?Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState $previousDesiredState = NULL, bool $duplicate = false): mixed"
+            ],
+            "properties": [
+                "readonly ?DateTimeImmutable $acceptedAt",
+                "readonly ?Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState $previousDesiredState",
+                "readonly ?string $operationId",
+                "readonly Wolfcharaa\\MessageBus\\Worker\\WorkerControlOutcome $outcome",
+                "readonly Wolfcharaa\\MessageBus\\Worker\\WorkerControlState $state",
+                "readonly bool $duplicate"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope",
+            "kind": "class",
+            "role": "application",
+            "summary": "Stable global or profile worker-control scope.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "static global(): Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope",
+                "static profile(string $profile): Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope"
+            ],
+            "properties": [
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerControlState",
+            "kind": "class",
+            "role": "application",
+            "summary": "Revisioned desired-state snapshot.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope, Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState $desiredState, int $revision, DateTimeImmutable $updatedAt): mixed"
+            ],
+            "properties": [
+                "readonly DateTimeImmutable $updatedAt",
+                "readonly Wolfcharaa\\MessageBus\\Worker\\WorkerControlScope $scope",
+                "readonly Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState $desiredState",
+                "readonly int $revision"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Desired claim state for the global runtime or one named profile.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Running",
+                "Paused"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerIteration",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Result of one bounded worker iteration.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Idle",
+                "Succeeded",
+                "Failed",
+                "LostLease"
+            ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerProcessSystem",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Isolates native PCNTL/POSIX operations for deterministic supervisor tests.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "available(): bool",
+                "currentPid(): int",
+                "fork(): int",
+                "host(): string",
+                "installStopSignals(callable $stop): void",
+                "monotonicTime(): float",
+                "signal(int $pid, int $signal): void",
+                "sleep(int $microseconds): void",
+                "waitNoHang(int $pid): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerProfile",
+            "kind": "class",
+            "role": "application",
+            "summary": "Complete worker lane and process policy.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $name, string $lane, int $parallelism = 1, int $pollMicroseconds = 100000, int $heartbeatMicroseconds = 1000000, int $shutdownGraceSeconds = 10, int $forceKillGraceSeconds = 5, int $maxHandledAttempts = 0, int $maxRuntimeSeconds = 0, int $maxMemoryBytes = 0, bool $stopWhenEmpty = false): mixed"
+            ],
+            "properties": [
+                "readonly bool $stopWhenEmpty",
+                "readonly int $forceKillGraceSeconds",
+                "readonly int $heartbeatMicroseconds",
+                "readonly int $maxHandledAttempts",
+                "readonly int $maxMemoryBytes",
+                "readonly int $maxRuntimeSeconds",
+                "readonly int $parallelism",
+                "readonly int $pollMicroseconds",
+                "readonly int $shutdownGraceSeconds",
+                "readonly string $lane",
+                "readonly string $name"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerPruneReport",
+            "kind": "class",
+            "role": "application",
+            "summary": "Bounded dry-run/execute counters for stale worker facts.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(int $statuses, int $operations, bool $executed, bool $hasMore): mixed"
+            ],
+            "properties": [
+                "readonly bool $executed",
+                "readonly bool $hasMore",
+                "readonly int $operations",
+                "readonly int $statuses"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerStatus",
+            "kind": "class",
+            "role": "application",
+            "summary": "Current liveness snapshot reported by one parent supervisor.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $workerId, string $profile, string $lane, int $pid, string $state, int $activeAttempts, DateTimeImmutable $startedAt, DateTimeImmutable $heartbeatAt, string $host = 'unknown', string $buildId = 'unknown', string $registryHash = '0000000000000000000000000000000000000000000000000000000000000000', int $capacity = 1, int $appliedGlobalRevision = 0, int $appliedProfileRevision = 0, ?DateTimeImmutable $stoppedAt = NULL, int $requiredGlobalRevision = 0, int $requiredProfileRevision = 0, Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState $effectiveDesiredState = Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState::Running, bool $stale = false, bool $drained = false): mixed",
+                "activity(): string"
+            ],
+            "properties": [
+                "readonly ?DateTimeImmutable $stoppedAt",
+                "readonly DateTimeImmutable $heartbeatAt",
+                "readonly DateTimeImmutable $startedAt",
+                "readonly Wolfcharaa\\MessageBus\\Worker\\WorkerDesiredState $effectiveDesiredState",
+                "readonly bool $drained",
+                "readonly bool $stale",
+                "readonly int $activeAttempts",
+                "readonly int $appliedGlobalRevision",
+                "readonly int $appliedProfileRevision",
+                "readonly int $capacity",
+                "readonly int $pid",
+                "readonly int $requiredGlobalRevision",
+                "readonly int $requiredProfileRevision",
+                "readonly string $buildId",
+                "readonly string $host",
+                "readonly string $lane",
+                "readonly string $profile",
+                "readonly string $registryHash",
+                "readonly string $state",
+                "readonly string $workerId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Worker\\WorkerStatusFilter",
+            "kind": "class",
+            "role": "application",
+            "summary": "Read-only worker status filter and liveness horizon.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(?string $profile = NULL, ?string $instance = NULL, int $staleAfterSeconds = 30): mixed"
+            ],
+            "properties": [
+                "readonly ?string $instance",
+                "readonly ?string $profile",
+                "readonly int $staleAfterSeconds"
+            ],
+            "constants": [],
+            "enum_cases": []
+        }
+    ]
+}

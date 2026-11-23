@@ -6,7 +6,7 @@
          cacheResult="false">
     <testsuites>
         <testsuite name="MessageBus Process Integration Test Suite">
-            <file>tests/PcntlAutoWorkerRunnerIntegrationTest.php</file>
+            <file>tests/PcntlWorkerSupervisorTest.php</file>
         </testsuite>
     </testsuites>
     <source>

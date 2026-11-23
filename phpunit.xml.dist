@@ -17,6 +17,7 @@
     <groups>
         <exclude>
             <group>integration</group>
+            <group>process</group>
         </exclude>
     </groups>
 </phpunit>

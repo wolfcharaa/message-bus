@@ -1,0 +1,25 @@
+/.context export-ignore
+/.agents export-ignore
+/.codex export-ignore
+/.github export-ignore
+/.idea export-ignore
+/.DS_Store export-ignore
+/.gitignore export-ignore
+/.gitattributes export-ignore
+/.php-cs-fixer.dist.php export-ignore
+/.phpunit.result.cache export-ignore
+/composer.lock export-ignore
+/docker-compose.integration.yml export-ignore
+/phpstan.neon.dist export-ignore
+/phpunit.coverage.xml.dist export-ignore
+/phpunit.integration.xml.dist export-ignore
+/phpunit.process.xml.dist export-ignore
+/phpunit.xml.dist export-ignore
+/rector.php export-ignore
+/tests export-ignore
+/tools export-ignore
+/var export-ignore
+/vendor export-ignore
+
+/bin/message-bus export-subst
+/bin/message-bus-worker export-subst

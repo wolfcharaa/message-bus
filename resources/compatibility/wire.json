@@ -1,0 +1,17 @@
+{
+    "schema": 1,
+    "message_roles": ["command", "event", "query", "request"],
+    "delivery_states": [
+        "accepted", "cancelled", "failed", "outcome_unknown",
+        "retry_wait", "running", "staged", "succeeded"
+    ],
+    "failure_categories": [
+        "cancelled", "classifier_error", "incompatible", "outcome_unknown",
+        "retryable", "terminal"
+    ],
+    "payload_contract": {
+        "name_attribute": "Wolfcharaa\\MessageBus\\Attribute\\MessageName",
+        "version_attribute": "Wolfcharaa\\MessageBus\\Attribute\\Payload",
+        "minimum_version": 1
+    }
+}

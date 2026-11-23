@@ -1,0 +1,112 @@
+name: quality
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    name: PHP ${{ matrix.php }} / ${{ matrix.dependencies }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.3'
+            dependencies: lowest
+            update_flags: --prefer-lowest
+          - php: '8.4'
+            dependencies: highest
+            update_flags: ''
+          - php: '8.5'
+            dependencies: highest
+            update_flags: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: xdebug
+          extensions: json, pcntl, posix
+          tools: composer:v2
+      - run: composer update --no-interaction --no-progress --prefer-dist ${{ matrix.update_flags }}
+      - run: composer test
+      - run: composer test:process
+      - run: composer analyse
+      - run: composer cs:check
+      - run: composer rector:check
+      - run: composer api:check
+      - run: composer compatibility:check
+      - run: composer docs:check
+      - run: composer examples:check
+      - run: composer source:scan
+      - run: composer skill:check
+      - if: matrix.php == '8.5'
+        run: composer test:coverage
+
+  postgres:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: message_bus_test
+          POSTGRES_USER: message_bus
+          POSTGRES_PASSWORD: message_bus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U message_bus -d message_bus_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          extensions: json, pdo_pgsql, pcntl, posix
+          tools: composer:v2
+      - run: composer update --no-interaction --no-progress --prefer-dist
+      - run: composer test:integration
+        env:
+          MESSAGE_BUS_TEST_PGSQL_DSN: pgsql:host=127.0.0.1;port=5432;dbname=message_bus_test
+          MESSAGE_BUS_TEST_PGSQL_USER: message_bus
+          MESSAGE_BUS_TEST_PGSQL_PASSWORD: message_bus
+
+  distribution:
+    name: Composer archive
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: message_bus_archive
+          POSTGRES_USER: message_bus
+          POSTGRES_PASSWORD: message_bus
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U message_bus -d message_bus_archive"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: json, pdo_pgsql, zip
+          tools: composer:v2
+      - run: composer update --no-interaction --no-progress --prefer-dist
+      - run: composer archive:check
+        env:
+          MESSAGE_BUS_TEST_PGSQL_DSN: pgsql:host=127.0.0.1;port=5432;dbname=message_bus_archive
+          MESSAGE_BUS_TEST_PGSQL_USER: message_bus
+          MESSAGE_BUS_TEST_PGSQL_PASSWORD: message_bus

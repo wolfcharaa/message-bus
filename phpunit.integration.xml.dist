@@ -6,8 +6,7 @@
          cacheResult="false">
     <testsuites>
         <testsuite name="MessageBus PostgreSQL Integration Test Suite">
-            <file>tests/PostgresQueueIntegrationTest.php</file>
-            <file>tests/PostgresWorkerControlIntegrationTest.php</file>
+            <file>tests/PostgresBackendIntegrationTest.php</file>
         </testsuite>
     </testsuites>
     <source>

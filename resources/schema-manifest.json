@@ -1,0 +1,19 @@
+{
+    "schema": 1,
+    "catalog_file": "schema-catalog.json",
+    "catalog_checksum": "e2797f1a0c47a6ede8eff0f2c238c348679c02ebafad42d4196a50c95a4b685a",
+    "migrations": [
+        {
+            "component": "delivery",
+            "migration_id": "0001_v7_initial",
+            "file": "001_runtime.sql",
+            "checksum": "dda0fa4ece10b93107509bd3c4a631afcebcac74de5cd944fc61195c0d8342c3"
+        },
+        {
+            "component": "worker-control",
+            "migration_id": "0001_v7_initial",
+            "file": "002_worker_and_idempotency.sql",
+            "checksum": "d51bd359b1128edf3abe527b884044ff5d95666f4a39772fd29b902c2cdcff05"
+        }
+    ]
+}

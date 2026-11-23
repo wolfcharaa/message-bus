@@ -59,36 +59,32 @@ if ($minimumClass === null) {
     exit(0);
 }
 
-$classes = (int) ($metrics['classes'] ?? 0);
-if ($classes <= 0) {
-    \fwrite(STDERR, "Coverage report contains no classes.\n");
-    exit(2);
+$classes = 0;
+$coveredClasses = 0;
+foreach ($coverage->project->xpath('.//class') ?: [] as $classNode) {
+    $classMetrics = $classNode->metrics;
+    if (!$classMetrics instanceof SimpleXMLElement) {
+        continue;
+    }
+
+    $classMethods = (int) ($classMetrics['methods'] ?? 0);
+    if ($classMethods <= 0) {
+        continue;
+    }
+    ++$classes;
+
+    $coveredMethods = (int) ($classMetrics['coveredmethods'] ?? 0);
+    $classStatements = (int) ($classMetrics['statements'] ?? 0);
+    $coveredStatements = (int) ($classMetrics['coveredstatements'] ?? 0);
+
+    if ($coveredMethods === $classMethods && $coveredStatements === $classStatements) {
+        ++$coveredClasses;
+    }
 }
 
-$coveredClasses = 0;
-foreach ($coverage->project->xpath('.//file') ?: [] as $fileNode) {
-    $fileMetrics = $fileNode->metrics;
-    if (!$fileMetrics instanceof SimpleXMLElement) {
-        continue;
-    }
-
-    $fileClasses = (int) ($fileMetrics['classes'] ?? 0);
-    if ($fileClasses <= 0) {
-        continue;
-    }
-
-    $fileMethods = (int) ($fileMetrics['methods'] ?? 0);
-    $fileCoveredMethods = (int) ($fileMetrics['coveredmethods'] ?? 0);
-    $fileStatements = (int) ($fileMetrics['statements'] ?? 0);
-    $fileCoveredStatements = (int) ($fileMetrics['coveredstatements'] ?? 0);
-
-    if (
-        $fileMethods > 0
-        && $fileCoveredMethods === $fileMethods
-        && $fileCoveredStatements === $fileStatements
-    ) {
-        $coveredClasses += $fileClasses;
-    }
+if ($classes <= 0) {
+    \fwrite(STDERR, "Coverage report contains no executable classes.\n");
+    exit(2);
 }
 
 $classPercent = ($coveredClasses / $classes) * 100;

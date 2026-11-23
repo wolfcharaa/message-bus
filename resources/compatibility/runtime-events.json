@@ -1,0 +1,13 @@
+{
+    "schema": 1,
+    "events": {
+        "attempt_failed": {"version": 1, "severity": "error"},
+        "attempt_started": {"version": 1, "severity": "debug"},
+        "attempt_succeeded": {"version": 1, "severity": "debug"},
+        "delivery_accepted": {"version": 1, "severity": "debug"},
+        "delivery_recovered": {"version": 1, "severity": "warning"},
+        "dispatch_completed": {"version": 1, "severity": "debug"},
+        "dispatch_failed": {"version": 1, "severity": "error"},
+        "dispatch_started": {"version": 1, "severity": "debug"}
+    }
+}

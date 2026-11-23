@@ -1,6 +1,17 @@
 #!/usr/bin/env php
 <?php
 
-require __DIR__ . '/../vendor/autoload.php';
+require $_composer_autoload_path ?? __DIR__ . '/../vendor/autoload.php';
 
-exit(Wolfcharaa\MessageBus\Cli\ApplicationFactory::create()->run());
+$bootstrap = getenv('MESSAGE_BUS_BOOTSTRAP');
+if (!is_string($bootstrap) || $bootstrap === '' || !is_file($bootstrap)) {
+    fwrite(STDERR, "Set MESSAGE_BUS_BOOTSTRAP to a PHP file returning a Symfony Console Application.\n");
+    exit(2);
+}
+$application = require $bootstrap;
+if (!$application instanceof Symfony\Component\Console\Application) {
+    fwrite(STDERR, "MESSAGE_BUS_BOOTSTRAP must return Symfony Console Application.\n");
+    exit(2);
+}
+
+exit($application->run());

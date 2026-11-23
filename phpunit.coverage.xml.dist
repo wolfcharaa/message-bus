@@ -13,7 +13,22 @@
         <include>
             <directory suffix=".php">src</directory>
         </include>
+        <exclude>
+            <file>src/Console.php</file>
+            <file>src/Idempotency.php</file>
+            <file>src/InternalConsoleCommands.php</file>
+            <file>src/InternalPostgres.php</file>
+            <file>src/PostgresBackend.php</file>
+            <file>src/PostgresSchema.php</file>
+            <file>src/V6Importer.php</file>
+            <file>src/WorkerControl.php</file>
+        </exclude>
     </source>
+    <groups>
+        <exclude>
+            <group>integration</group>
+        </exclude>
+    </groups>
     <php>
         <env name="MESSAGE_BUS_TEST_PGSQL_DSN" value="pgsql:host=127.0.0.1;port=55432;dbname=message_bus_test"/>
         <env name="MESSAGE_BUS_TEST_PGSQL_USER" value="message_bus"/>

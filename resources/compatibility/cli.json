@@ -1,0 +1,19 @@
+{
+    "schema": 1,
+    "commands": {
+        "delivery:cancel": {"success": [0], "failure": [2]},
+        "delivery:prune": {"success": [0], "failure": [2], "dry_run_default": true},
+        "delivery:recover": {"success": [0], "failure": [2]},
+        "delivery:replay": {"success": [0], "failure": [3]},
+        "delivery:status": {"success": [0], "failure": [2, 3]},
+        "idempotency:prune": {"success": [0], "failure": [2], "dry_run_default": true},
+        "registry:check": {"success": [0], "failure": [2]},
+        "registry:compile": {"success": [0], "failure": [2]},
+        "schema:validate": {"success": [0], "failure": [4]},
+        "worker:pause": {"success": [0], "failure": [2, 3]},
+        "worker:prune": {"success": [0], "failure": [2], "dry_run_default": true},
+        "worker:resume": {"success": [0], "failure": [2, 3]},
+        "worker:run": {"success": [0], "failure": [2]},
+        "worker:status": {"success": [0], "failure": []}
+    }
+}
