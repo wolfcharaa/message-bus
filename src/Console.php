@@ -45,7 +45,7 @@ final readonly class Console
         ?string $applicationBuildId = null,
     ): Application {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-dev');
+        $application = new Application('message-bus', '7.0.0-alpha.2');
         $application->addCommands([
             new RegistryCheckCommand($compiler, $source),
             new RegistryCompileCommand(
@@ -63,7 +63,7 @@ final readonly class Console
     public static function schema(PostgresSchemaManager $schema): Application
     {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-dev');
+        $application = new Application('message-bus', '7.0.0-alpha.2');
         $application->addCommands([new SchemaValidateCommand($schema)]);
 
         return $application;
@@ -75,7 +75,7 @@ final readonly class Console
         DeliveryPolicies $policies,
     ): Application {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-dev');
+        $application = new Application('message-bus', '7.0.0-alpha.2');
         $application->addCommands([
             new DeliveryStatusCommand($operations),
             new DeliveryCancelCommand($operations),
@@ -90,7 +90,7 @@ final readonly class Console
     public static function idempotency(IdempotencyMaintenance $maintenance): Application
     {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-dev');
+        $application = new Application('message-bus', '7.0.0-alpha.2');
         $application->addCommands([new IdempotencyPruneCommand($maintenance)]);
 
         return $application;
@@ -102,7 +102,7 @@ final readonly class Console
         WorkerControlOperations $control,
     ): Application {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-dev');
+        $application = new Application('message-bus', '7.0.0-alpha.2');
         $application->addCommands([
             new WorkerRunCommand($supervisor, $profile),
             new WorkerStatusCommand($control),
