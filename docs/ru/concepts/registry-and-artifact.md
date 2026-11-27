@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.registry-and-artifact
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Registry и artifact
@@ -11,7 +11,7 @@ Compiler получает ограниченный class source, валидир�
 
 - Fingerprint меняется при изменении binding, role, method, context или message identity.
 
-- Diagnostic codes `MBR001…MBR017` стабильны для automation; текст предназначен человеку.
+- Diagnostic codes `MBR001…MBR020` и runtime-configuration codes `MBC001…MBC008` стабильны для automation. Structured fields rule, subject, expected/actual и cause class локализуют нарушение; текст предназначен человеку.
 
 - Любая hash/schema mismatch блокирует bootstrap до обработки сообщений.
 

@@ -9,10 +9,12 @@ use Wolfcharaa\MessageBus\Context\CancellationSignal;
 use Wolfcharaa\MessageBus\Context\MessageContext;
 use Wolfcharaa\MessageBus\Delivery\ClaimedDelivery;
 use Wolfcharaa\MessageBus\Delivery\DurableDeliveryBackend;
+use Wolfcharaa\MessageBus\Exception\CleanupFailed;
 use Wolfcharaa\MessageBus\Middleware\HandlerMiddleware;
 use Wolfcharaa\MessageBus\Middleware\NextHandler;
 use Wolfcharaa\MessageBus\Observability\ObserverFailureSink;
 use Wolfcharaa\MessageBus\Observability\RuntimeEvent;
+use Wolfcharaa\MessageBus\Observability\RuntimeFailureSink;
 use Wolfcharaa\MessageBus\Observability\RuntimeObserver;
 
 /** @internal Shared validation for public opaque identifiers. */
@@ -21,7 +23,9 @@ trait OpaqueIdentity
     public function __construct(public readonly string $value)
     {
         if (preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/D', $this->value) !== 1) {
-            throw new \InvalidArgumentException('Opaque MessageBus identity is invalid.');
+            throw new \InvalidArgumentException(
+                self::class . ' value must match [a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}.',
+            );
         }
     }
 
@@ -120,5 +124,49 @@ final readonly class BestEffortRuntimeObserver implements RuntimeObserver
                 // Telemetry is never authoritative runtime state.
             }
         }
+    }
+}
+
+/** @internal Prevents process-local failure adapters from replacing runtime truth. */
+final readonly class BestEffortRuntimeFailureSink implements RuntimeFailureSink
+{
+    public function __construct(
+        private RuntimeFailureSink $sink,
+        private ObserverFailureSink $emergencySink,
+    ) {}
+
+    public function report(\Throwable $failure, RuntimeEvent $event): void
+    {
+        try {
+            $this->sink->report($failure, $event);
+        } catch (\Throwable $sinkFailure) {
+            try {
+                $this->emergencySink->report($sinkFailure, $event);
+            } catch (\Throwable) {
+                // A failing last-resort sink is the documented final drop boundary.
+            }
+        }
+    }
+}
+
+/** @internal Preserves a primary throwable while attempting every cleanup action. */
+final readonly class FailurePreservingCleanup
+{
+    /** @param callable(): void ...$cleanup */
+    public static function rethrowAfter(\Throwable $primary, string $operation, callable ...$cleanup): never
+    {
+        $cleanupFailures = [];
+        foreach ($cleanup as $action) {
+            try {
+                $action();
+            } catch (\Throwable $failure) {
+                $cleanupFailures[] = $failure;
+            }
+        }
+        if ($cleanupFailures !== []) {
+            throw new CleanupFailed($operation, $primary, $cleanupFailures);
+        }
+
+        throw $primary;
     }
 }

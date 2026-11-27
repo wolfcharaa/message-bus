@@ -32,7 +32,9 @@ final readonly class WorkerControlScope
     public static function profile(string $profile): self
     {
         if (preg_match('/^[a-z0-9][a-z0-9._-]{1,63}$/D', $profile) !== 1) {
-            throw new \InvalidArgumentException('Worker profile scope is invalid.');
+            throw new \InvalidArgumentException(
+                'WorkerControlScope profile must match [a-z0-9][a-z0-9._-]{1,63}.',
+            );
         }
 
         return new self('profile:' . $profile);
@@ -112,11 +114,26 @@ final readonly class WorkerStatus
         public bool $stale = false,
         public bool $drained = false,
     ) {
-        if ($this->capacity < 1 || $this->activeAttempts < 0
-            || $this->requiredGlobalRevision < 0 || $this->requiredProfileRevision < 0
-            || $this->drained && ($this->effectiveDesiredState !== WorkerDesiredState::Paused
-                || $this->activeAttempts !== 0 || $this->stale)) {
-            throw new \InvalidArgumentException('Worker status derived fields are inconsistent.');
+        if ($this->capacity < 1) {
+            throw new \InvalidArgumentException('WorkerStatus capacity must be at least 1.');
+        }
+        if ($this->activeAttempts < 0) {
+            throw new \InvalidArgumentException('WorkerStatus activeAttempts must not be negative.');
+        }
+        if ($this->requiredGlobalRevision < 0) {
+            throw new \InvalidArgumentException('WorkerStatus requiredGlobalRevision must not be negative.');
+        }
+        if ($this->requiredProfileRevision < 0) {
+            throw new \InvalidArgumentException('WorkerStatus requiredProfileRevision must not be negative.');
+        }
+        if ($this->drained && $this->effectiveDesiredState !== WorkerDesiredState::Paused) {
+            throw new \InvalidArgumentException('WorkerStatus drained requires effectiveDesiredState paused.');
+        }
+        if ($this->drained && $this->activeAttempts !== 0) {
+            throw new \InvalidArgumentException('WorkerStatus drained requires activeAttempts 0.');
+        }
+        if ($this->drained && $this->stale) {
+            throw new \InvalidArgumentException('WorkerStatus drained cannot also be stale.');
         }
     }
 
@@ -138,11 +155,17 @@ final readonly class WorkerStatusFilter
         public ?string $instance = null,
         public int $staleAfterSeconds = 30,
     ) {
-        if ($this->profile !== null && $this->profile === ''
-            || $this->instance !== null && $this->instance === ''
-            || $this->profile !== null && $this->instance !== null
-            || $this->staleAfterSeconds < 1) {
-            throw new \InvalidArgumentException('Worker status filter is invalid.');
+        if ($this->profile === '') {
+            throw new \InvalidArgumentException('WorkerStatusFilter profile must not be empty.');
+        }
+        if ($this->instance === '') {
+            throw new \InvalidArgumentException('WorkerStatusFilter instance must not be empty.');
+        }
+        if ($this->profile !== null && $this->instance !== null) {
+            throw new \InvalidArgumentException('WorkerStatusFilter accepts either profile or instance, not both.');
+        }
+        if ($this->staleAfterSeconds < 1) {
+            throw new \InvalidArgumentException('WorkerStatusFilter staleAfterSeconds must be at least 1.');
         }
     }
 }
@@ -198,6 +221,7 @@ interface WorkerControlOperations
 namespace Wolfcharaa\MessageBus\Adapter\Postgres;
 
 use Wolfcharaa\MessageBus\Internal\Postgres\QualifiedSql;
+use Wolfcharaa\MessageBus\Internal\Runtime\FailurePreservingCleanup;
 use Wolfcharaa\MessageBus\Worker\WorkerControlOperations;
 use Wolfcharaa\MessageBus\Worker\WorkerControlOutcome;
 use Wolfcharaa\MessageBus\Worker\WorkerControlReceipt;
@@ -459,9 +483,11 @@ final readonly class PostgresWorkerControl implements WorkerControlOperations
                 \count($statusIds) === $limit || \count($operationIds) === $limit,
             );
         } catch (\Throwable $failure) {
-            $this->rollBackOpenTransaction();
-
-            throw $failure;
+            FailurePreservingCleanup::rethrowAfter(
+                $failure,
+                'PostgreSQL worker status pruning rollback',
+                $this->rollBackOpenTransaction(...),
+            );
         }
     }
 
@@ -473,8 +499,16 @@ final readonly class PostgresWorkerControl implements WorkerControlOperations
         string $idempotencyKey,
         ?int $expectedRevision,
     ): WorkerControlReceipt {
-        if ($actor === '' || $reason === '' || preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/D', $idempotencyKey) !== 1) {
-            throw new \InvalidArgumentException('Worker control actor, reason and idempotency key are required.');
+        if ($actor === '') {
+            throw new \InvalidArgumentException('Worker control actor must not be empty.');
+        }
+        if ($reason === '') {
+            throw new \InvalidArgumentException('Worker control reason must not be empty.');
+        }
+        if (preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/D', $idempotencyKey) !== 1) {
+            throw new \InvalidArgumentException(
+                'Worker control idempotencyKey must match [a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}.',
+            );
         }
         if ($this->pdo->inTransaction()) {
             throw new \LogicException('Worker control mutation requires a connection without an open transaction.');
@@ -608,9 +642,11 @@ final readonly class PostgresWorkerControl implements WorkerControlOperations
                 $current->desiredState,
             );
         } catch (\Throwable $failure) {
-            $this->rollBackOpenTransaction();
-
-            throw $failure;
+            FailurePreservingCleanup::rethrowAfter(
+                $failure,
+                'PostgreSQL worker control mutation rollback',
+                $this->rollBackOpenTransaction(...),
+            );
         }
     }
 

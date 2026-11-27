@@ -1,5 +1,10 @@
 {
     "schema": 1,
+    "output_schema": 2,
+    "error": {
+        "fields": ["code", "type", "stage", "message", "exception_type", "subject"],
+        "codes": ["MBCLI001", "MBCLI002", "MBCLI003", "MBCLI004"]
+    },
     "commands": {
         "delivery:cancel": {"success": [0], "failure": [2]},
         "delivery:prune": {"success": [0], "failure": [2], "dry_run_default": true},
@@ -14,6 +19,6 @@
         "worker:prune": {"success": [0], "failure": [2], "dry_run_default": true},
         "worker:resume": {"success": [0], "failure": [2, 3]},
         "worker:run": {"success": [0], "failure": [2]},
-        "worker:status": {"success": [0], "failure": []}
+        "worker:status": {"success": [0], "failure": [2]}
     }
 }

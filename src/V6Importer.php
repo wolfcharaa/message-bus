@@ -15,6 +15,7 @@ use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\IdentityGenerator;
 use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Internal\Postgres\QualifiedSql;
+use Wolfcharaa\MessageBus\Internal\Runtime\FailurePreservingCleanup;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
 use Wolfcharaa\MessageBus\Registry\CompiledRegistry;
 use Wolfcharaa\MessageBus\Registry\HandlerBinding;
@@ -192,11 +193,15 @@ final readonly class V6QueueImporter
                     $this->pdo->commit();
                     ++$imported;
                 } catch (\Throwable $failure) {
-                    if ($this->pdo->inTransaction()) {
-                        $this->pdo->rollBack();
-                    }
-
-                    throw $failure;
+                    FailurePreservingCleanup::rethrowAfter(
+                        $failure,
+                        'PostgreSQL v6 queue row import rollback',
+                        function (): void {
+                            if ($this->pdo->inTransaction()) {
+                                $this->pdo->rollBack();
+                            }
+                        },
+                    );
                 }
             } catch (\Throwable $failure) {
                 throw new V6ImportFailed($legacyId, $failure);

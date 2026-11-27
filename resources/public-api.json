@@ -1019,9 +1019,11 @@
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId, string $targetId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryState $state, int $attempts, DateTimeImmutable $updatedAt, ?string $lastFailureCategory = NULL): mixed"
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId, string $targetId, Wolfcharaa\\MessageBus\\Delivery\\DeliveryState $state, int $attempts, DateTimeImmutable $updatedAt, ?string $lastFailureCategory = NULL, ?Wolfcharaa\\MessageBus\\Identity\\AttemptId $lastFailureAttemptId = NULL, ?Wolfcharaa\\MessageBus\\Observability\\FailureDiagnostic $lastFailure = NULL): mixed"
             ],
             "properties": [
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\AttemptId $lastFailureAttemptId",
+                "readonly ?Wolfcharaa\\MessageBus\\Observability\\FailureDiagnostic $lastFailure",
                 "readonly ?string $lastFailureCategory",
                 "readonly DateTimeImmutable $updatedAt",
                 "readonly Wolfcharaa\\MessageBus\\Delivery\\DeliveryState $state",
@@ -1092,6 +1094,25 @@
             ]
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Delivery\\FailureClassification",
+            "kind": "class",
+            "role": "application",
+            "summary": "Classification outcome retaining a failure raised by the classifier itself.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Delivery\\FailureCategory $category, ?Throwable $classifierFailure = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?Throwable $classifierFailure",
+                "readonly Wolfcharaa\\MessageBus\\Delivery\\FailureCategory $category"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Delivery\\FailureClassifier",
             "kind": "interface",
             "role": "spi",
@@ -1118,7 +1139,8 @@
             "interfaces": [],
             "methods": [
                 "__construct(?Wolfcharaa\\MessageBus\\Delivery\\FailureClassifier $application = NULL): mixed",
-                "classify(Throwable $failure): Wolfcharaa\\MessageBus\\Delivery\\FailureCategory"
+                "classify(Throwable $failure): Wolfcharaa\\MessageBus\\Delivery\\FailureCategory",
+                "classifyDetailed(Throwable $failure): Wolfcharaa\\MessageBus\\Delivery\\FailureClassification"
             ],
             "properties": [],
             "constants": [],
@@ -1185,6 +1207,29 @@
             "enum_cases": []
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Exception\\CleanupFailed",
+            "kind": "class",
+            "role": "application",
+            "summary": "Raised when cleanup fails while another throwable is already primary.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [
+                "__construct(string $operation, Throwable $primaryFailure, array $cleanupFailures): mixed"
+            ],
+            "properties": [
+                "readonly Throwable $primaryFailure",
+                "readonly array $cleanupFailures",
+                "readonly string $operation"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Exception\\CommandNotAccepted",
             "kind": "class",
             "role": "application",
@@ -1196,8 +1241,39 @@
                 "Stringable",
                 "Throwable"
             ],
-            "methods": [],
-            "properties": [],
+            "methods": [
+                "__construct(string $message, int $code = 0, ?Throwable $previous = NULL, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId = NULL, ?string $messageName = NULL, ?string $targetId = NULL, ?Wolfcharaa\\MessageBus\\Observability\\FailureStage $stage = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId",
+                "readonly ?Wolfcharaa\\MessageBus\\Observability\\FailureStage $stage",
+                "readonly ?string $messageName",
+                "readonly ?string $targetId"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Exception\\DeliverySettlementFailed",
+            "kind": "class",
+            "role": "application",
+            "summary": "Raised when a delivery failure and its fenced settlement both fail.",
+            "final": true,
+            "readonly": false,
+            "parent": "RuntimeException",
+            "interfaces": [
+                "Stringable",
+                "Throwable"
+            ],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId, Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId, Throwable $primaryFailure, Throwable $settlementFailure): mixed"
+            ],
+            "properties": [
+                "readonly Throwable $primaryFailure",
+                "readonly Throwable $settlementFailure",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId",
+                "readonly Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId"
+            ],
             "constants": [],
             "enum_cases": []
         },
@@ -1230,8 +1306,12 @@
                 "Stringable",
                 "Throwable"
             ],
-            "methods": [],
-            "properties": [],
+            "methods": [
+                "__construct(string $message = 'MessageBus configuration is invalid.', array $diagnostics = array (\n), ?Throwable $previous = NULL): mixed"
+            ],
+            "properties": [
+                "readonly array $diagnostics"
+            ],
             "constants": [],
             "enum_cases": []
         },
@@ -1812,6 +1892,72 @@
             "enum_cases": []
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\FailureDiagnostic",
+            "kind": "class",
+            "role": "application",
+            "summary": "Safe machine-readable failure details shared by events and retained status.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Observability\\FailureStage $stage, string $failureClass, ?string $relatedFailureClass = NULL): mixed",
+                "encode(): string",
+                "normalized(): array",
+                "static fromThrowable(Wolfcharaa\\MessageBus\\Observability\\FailureStage $stage, Throwable $failure, ?Throwable $relatedFailure = NULL): Wolfcharaa\\MessageBus\\Observability\\FailureDiagnostic",
+                "static tryFromEncoded(string $encoded): ?Wolfcharaa\\MessageBus\\Observability\\FailureDiagnostic"
+            ],
+            "properties": [
+                "readonly ?string $relatedFailureClass",
+                "readonly Wolfcharaa\\MessageBus\\Observability\\FailureStage $stage",
+                "readonly string $code",
+                "readonly string $failureClass",
+                "readonly string $fingerprint",
+                "readonly string $summary"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\FailureStage",
+            "kind": "enum",
+            "role": "application",
+            "summary": "Stable logical stage at which a runtime failure became observable.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "code(): string",
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static",
+                "summary(): string"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "Dispatch",
+                "PayloadDecode",
+                "TargetResolution",
+                "ContextCreation",
+                "HandlerResolution",
+                "HandlerExecution",
+                "Idempotency",
+                "FailureClassification",
+                "DeliverySettlement",
+                "WorkerFork",
+                "LeaseRecovery",
+                "DeliveryAcceptance"
+            ]
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Observability\\NullObserverFailureSink",
             "kind": "class",
             "role": "application",
@@ -1821,6 +1967,24 @@
             "parent": null,
             "interfaces": [
                 "Wolfcharaa\\MessageBus\\Observability\\ObserverFailureSink"
+            ],
+            "methods": [
+                "report(Throwable $failure, Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\NullRuntimeFailureSink",
+            "kind": "class",
+            "role": "application",
+            "summary": "Explicit opt-out from process-local runtime failure reporting.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Observability\\RuntimeFailureSink"
             ],
             "methods": [
                 "report(Throwable $failure, Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
@@ -1864,6 +2028,25 @@
             "enum_cases": []
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\PsrLogRuntimeFailureSink",
+            "kind": "class",
+            "role": "adapter",
+            "summary": "PSR-3 process-local failure sink retaining the original exception and trace.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Observability\\RuntimeFailureSink"
+            ],
+            "methods": [
+                "__construct(Psr\\Log\\LoggerInterface $logger): mixed",
+                "report(Throwable $failure, Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Observability\\PsrLogRuntimeObserver",
             "kind": "class",
             "role": "adapter",
@@ -1892,7 +2075,7 @@
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(Wolfcharaa\\MessageBus\\Observability\\RuntimeEventType $type, DateTimeImmutable $occurredAt, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\CorrelationId $correlationId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $causationId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId = NULL, ?string $messageName = NULL, ?string $targetId = NULL, ?string $workerId = NULL, ?string $route = NULL, ?string $profile = NULL, ?int $attemptNumber = NULL, ?int $durationMicroseconds = NULL, ?string $outcome = NULL, ?string $failureCategory = NULL, ?string $failureClass = NULL, ?string $errorFingerprint = NULL, int $schemaVersion = 1): mixed",
+                "__construct(Wolfcharaa\\MessageBus\\Observability\\RuntimeEventType $type, DateTimeImmutable $occurredAt, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $messageId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\CorrelationId $correlationId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\MessageId $causationId = NULL, ?Wolfcharaa\\MessageBus\\Identity\\AttemptId $attemptId = NULL, ?string $messageName = NULL, ?string $targetId = NULL, ?string $workerId = NULL, ?string $route = NULL, ?string $profile = NULL, ?int $attemptNumber = NULL, ?int $durationMicroseconds = NULL, ?string $outcome = NULL, ?string $failureCategory = NULL, ?string $failureClass = NULL, ?string $errorFingerprint = NULL, int $schemaVersion = 1, ?string $failureCode = NULL, ?string $failureStage = NULL, ?string $failureSummary = NULL, ?string $relatedFailureClass = NULL): mixed",
                 "normalized(): array",
                 "severity(): Wolfcharaa\\MessageBus\\Observability\\RuntimeEventSeverity"
             ],
@@ -1907,9 +2090,13 @@
                 "readonly ?string $errorFingerprint",
                 "readonly ?string $failureCategory",
                 "readonly ?string $failureClass",
+                "readonly ?string $failureCode",
+                "readonly ?string $failureStage",
+                "readonly ?string $failureSummary",
                 "readonly ?string $messageName",
                 "readonly ?string $outcome",
                 "readonly ?string $profile",
+                "readonly ?string $relatedFailureClass",
                 "readonly ?string $route",
                 "readonly ?string $targetId",
                 "readonly ?string $workerId",
@@ -1961,6 +2148,7 @@
                 "BackedEnum"
             ],
             "methods": [
+                "requiredFields(): array",
                 "severity(): Wolfcharaa\\MessageBus\\Observability\\RuntimeEventSeverity",
                 "static cases(): array",
                 "static from(string|int $value): static",
@@ -1981,6 +2169,22 @@
                 "AttemptFailed",
                 "DeliveryRecovered"
             ]
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Observability\\RuntimeFailureSink",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Process-local reporting channel that receives the original runtime throwable.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "report(Throwable $failure, Wolfcharaa\\MessageBus\\Observability\\RuntimeEvent $event): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
         },
         {
             "name": "Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver",
@@ -2027,11 +2231,12 @@
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(string $targetId, Wolfcharaa\\MessageBus\\Receipt\\PublicationOutcome $outcome, ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId = NULL, ?string $failureCategory = NULL, ?string $failureSummary = NULL): mixed"
+                "__construct(string $targetId, Wolfcharaa\\MessageBus\\Receipt\\PublicationOutcome $outcome, ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId = NULL, ?string $failureCategory = NULL, ?string $failureSummary = NULL, ?string $failureClass = NULL): mixed"
             ],
             "properties": [
                 "readonly ?Wolfcharaa\\MessageBus\\Identity\\DeliveryId $deliveryId",
                 "readonly ?string $failureCategory",
+                "readonly ?string $failureClass",
                 "readonly ?string $failureSummary",
                 "readonly Wolfcharaa\\MessageBus\\Receipt\\PublicationOutcome $outcome",
                 "readonly string $targetId"
@@ -2334,9 +2539,15 @@
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(string $code, Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL): mixed"
+                "__construct(string $code, Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL, ?string $rule = NULL, ?string $subjectKind = NULL, ?string $expected = NULL, ?string $actual = NULL, ?string $causeClass = NULL): mixed",
+                "normalized(): array"
             ],
             "properties": [
+                "readonly ?string $actual",
+                "readonly ?string $causeClass",
+                "readonly ?string $expected",
+                "readonly ?string $rule",
+                "readonly ?string $subjectKind",
                 "readonly ?string $symbol",
                 "readonly Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity",
                 "readonly string $code",
@@ -2640,10 +2851,10 @@
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend $backend, Wolfcharaa\\MessageBus\\Codec\\MessageCodecs $codecs, Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, Wolfcharaa\\MessageBus\\HandlerServiceResolver $handlers, Wolfcharaa\\MessageBus\\Contract\\MessageBus $dispatcher, Wolfcharaa\\MessageBus\\Context\\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\\MessageBus\\Context\\MessageContextFactories, Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver $middleware = new Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewares, Wolfcharaa\\MessageBus\\Delivery\\FailureClassifiers $classifiers = new Wolfcharaa\\MessageBus\\Delivery\\FailureClassifiers, Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver $observer = new Wolfcharaa\\MessageBus\\Observability\\NullRuntimeObserver, Wolfcharaa\\MessageBus\\Observability\\ObserverFailureSink $observerFailureSink = new Wolfcharaa\\MessageBus\\Observability\\NullObserverFailureSink, Psr\\Clock\\ClockInterface $clock = new Wolfcharaa\\MessageBus\\SystemClock, ?Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyRuntime $idempotency = NULL): mixed",
+                "__construct(Wolfcharaa\\MessageBus\\Delivery\\DurableDeliveryBackend $backend, Wolfcharaa\\MessageBus\\Codec\\MessageCodecs $codecs, Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, Wolfcharaa\\MessageBus\\HandlerServiceResolver $handlers, Wolfcharaa\\MessageBus\\Contract\\MessageBus $dispatcher, Wolfcharaa\\MessageBus\\Context\\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\\MessageBus\\Context\\MessageContextFactories, Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver $middleware = new Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewares, Wolfcharaa\\MessageBus\\Delivery\\FailureClassifiers $classifiers = new Wolfcharaa\\MessageBus\\Delivery\\FailureClassifiers, Wolfcharaa\\MessageBus\\Observability\\RuntimeObserver $observer = new Wolfcharaa\\MessageBus\\Observability\\NullRuntimeObserver, Wolfcharaa\\MessageBus\\Observability\\ObserverFailureSink $observerFailureSink = new Wolfcharaa\\MessageBus\\Observability\\NullObserverFailureSink, Psr\\Clock\\ClockInterface $clock = new Wolfcharaa\\MessageBus\\SystemClock, ?Wolfcharaa\\MessageBus\\Idempotency\\IdempotencyRuntime $idempotency = NULL, Wolfcharaa\\MessageBus\\Observability\\RuntimeFailureSink $runtimeFailureSink = new Wolfcharaa\\MessageBus\\Observability\\NullRuntimeFailureSink): mixed",
                 "cancellationRequested(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
                 "claim(Wolfcharaa\\MessageBus\\Worker\\WorkerProfile $profile, string $workerId): ?Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery",
-                "execute(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, ?int $childPid = NULL): Wolfcharaa\\MessageBus\\Worker\\WorkerIteration",
+                "execute(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim, ?int $childPid = NULL, string $workerId = 'unknown', string $profile = 'unknown'): Wolfcharaa\\MessageBus\\Worker\\WorkerIteration",
                 "forkFailed(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): Wolfcharaa\\MessageBus\\Worker\\WorkerIteration",
                 "heartbeat(Wolfcharaa\\MessageBus\\Delivery\\ClaimedDelivery $claim): bool",
                 "runOnce(Wolfcharaa\\MessageBus\\Worker\\WorkerProfile $profile, string $workerId): Wolfcharaa\\MessageBus\\Worker\\WorkerIteration"

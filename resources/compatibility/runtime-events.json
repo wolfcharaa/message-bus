@@ -1,13 +1,61 @@
 {
     "schema": 1,
     "events": {
-        "attempt_failed": {"version": 1, "severity": "error"},
-        "attempt_started": {"version": 1, "severity": "debug"},
-        "attempt_succeeded": {"version": 1, "severity": "debug"},
-        "delivery_accepted": {"version": 1, "severity": "debug"},
-        "delivery_recovered": {"version": 1, "severity": "warning"},
-        "dispatch_completed": {"version": 1, "severity": "debug"},
-        "dispatch_failed": {"version": 1, "severity": "error"},
-        "dispatch_started": {"version": 1, "severity": "debug"}
+        "attempt_failed": {
+            "version": 1,
+            "severity": "error",
+            "required_fields": [
+                "message_id", "delivery_id", "correlation_id", "attempt_id", "message_name",
+                "target_id", "worker_id", "route", "profile", "attempt_number", "duration_us",
+                "outcome", "failure_category", "failure_class", "error_fingerprint",
+                "failure_code", "failure_stage", "failure_summary"
+            ]
+        },
+        "attempt_started": {
+            "version": 1,
+            "severity": "debug",
+            "required_fields": [
+                "message_id", "delivery_id", "correlation_id", "attempt_id", "message_name",
+                "target_id", "worker_id", "route", "profile", "attempt_number"
+            ]
+        },
+        "attempt_succeeded": {
+            "version": 1,
+            "severity": "debug",
+            "required_fields": [
+                "message_id", "delivery_id", "correlation_id", "attempt_id", "message_name",
+                "target_id", "worker_id", "route", "profile", "attempt_number", "duration_us", "outcome"
+            ]
+        },
+        "delivery_accepted": {
+            "version": 1,
+            "severity": "debug",
+            "required_fields": [
+                "message_id", "delivery_id", "correlation_id", "message_name", "target_id", "route", "outcome"
+            ]
+        },
+        "delivery_recovered": {
+            "version": 1,
+            "severity": "warning",
+            "required_fields": ["delivery_id", "outcome"]
+        },
+        "dispatch_completed": {
+            "version": 1,
+            "severity": "debug",
+            "required_fields": ["message_id", "correlation_id", "message_name", "duration_us", "outcome"]
+        },
+        "dispatch_failed": {
+            "version": 1,
+            "severity": "error",
+            "required_fields": [
+                "message_id", "correlation_id", "message_name", "duration_us", "outcome",
+                "failure_class", "error_fingerprint", "failure_code", "failure_stage", "failure_summary"
+            ]
+        },
+        "dispatch_started": {
+            "version": 1,
+            "severity": "debug",
+            "required_fields": ["message_id", "correlation_id", "message_name"]
+        }
     }
 }

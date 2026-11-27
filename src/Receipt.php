@@ -34,6 +34,7 @@ final readonly class PublicationEntry
         public ?DeliveryId $deliveryId = null,
         public ?string $failureCategory = null,
         public ?string $failureSummary = null,
+        public ?string $failureClass = null,
     ) {
         if ($this->targetId === '') {
             throw new \InvalidArgumentException('Publication target ID must not be empty.');
@@ -44,8 +45,14 @@ final readonly class PublicationEntry
             throw new \InvalidArgumentException('Only durable publication outcomes carry DeliveryId.');
         }
         if ($this->outcome !== PublicationOutcome::Failed
-            && ($this->failureCategory !== null || $this->failureSummary !== null)) {
+            && ($this->failureCategory !== null || $this->failureSummary !== null || $this->failureClass !== null)) {
             throw new \InvalidArgumentException('Only failed publication outcomes carry failure details.');
+        }
+        if ($this->outcome === PublicationOutcome::Failed
+            && ($this->failureCategory === null || $this->failureSummary === null || $this->failureClass === null)) {
+            throw new \InvalidArgumentException(
+                'Failed publication outcomes require failureCategory, failureSummary and failureClass.',
+            );
         }
     }
 }

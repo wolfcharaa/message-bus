@@ -25,7 +25,9 @@ final readonly class RegistryArtifact
     ) {
         if ($this->applicationBuildId !== null
             && preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/D', $this->applicationBuildId) !== 1) {
-            throw new \InvalidArgumentException('Registry artifact application build ID is invalid.');
+            throw new \InvalidArgumentException(
+                'Registry artifact applicationBuildId must match [a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}.',
+            );
         }
     }
 

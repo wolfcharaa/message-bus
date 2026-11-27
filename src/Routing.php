@@ -37,8 +37,11 @@ final readonly class DeliveryRoute
         public string $policy = 'default',
         public string $lane = 'default',
     ) {
-        if ($this->policy === '' || $this->lane === '') {
-            throw new \InvalidArgumentException('Delivery route policy and lane must not be empty.');
+        if ($this->policy === '') {
+            throw new \InvalidArgumentException('DeliveryRoute policy must not be empty.');
+        }
+        if ($this->lane === '') {
+            throw new \InvalidArgumentException('DeliveryRoute lane must not be empty.');
         }
     }
 }
@@ -113,18 +116,34 @@ final readonly class RuntimeConfigurationRule implements RegistryValidationRule
                     continue;
                 }
                 if (!$this->policies->has($route->policy)) {
-                    $diagnostics[] = $this->error('MBC004', 'Durable route references an unknown DeliveryPolicy.', $binding->id);
+                    $diagnostics[] = $this->error(
+                        'MBC004',
+                        'Durable route references an unknown DeliveryPolicy.',
+                        $binding->id,
+                        expected: 'registered DeliveryPolicy name',
+                        actual: $route->policy,
+                    );
 
                     continue;
                 }
                 $policy = $this->policies->get($route->policy);
-                if ($policy->idempotent
-                    && (!$this->idempotency instanceof IdempotencyRuntime
-                        || !$this->idempotency->identities->has($binding->id))) {
+                if ($policy->idempotent && !$this->idempotency instanceof IdempotencyRuntime) {
                     $diagnostics[] = $this->error(
                         'MBC005',
-                        'Idempotent target requires one target-scoped resolver and atomic boundary.',
+                        'Idempotent target requires an IdempotencyRuntime with an atomic boundary.',
                         $binding->id,
+                        expected: IdempotencyRuntime::class,
+                        actual: 'not configured',
+                    );
+                } elseif ($policy->idempotent
+                    && $this->idempotency instanceof IdempotencyRuntime
+                    && !$this->idempotency->identities->has($binding->id)) {
+                    $diagnostics[] = $this->error(
+                        'MBC008',
+                        'Idempotent target requires an exact target-scoped identity resolver.',
+                        $binding->id,
+                        expected: 'resolver for target ' . $binding->id,
+                        actual: 'not configured',
                     );
                 }
                 if ($policy->retryLostAttempts && !$policy->idempotent) {
@@ -151,8 +170,22 @@ final readonly class RuntimeConfigurationRule implements RegistryValidationRule
         return $diagnostics;
     }
 
-    private function error(string $code, string $message, string $symbol): RegistryDiagnostic
-    {
-        return new RegistryDiagnostic($code, DiagnosticSeverity::Error, $message, $symbol);
+    private function error(
+        string $code,
+        string $message,
+        string $symbol,
+        ?string $expected = null,
+        ?string $actual = null,
+    ): RegistryDiagnostic {
+        return new RegistryDiagnostic(
+            $code,
+            DiagnosticSeverity::Error,
+            $message,
+            $symbol,
+            $code,
+            'target',
+            $expected,
+            $actual,
+        );
     }
 }

@@ -22,6 +22,8 @@ use Wolfcharaa\MessageBus\Delivery\ReplayReceipt;
 use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\IdentityGenerator;
 use Wolfcharaa\MessageBus\Identity\RandomIdentityGenerator;
+use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
+use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\SystemClock;
 
 /**
@@ -118,6 +120,9 @@ final class InMemoryDeliveryBackend implements DurableDeliveryBackend
             DeliveryState::Running,
             $status->attempts + 1,
             $now,
+            $status->lastFailureCategory,
+            $status->lastFailureAttemptId,
+            $status->lastFailure,
         );
 
         return $claim;
@@ -165,7 +170,12 @@ final class InMemoryDeliveryBackend implements DurableDeliveryBackend
             $category === FailureCategory::Retryable && $attempts < $claim->delivery->policy->maxAttempts => DeliveryState::RetryWait,
             default => DeliveryState::Failed,
         };
-        $this->settle($claim, $state, $category->value);
+        $this->settle(
+            $claim,
+            $state,
+            $category->value,
+            FailureDiagnostic::tryFromEncoded($summary),
+        );
 
         return true;
     }
@@ -223,7 +233,12 @@ final class InMemoryDeliveryBackend implements DurableDeliveryBackend
                 && $this->statuses[$key]->attempts < $claim->delivery->policy->maxAttempts
                 ? DeliveryState::RetryWait
                 : DeliveryState::OutcomeUnknown;
-            $this->settle($claim, $state, 'lost');
+            $this->settle(
+                $claim,
+                $state,
+                'lost',
+                new FailureDiagnostic(FailureStage::LeaseRecovery, \RuntimeException::class),
+            );
             ++$changed;
         }
 
@@ -300,10 +315,15 @@ final class InMemoryDeliveryBackend implements DurableDeliveryBackend
             && $current->leaseToken->value === $claim->leaseToken->value;
     }
 
-    private function settle(ClaimedDelivery $claim, DeliveryState $state, ?string $failure = null): void
-    {
+    private function settle(
+        ClaimedDelivery $claim,
+        DeliveryState $state,
+        ?string $failureCategory = null,
+        ?FailureDiagnostic $failure = null,
+    ): void {
         $key = $claim->delivery->deliveryId->value;
         $status = $this->statuses[$key];
+        $retainPreviousFailure = $failureCategory === null;
         $this->statuses[$key] = new DeliveryStatus(
             $status->deliveryId,
             $status->messageId,
@@ -311,7 +331,11 @@ final class InMemoryDeliveryBackend implements DurableDeliveryBackend
             $state,
             $status->attempts,
             $this->clock->now(),
-            $failure,
+            $retainPreviousFailure ? $status->lastFailureCategory : $failureCategory,
+            $failure instanceof FailureDiagnostic
+                ? $claim->attempt->attemptId
+                : ($retainPreviousFailure ? $status->lastFailureAttemptId : null),
+            $failure ?? ($retainPreviousFailure ? $status->lastFailure : null),
         );
         unset($this->claims[$key]);
     }

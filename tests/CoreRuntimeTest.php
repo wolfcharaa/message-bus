@@ -21,11 +21,21 @@ use Wolfcharaa\MessageBus\Contract\Event;
 use Wolfcharaa\MessageBus\Contract\Query;
 use Wolfcharaa\MessageBus\DefaultMessageBus;
 use Wolfcharaa\MessageBus\Delivery\CancellationOutcome;
+use Wolfcharaa\MessageBus\Delivery\CancellationReceipt;
+use Wolfcharaa\MessageBus\Delivery\ClaimedDelivery;
 use Wolfcharaa\MessageBus\Delivery\ControlActor;
+use Wolfcharaa\MessageBus\Delivery\DeliveryAcceptance;
+use Wolfcharaa\MessageBus\Delivery\DeliveryDraft;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicies;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicy;
 use Wolfcharaa\MessageBus\Delivery\DeliveryState;
+use Wolfcharaa\MessageBus\Delivery\DeliveryStatus;
+use Wolfcharaa\MessageBus\Delivery\DurableDeliveryBackend;
+use Wolfcharaa\MessageBus\Delivery\FailureCategory;
+use Wolfcharaa\MessageBus\Delivery\MaintenanceReport;
+use Wolfcharaa\MessageBus\Delivery\ReplayReceipt;
 use Wolfcharaa\MessageBus\DurableRuntime;
+use Wolfcharaa\MessageBus\Exception\DeliverySettlementFailed;
 use Wolfcharaa\MessageBus\Exception\PublicationFailed;
 use Wolfcharaa\MessageBus\HandlerServiceResolver;
 use Wolfcharaa\MessageBus\HandlerServices;
@@ -38,6 +48,8 @@ use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Middleware\HandlerMiddleware;
 use Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares;
 use Wolfcharaa\MessageBus\Middleware\NextHandler;
+use Wolfcharaa\MessageBus\Observability\RuntimeEvent;
+use Wolfcharaa\MessageBus\Observability\RuntimeFailureSink;
 use Wolfcharaa\MessageBus\Receipt\CommandReceipt;
 use Wolfcharaa\MessageBus\Receipt\PublicationOutcome;
 use Wolfcharaa\MessageBus\Registry\CompiledRegistry;
@@ -139,13 +151,18 @@ final class CoreRuntimeTest extends TestCase
             self::assertSame($containerFailure, $failure->getPrevious());
             self::assertSame([$containerFailure], $failure->failures);
             self::assertSame(
-                DependencyContainerFailure::class,
+                'inline_handler_error',
                 $failure->receipt->entries[0]->failureCategory,
             );
             self::assertSame(
-                'Cannot autowire projection dependency.',
+                DependencyContainerFailure::class,
+                $failure->receipt->entries[0]->failureClass,
+            );
+            self::assertSame(
+                'Inline event handler execution failed.',
                 $failure->receipt->entries[0]->failureSummary,
             );
+            self::assertStringNotContainsString('Cannot autowire', $failure->getMessage());
         }
     }
 
@@ -194,6 +211,40 @@ final class CoreRuntimeTest extends TestCase
         }
 
         self::assertSame(DeliveryState::Failed, $this->statusState($runtime->backend, $deliveryId));
+    }
+
+    public function testWorkerRetainsPrimaryAndSettlementFailures(): void
+    {
+        $runtime = $this->runtime([new RegisterUserHandler()]);
+        $receipt = $runtime->bus->dispatch(new RegisterUser('settlement-failure@example.test'));
+        self::assertInstanceOf(CommandReceipt::class, $receipt);
+        $deliveryId = $receipt->entry->deliveryId;
+        self::assertInstanceOf(DeliveryId::class, $deliveryId);
+        $primary = new DependencyContainerFailure('primary DI failure');
+        $settlement = new \RuntimeException('settlement backend failure');
+        $failures = new CoreRecordingFailureSink();
+        $worker = new DeliveryWorkerRuntime(
+            new FailingSettlementBackend($runtime->backend, $settlement),
+            $runtime->codecs,
+            $runtime->registry,
+            new FailingHandlerResolver($primary),
+            $runtime->bus,
+            runtimeFailureSink: $failures,
+        );
+
+        try {
+            $worker->runOnce(new WorkerProfile('settlement-failure', 'default'), 'worker:settlement-failure');
+            self::fail('Settlement failure did not expose both causes.');
+        } catch (DeliverySettlementFailed $failure) {
+            self::assertSame($deliveryId, $failure->deliveryId);
+            self::assertSame($primary, $failure->primaryFailure);
+            self::assertSame($settlement, $failure->settlementFailure);
+            self::assertSame($primary, $failure->getPrevious());
+            self::assertStringContainsString($deliveryId->value, $failure->getMessage());
+        }
+
+        self::assertSame([$primary, $settlement], array_column($failures->records, 'failure'));
+        self::assertSame('delivery_settlement', $failures->records[1]['event']->failureStage);
     }
 
     public function testCancellationAndReplayPreserveHistory(): void
@@ -452,6 +503,98 @@ final readonly class FailingHandlerResolver implements HandlerServiceResolver
     public function has(string $class): bool
     {
         return true;
+    }
+}
+
+final readonly class FailingSettlementBackend implements DurableDeliveryBackend
+{
+    public function __construct(
+        private DurableDeliveryBackend $backend,
+        private \Throwable $failure,
+    ) {}
+
+    public function accept(DeliveryDraft $delivery): DeliveryAcceptance
+    {
+        return $this->backend->accept($delivery);
+    }
+
+    public function claim(string $lane, string $workerId): ?ClaimedDelivery
+    {
+        return $this->backend->claim($lane, $workerId);
+    }
+
+    public function heartbeat(ClaimedDelivery $claim): bool
+    {
+        return $this->backend->heartbeat($claim);
+    }
+
+    public function cancellationRequested(ClaimedDelivery $claim): bool
+    {
+        return $this->backend->cancellationRequested($claim);
+    }
+
+    public function markHandlerStarted(
+        ClaimedDelivery $claim,
+        ?int $childPid = null,
+    ): bool {
+        return $this->backend->markHandlerStarted($claim, $childPid);
+    }
+
+    public function succeed(ClaimedDelivery $claim): bool
+    {
+        return $this->backend->succeed($claim);
+    }
+
+    public function fail(
+        ClaimedDelivery $claim,
+        FailureCategory $category,
+        string $summary,
+    ): bool {
+        throw $this->failure;
+    }
+
+    public function status(DeliveryId $deliveryId): ?DeliveryStatus
+    {
+        return $this->backend->status($deliveryId);
+    }
+
+    public function cancel(
+        DeliveryId $deliveryId,
+        ControlActor $actor,
+    ): CancellationReceipt {
+        return $this->backend->cancel($deliveryId, $actor);
+    }
+
+    public function recoverExpired(int $limit): MaintenanceReport
+    {
+        return $this->backend->recoverExpired($limit);
+    }
+
+    public function replay(
+        DeliveryId $deliveryId,
+        DeliveryPolicy $policy,
+        ControlActor $actor,
+    ): ReplayReceipt {
+        return $this->backend->replay($deliveryId, $policy, $actor);
+    }
+
+    public function prune(
+        \DateTimeImmutable $terminalBefore,
+        int $limit,
+        bool $execute,
+    ): MaintenanceReport {
+        return $this->backend->prune($terminalBefore, $limit, $execute);
+    }
+}
+
+final class CoreRecordingFailureSink implements RuntimeFailureSink
+{
+    /** @var list<array{failure: \Throwable, event: RuntimeEvent}> */
+    public array $records = [];
+
+    public function report(\Throwable $failure, RuntimeEvent $event): void
+    {
+        $this->records[] = ['failure' => $failure, 'event' => $event];
     }
 }
 

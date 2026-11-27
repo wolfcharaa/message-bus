@@ -254,7 +254,7 @@ Current backend-neutral lifecycle state of one target delivery.
 Snapshot of the current state; it is not an immutable history record.
 
 - Kind: `class`
-- `__construct(Wolfcharaa\MessageBus\Identity\DeliveryId $deliveryId, Wolfcharaa\MessageBus\Identity\MessageId $messageId, string $targetId, Wolfcharaa\MessageBus\Delivery\DeliveryState $state, int $attempts, DateTimeImmutable $updatedAt, ?string $lastFailureCategory = NULL): mixed`
+- `__construct(Wolfcharaa\MessageBus\Identity\DeliveryId $deliveryId, Wolfcharaa\MessageBus\Identity\MessageId $messageId, string $targetId, Wolfcharaa\MessageBus\Delivery\DeliveryState $state, int $attempts, DateTimeImmutable $updatedAt, ?string $lastFailureCategory = NULL, ?Wolfcharaa\MessageBus\Identity\AttemptId $lastFailureAttemptId = NULL, ?Wolfcharaa\MessageBus\Observability\FailureDiagnostic $lastFailure = NULL): mixed`
 
 ### `Wolfcharaa\MessageBus\Delivery\FailureCategory`
 
@@ -271,6 +271,13 @@ Failure category controls retry without coupling handlers to a transport.
 - `case Cancelled`
 - `case OutcomeUnknown`
 
+### `Wolfcharaa\MessageBus\Delivery\FailureClassification`
+
+Classification outcome retaining a failure raised by the classifier itself.
+
+- Kind: `class`
+- `__construct(Wolfcharaa\MessageBus\Delivery\FailureCategory $category, ?Throwable $classifierFailure = NULL): mixed`
+
 ### `Wolfcharaa\MessageBus\Delivery\FailureClassifiers`
 
 Ordered classifier chain with a conservative terminal fallback.
@@ -278,6 +285,7 @@ Ordered classifier chain with a conservative terminal fallback.
 - Kind: `class`
 - `__construct(?Wolfcharaa\MessageBus\Delivery\FailureClassifier $application = NULL): mixed`
 - `classify(Throwable $failure): Wolfcharaa\MessageBus\Delivery\FailureCategory`
+- `classifyDetailed(Throwable $failure): Wolfcharaa\MessageBus\Delivery\FailureClassification`
 
 ### `Wolfcharaa\MessageBus\Delivery\MaintenanceReport`
 
@@ -300,11 +308,26 @@ Cohesive durable capability required by Command and durable Event routes.
 - Kind: `class`
 - `__construct(Wolfcharaa\MessageBus\Delivery\DurableDeliveryBackend $backend, Wolfcharaa\MessageBus\Codec\MessageCodecs $codecs, Wolfcharaa\MessageBus\Delivery\DeliveryPolicies $policies): mixed`
 
+### `Wolfcharaa\MessageBus\Exception\CleanupFailed`
+
+Raised when cleanup fails while another throwable is already primary.
+
+- Kind: `class`
+- `__construct(string $operation, Throwable $primaryFailure, array $cleanupFailures): mixed`
+
 ### `Wolfcharaa\MessageBus\Exception\CommandNotAccepted`
 
 Raised when a Command could not reach durable acceptance.
 
 - Kind: `class`
+- `__construct(string $message, int $code = 0, ?Throwable $previous = NULL, ?Wolfcharaa\MessageBus\Identity\MessageId $messageId = NULL, ?string $messageName = NULL, ?string $targetId = NULL, ?Wolfcharaa\MessageBus\Observability\FailureStage $stage = NULL): mixed`
+
+### `Wolfcharaa\MessageBus\Exception\DeliverySettlementFailed`
+
+Raised when a delivery failure and its fenced settlement both fail.
+
+- Kind: `class`
+- `__construct(Wolfcharaa\MessageBus\Identity\DeliveryId $deliveryId, Wolfcharaa\MessageBus\Identity\AttemptId $attemptId, Throwable $primaryFailure, Throwable $settlementFailure): mixed`
 
 ### `Wolfcharaa\MessageBus\Exception\IncompatibleDeliveryFailure`
 
@@ -317,6 +340,8 @@ Terminal persisted payload/codec/target incompatibility.
 Stable configuration/registry diagnostic promoted to an exception.
 
 - Kind: `class`
+- `__construct(string $message = 'MessageBus configuration is invalid.', array $diagnostics = array (
+), ?Throwable $previous = NULL): mixed`
 
 ### `Wolfcharaa\MessageBus\Exception\PublicationFailed`
 
@@ -485,9 +510,50 @@ Exact fixed middleware list for applications that do not need scoped resolution.
 )): mixed`
 - `all(): array`
 
+### `Wolfcharaa\MessageBus\Observability\FailureDiagnostic`
+
+Safe machine-readable failure details shared by events and retained status.
+
+- Kind: `class`
+- `__construct(Wolfcharaa\MessageBus\Observability\FailureStage $stage, string $failureClass, ?string $relatedFailureClass = NULL): mixed`
+- `encode(): string`
+- `normalized(): array`
+- `static fromThrowable(Wolfcharaa\MessageBus\Observability\FailureStage $stage, Throwable $failure, ?Throwable $relatedFailure = NULL): Wolfcharaa\MessageBus\Observability\FailureDiagnostic`
+- `static tryFromEncoded(string $encoded): ?Wolfcharaa\MessageBus\Observability\FailureDiagnostic`
+
+### `Wolfcharaa\MessageBus\Observability\FailureStage`
+
+Stable logical stage at which a runtime failure became observable.
+
+- Kind: `enum`
+- `code(): string`
+- `static cases(): array`
+- `static from(string|int $value): static`
+- `static tryFrom(string|int $value): ?static`
+- `summary(): string`
+- `case Dispatch`
+- `case PayloadDecode`
+- `case TargetResolution`
+- `case ContextCreation`
+- `case HandlerResolution`
+- `case HandlerExecution`
+- `case Idempotency`
+- `case FailureClassification`
+- `case DeliverySettlement`
+- `case WorkerFork`
+- `case LeaseRecovery`
+- `case DeliveryAcceptance`
+
 ### `Wolfcharaa\MessageBus\Observability\NullObserverFailureSink`
 
 Default no-op emergency sink.
+
+- Kind: `class`
+- `report(Throwable $failure, Wolfcharaa\MessageBus\Observability\RuntimeEvent $event): void`
+
+### `Wolfcharaa\MessageBus\Observability\NullRuntimeFailureSink`
+
+Explicit opt-out from process-local runtime failure reporting.
 
 - Kind: `class`
 - `report(Throwable $failure, Wolfcharaa\MessageBus\Observability\RuntimeEvent $event): void`
@@ -504,7 +570,7 @@ Default zero-cost observer.
 Safe typed library fact; business payload and credentials are never included.
 
 - Kind: `class`
-- `__construct(Wolfcharaa\MessageBus\Observability\RuntimeEventType $type, DateTimeImmutable $occurredAt, ?Wolfcharaa\MessageBus\Identity\MessageId $messageId = NULL, ?Wolfcharaa\MessageBus\Identity\DeliveryId $deliveryId = NULL, ?Wolfcharaa\MessageBus\Identity\CorrelationId $correlationId = NULL, ?Wolfcharaa\MessageBus\Identity\MessageId $causationId = NULL, ?Wolfcharaa\MessageBus\Identity\AttemptId $attemptId = NULL, ?string $messageName = NULL, ?string $targetId = NULL, ?string $workerId = NULL, ?string $route = NULL, ?string $profile = NULL, ?int $attemptNumber = NULL, ?int $durationMicroseconds = NULL, ?string $outcome = NULL, ?string $failureCategory = NULL, ?string $failureClass = NULL, ?string $errorFingerprint = NULL, int $schemaVersion = 1): mixed`
+- `__construct(Wolfcharaa\MessageBus\Observability\RuntimeEventType $type, DateTimeImmutable $occurredAt, ?Wolfcharaa\MessageBus\Identity\MessageId $messageId = NULL, ?Wolfcharaa\MessageBus\Identity\DeliveryId $deliveryId = NULL, ?Wolfcharaa\MessageBus\Identity\CorrelationId $correlationId = NULL, ?Wolfcharaa\MessageBus\Identity\MessageId $causationId = NULL, ?Wolfcharaa\MessageBus\Identity\AttemptId $attemptId = NULL, ?string $messageName = NULL, ?string $targetId = NULL, ?string $workerId = NULL, ?string $route = NULL, ?string $profile = NULL, ?int $attemptNumber = NULL, ?int $durationMicroseconds = NULL, ?string $outcome = NULL, ?string $failureCategory = NULL, ?string $failureClass = NULL, ?string $errorFingerprint = NULL, int $schemaVersion = 1, ?string $failureCode = NULL, ?string $failureStage = NULL, ?string $failureSummary = NULL, ?string $relatedFailureClass = NULL): mixed`
 - `normalized(): array`
 - `severity(): Wolfcharaa\MessageBus\Observability\RuntimeEventSeverity`
 
@@ -525,6 +591,7 @@ Recommended adapter-independent event severity.
 Stable runtime fact category emitted by the package.
 
 - Kind: `enum`
+- `requiredFields(): array`
 - `severity(): Wolfcharaa\MessageBus\Observability\RuntimeEventSeverity`
 - `static cases(): array`
 - `static from(string|int $value): static`
@@ -550,7 +617,7 @@ Historical receipt proving initial Command staging or acceptance only.
 Immutable initial outcome of one target at dispatch time.
 
 - Kind: `class`
-- `__construct(string $targetId, Wolfcharaa\MessageBus\Receipt\PublicationOutcome $outcome, ?Wolfcharaa\MessageBus\Identity\DeliveryId $deliveryId = NULL, ?string $failureCategory = NULL, ?string $failureSummary = NULL): mixed`
+- `__construct(string $targetId, Wolfcharaa\MessageBus\Receipt\PublicationOutcome $outcome, ?Wolfcharaa\MessageBus\Identity\DeliveryId $deliveryId = NULL, ?string $failureCategory = NULL, ?string $failureSummary = NULL, ?string $failureClass = NULL): mixed`
 
 ### `Wolfcharaa\MessageBus\Receipt\PublicationOutcome`
 
@@ -607,10 +674,10 @@ Complete deterministic route map; no environment fallback occurs at runtime.
 Claims and executes one fenced durable attempt.
 
 - Kind: `class`
-- `__construct(Wolfcharaa\MessageBus\Delivery\DurableDeliveryBackend $backend, Wolfcharaa\MessageBus\Codec\MessageCodecs $codecs, Wolfcharaa\MessageBus\Registry\CompiledRegistry $registry, Wolfcharaa\MessageBus\HandlerServiceResolver $handlers, Wolfcharaa\MessageBus\Contract\MessageBus $dispatcher, Wolfcharaa\MessageBus\Context\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\MessageBus\Context\MessageContextFactories, Wolfcharaa\MessageBus\Middleware\HandlerMiddlewareResolver $middleware = new Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares, Wolfcharaa\MessageBus\Delivery\FailureClassifiers $classifiers = new Wolfcharaa\MessageBus\Delivery\FailureClassifiers, Wolfcharaa\MessageBus\Observability\RuntimeObserver $observer = new Wolfcharaa\MessageBus\Observability\NullRuntimeObserver, Wolfcharaa\MessageBus\Observability\ObserverFailureSink $observerFailureSink = new Wolfcharaa\MessageBus\Observability\NullObserverFailureSink, Psr\Clock\ClockInterface $clock = new Wolfcharaa\MessageBus\SystemClock, ?Wolfcharaa\MessageBus\Idempotency\IdempotencyRuntime $idempotency = NULL): mixed`
+- `__construct(Wolfcharaa\MessageBus\Delivery\DurableDeliveryBackend $backend, Wolfcharaa\MessageBus\Codec\MessageCodecs $codecs, Wolfcharaa\MessageBus\Registry\CompiledRegistry $registry, Wolfcharaa\MessageBus\HandlerServiceResolver $handlers, Wolfcharaa\MessageBus\Contract\MessageBus $dispatcher, Wolfcharaa\MessageBus\Context\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\MessageBus\Context\MessageContextFactories, Wolfcharaa\MessageBus\Middleware\HandlerMiddlewareResolver $middleware = new Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares, Wolfcharaa\MessageBus\Delivery\FailureClassifiers $classifiers = new Wolfcharaa\MessageBus\Delivery\FailureClassifiers, Wolfcharaa\MessageBus\Observability\RuntimeObserver $observer = new Wolfcharaa\MessageBus\Observability\NullRuntimeObserver, Wolfcharaa\MessageBus\Observability\ObserverFailureSink $observerFailureSink = new Wolfcharaa\MessageBus\Observability\NullObserverFailureSink, Psr\Clock\ClockInterface $clock = new Wolfcharaa\MessageBus\SystemClock, ?Wolfcharaa\MessageBus\Idempotency\IdempotencyRuntime $idempotency = NULL, Wolfcharaa\MessageBus\Observability\RuntimeFailureSink $runtimeFailureSink = new Wolfcharaa\MessageBus\Observability\NullRuntimeFailureSink): mixed`
 - `cancellationRequested(Wolfcharaa\MessageBus\Delivery\ClaimedDelivery $claim): bool`
 - `claim(Wolfcharaa\MessageBus\Worker\WorkerProfile $profile, string $workerId): ?Wolfcharaa\MessageBus\Delivery\ClaimedDelivery`
-- `execute(Wolfcharaa\MessageBus\Delivery\ClaimedDelivery $claim, ?int $childPid = NULL): Wolfcharaa\MessageBus\Worker\WorkerIteration`
+- `execute(Wolfcharaa\MessageBus\Delivery\ClaimedDelivery $claim, ?int $childPid = NULL, string $workerId = 'unknown', string $profile = 'unknown'): Wolfcharaa\MessageBus\Worker\WorkerIteration`
 - `forkFailed(Wolfcharaa\MessageBus\Delivery\ClaimedDelivery $claim): Wolfcharaa\MessageBus\Worker\WorkerIteration`
 - `heartbeat(Wolfcharaa\MessageBus\Delivery\ClaimedDelivery $claim): bool`
 - `runOnce(Wolfcharaa\MessageBus\Worker\WorkerProfile $profile, string $workerId): Wolfcharaa\MessageBus\Worker\WorkerIteration`
@@ -867,6 +934,13 @@ Process-local last-resort reporting for observer adapter failures.
 - Kind: `interface`
 - `report(Throwable $failure, Wolfcharaa\MessageBus\Observability\RuntimeEvent $event): void`
 
+### `Wolfcharaa\MessageBus\Observability\RuntimeFailureSink`
+
+Process-local reporting channel that receives the original runtime throwable.
+
+- Kind: `interface`
+- `report(Throwable $failure, Wolfcharaa\MessageBus\Observability\RuntimeEvent $event): void`
+
 ### `Wolfcharaa\MessageBus\Observability\RuntimeObserver`
 
 One observer extension for metrics, traces and structured logs.
@@ -1078,6 +1152,14 @@ Cryptographic default identity generator.
 - `leaseToken(): Wolfcharaa\MessageBus\Identity\LeaseToken`
 - `messageId(): Wolfcharaa\MessageBus\Identity\MessageId`
 
+### `Wolfcharaa\MessageBus\Observability\PsrLogRuntimeFailureSink`
+
+PSR-3 process-local failure sink retaining the original exception and trace.
+
+- Kind: `class`
+- `__construct(Psr\Log\LoggerInterface $logger): mixed`
+- `report(Throwable $failure, Wolfcharaa\MessageBus\Observability\RuntimeEvent $event): void`
+
 ### `Wolfcharaa\MessageBus\Observability\PsrLogRuntimeObserver`
 
 Optional PSR-3 adapter; psr/log is only a suggested package dependency.
@@ -1232,7 +1314,8 @@ Compiles method attributes and signatures into a deterministic registry.
 Machine-readable registry compiler diagnostic.
 
 - Kind: `class`
-- `__construct(string $code, Wolfcharaa\MessageBus\Registry\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL): mixed`
+- `__construct(string $code, Wolfcharaa\MessageBus\Registry\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL, ?string $rule = NULL, ?string $subjectKind = NULL, ?string $expected = NULL, ?string $actual = NULL, ?string $causeClass = NULL): mixed`
+- `normalized(): array`
 
 ### `Wolfcharaa\MessageBus\Routing\RuntimeConfigurationRule`
 

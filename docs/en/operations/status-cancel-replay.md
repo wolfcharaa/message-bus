@@ -1,6 +1,6 @@
 ---
 doc_id: operations.status-cancel-replay
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Status, cancel, and replay
@@ -10,6 +10,8 @@ Applications use opaque DeliveryId and public operations instead of reading inte
 - Cancel returns a race outcome: before-start, requested-running, already-requested, already-terminal, or not-found.
 
 - Replay always creates a new DeliveryId and retains a link to the original history.
+
+- Status reports the exact attempt that most recently failed and its redacted failure descriptor when the backend retained canonical diagnostics. Legacy free-form summaries remain readable but are not promoted to a structured diagnostic.
 
 - Replaying `outcome_unknown` requires an idempotent policy and must remain inside the original delivery’s persisted replay window; a new policy does not widen the old safety horizon.
 

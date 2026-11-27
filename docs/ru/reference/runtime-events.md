@@ -1,15 +1,17 @@
 ---
 doc_id: reference.runtime-events
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Runtime events
 
 Стабильные event types: dispatch started/completed/failed, delivery accepted/recovered и attempt started/succeeded/failed.
 
-- Каждое событие имеет schema version, recommended severity, timestamp и применимые message/correlation/causation, delivery/attempt, target/route, duration/outcome fields.
+- `RuntimeEventType::requiredFields()` определяет обязательные поля для каждого event type. При создании неполного события исключение точно указывает event type и отсутствующее поле, поэтому такое событие не попадёт в observer.
 
-- Произвольного attributes bag нет. Failure содержит class, stable category и fingerprint без raw message/trace; payload и secret metadata не включаются.
+- Failure event содержит `failure_code`, `failure_stage`, `failure_summary`, `failure_class` и `error_fingerprint`. `attempt_failed` также содержит retry category; отдельная ошибка classifier доступна как `related_failure_class`.
+
+- Тот же безопасный дескриптор `FailureDiagnostic` сохраняется в delivery status. Произвольные exception message, trace, payload и secret metadata в него намеренно не входят.
 
 - Новый обязательный field либо semantic change требует catalog revision.
 

@@ -19,13 +19,17 @@ use Wolfcharaa\MessageBus\Delivery\DurableDeliveryBackend;
 use Wolfcharaa\MessageBus\Delivery\FailureCategory;
 use Wolfcharaa\MessageBus\Delivery\MaintenanceReport;
 use Wolfcharaa\MessageBus\Delivery\ReplayReceipt;
+use Wolfcharaa\MessageBus\Identity\AttemptId;
 use Wolfcharaa\MessageBus\Identity\CorrelationId;
 use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\IdentityGenerator;
 use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Identity\RandomIdentityGenerator;
 use Wolfcharaa\MessageBus\Internal\Postgres\QualifiedSql;
+use Wolfcharaa\MessageBus\Internal\Runtime\FailurePreservingCleanup;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
+use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
+use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Registry\MessageRole;
 
 /**
@@ -296,10 +300,18 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
     public function status(DeliveryId $deliveryId): ?DeliveryStatus
     {
         $statement = $this->prepare(<<<'SQL'
-            SELECT delivery_id, message_id, target_id, state, attempt_count,
-                   updated_at, last_failure_category
-            FROM message_bus__deliveries
-            WHERE delivery_id = :delivery_id
+            SELECT d.delivery_id, d.message_id, d.target_id, d.state, d.attempt_count,
+                   d.updated_at, d.last_failure_category,
+                   a.attempt_id AS last_failure_attempt_id, a.failure_summary
+            FROM message_bus__deliveries d
+            LEFT JOIN LATERAL (
+                SELECT attempt_id, failure_summary
+                FROM message_bus__delivery_attempts
+                WHERE delivery_id = d.delivery_id AND failure_summary IS NOT NULL
+                ORDER BY attempt_number DESC
+                LIMIT 1
+            ) a ON true
+            WHERE d.delivery_id = :delivery_id
             SQL);
         $statement->execute(['delivery_id' => $deliveryId->value]);
         $row = $this->row($statement);
@@ -383,12 +395,17 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
                     UPDATE message_bus__delivery_attempts
                     SET state = 'lost', finished_at = clock_timestamp(), lost_at = clock_timestamp(),
                         outcome = 'lost', failure_category = 'lost',
+                        failure_summary = :failure_summary,
                         scheduling_decision = :scheduling_decision
                     WHERE attempt_id = :attempt_id AND lease_token = :lease_token AND finished_at IS NULL
                     SQL);
                 $attempt->execute([
                     'attempt_id' => $this->string($row, 'current_attempt_id'),
                     'lease_token' => $this->string($row, 'lease_token'),
+                    'failure_summary' => (new FailureDiagnostic(
+                        FailureStage::LeaseRecovery,
+                        \RuntimeException::class,
+                    ))->encode(),
                     'scheduling_decision' => $state->value,
                 ]);
                 if ($attempt->rowCount() !== 1) {
@@ -549,7 +566,7 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
                         THEN clock_timestamp() + make_interval(secs => :retry_delay)
                         ELSE available_at
                     END,
-                    last_failure_category = :failure_category,
+                    last_failure_category = COALESCE(:failure_category, last_failure_category),
                     updated_at = clock_timestamp(),
                     finished_at = CASE WHEN :terminal THEN clock_timestamp() ELSE NULL END
                 WHERE delivery_id = :delivery_id
@@ -610,6 +627,10 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
     /** @param array<string, mixed> $row */
     private function statusFromRow(array $row): DeliveryStatus
     {
+        $failureSummary = $this->nullableString($row, 'failure_summary');
+        $failureAttemptId = $this->nullableString($row, 'last_failure_attempt_id');
+        $failure = $failureSummary === null ? null : FailureDiagnostic::tryFromEncoded($failureSummary);
+
         return new DeliveryStatus(
             new DeliveryId($this->string($row, 'delivery_id')),
             new MessageId($this->string($row, 'message_id')),
@@ -618,6 +639,10 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
             $this->integer($row, 'attempt_count'),
             new \DateTimeImmutable($this->string($row, 'updated_at')),
             $this->nullableString($row, 'last_failure_category'),
+            $failure instanceof FailureDiagnostic && $failureAttemptId !== null
+                ? new AttemptId($failureAttemptId)
+                : null,
+            $failure,
         );
     }
 
@@ -878,14 +903,25 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
 
             return $result;
         } catch (\Throwable $failure) {
+            $cleanup = [];
             if ($owns && $this->pdo->inTransaction()) {
-                $this->pdo->rollBack();
+                $cleanup[] = function (): void {
+                    $this->pdo->rollBack();
+                };
             } elseif (!$owns && $this->pdo->inTransaction()) {
-                $this->pdo->exec('ROLLBACK TO SAVEPOINT message_bus_accept');
-                $this->pdo->exec('RELEASE SAVEPOINT message_bus_accept');
+                $cleanup[] = function (): void {
+                    $this->pdo->exec('ROLLBACK TO SAVEPOINT message_bus_accept');
+                };
+                $cleanup[] = function (): void {
+                    $this->pdo->exec('RELEASE SAVEPOINT message_bus_accept');
+                };
             }
 
-            throw $failure;
+            FailurePreservingCleanup::rethrowAfter(
+                $failure,
+                'PostgreSQL delivery transaction rollback',
+                ...$cleanup,
+            );
         }
     }
 }

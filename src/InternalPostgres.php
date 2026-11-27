@@ -10,7 +10,9 @@ final class QualifiedSql
     public static function validateSchema(string $schema): void
     {
         if (preg_match('/^[a-z_][a-z0-9_]{0,62}$/D', $schema) !== 1) {
-            throw new \InvalidArgumentException('PostgreSQL schema name is invalid.');
+            throw new \InvalidArgumentException(
+                'PostgreSQL schema must match [a-z_][a-z0-9_]{0,62}.',
+            );
         }
     }
 

@@ -194,7 +194,37 @@ final readonly class RegistryDiagnostic
         public DiagnosticSeverity $severity,
         public string $message,
         public ?string $symbol = null,
-    ) {}
+        public ?string $rule = null,
+        public ?string $subjectKind = null,
+        public ?string $expected = null,
+        public ?string $actual = null,
+        public ?string $causeClass = null,
+    ) {
+        if (preg_match('/^[A-Z][A-Z0-9._-]{2,31}$/D', $this->code) !== 1) {
+            throw new \InvalidArgumentException(
+                'Registry diagnostic code must match [A-Z][A-Z0-9._-]{2,31}.',
+            );
+        }
+        if ($this->message === '') {
+            throw new \InvalidArgumentException('Registry diagnostic message must not be empty.');
+        }
+    }
+
+    /** @return array<string, string|null> */
+    public function normalized(): array
+    {
+        return [
+            'code' => $this->code,
+            'severity' => $this->severity->value,
+            'message' => $this->message,
+            'symbol' => $this->symbol,
+            'rule' => $this->rule ?? $this->code,
+            'subject_kind' => $this->subjectKind ?? 'symbol',
+            'expected' => $this->expected,
+            'actual' => $this->actual,
+            'cause_class' => $this->causeClass,
+        ];
+    }
 }
 
 /**
@@ -224,7 +254,16 @@ final readonly class RegistryCompilationResult
     public function requireRegistry(): CompiledRegistry
     {
         if (!$this->isValid()) {
-            throw new InvalidMessageBusConfiguration('MessageBus registry is invalid.');
+            $references = array_map(
+                static fn(RegistryDiagnostic $diagnostic): string => $diagnostic->code
+                    . ($diagnostic->symbol === null ? '' : '@' . $diagnostic->symbol),
+                $this->diagnostics,
+            );
+
+            throw new InvalidMessageBusConfiguration(
+                'MessageBus registry is invalid: ' . implode(', ', $references) . '.',
+                $this->diagnostics,
+            );
         }
 
         return $this->registry ?? throw new \LogicException('Valid compilation has no registry.');
@@ -275,7 +314,14 @@ final readonly class RegistryCompiler
                             try {
                                 $name = $attributes[0]->newInstance()->value;
                             } catch (\Throwable $failure) {
-                                $diagnostics[] = $this->error('MBR017', $failure->getMessage(), $class);
+                                $diagnostics[] = $this->error(
+                                    'MBR020',
+                                    '#[MessageName] construction failed.',
+                                    $class,
+                                    expected: 'A valid #[MessageName] instance.',
+                                    actual: 'Attribute constructor threw.',
+                                    causeClass: $failure::class,
+                                );
 
                                 continue;
                             }
@@ -362,7 +408,14 @@ final readonly class RegistryCompiler
         }
         foreach ($parameters as $parameter) {
             if ($parameter->isOptional() || $parameter->isVariadic()) {
-                $diagnostics[] = $this->error('MBR003', 'Handler parameters cannot be optional or variadic.', $symbol);
+                $diagnostics[] = $this->error(
+                    'MBR018',
+                    'Handler parameter must be required and non-variadic.',
+                    $symbol,
+                    expected: 'required non-variadic parameter',
+                    actual: '$' . $parameter->getName()
+                        . ($parameter->isOptional() ? ' is optional' : ' is variadic'),
+                );
 
                 return;
             }
@@ -376,7 +429,13 @@ final readonly class RegistryCompiler
             return;
         }
         if (!(new \ReflectionClass($messageClass))->isInstantiable()) {
-            $diagnostics[] = $this->error('MBR004', 'Handler message type must be concrete.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR019',
+                'Handler message type must be instantiable.',
+                $symbol,
+                expected: 'concrete instantiable Message class',
+                actual: $messageClass,
+            );
 
             return;
         }
@@ -425,7 +484,14 @@ final readonly class RegistryCompiler
         try {
             $attribute = $attributes[0]->newInstance();
         } catch (\Throwable $failure) {
-            $diagnostics[] = $this->error('MBR017', $failure->getMessage(), $symbol);
+            $diagnostics[] = $this->error(
+                'MBR017',
+                '#[Handler] construction failed.',
+                $symbol,
+                expected: 'A valid #[Handler] instance.',
+                actual: 'Attribute constructor threw.',
+                causeClass: $failure::class,
+            );
 
             return;
         }
@@ -528,9 +594,25 @@ final readonly class RegistryCompiler
         return $class;
     }
 
-    private function error(string $code, string $message, ?string $symbol): RegistryDiagnostic
-    {
-        return new RegistryDiagnostic($code, DiagnosticSeverity::Error, $message, $symbol);
+    private function error(
+        string $code,
+        string $message,
+        ?string $symbol,
+        ?string $expected = null,
+        ?string $actual = null,
+        ?string $causeClass = null,
+    ): RegistryDiagnostic {
+        return new RegistryDiagnostic(
+            $code,
+            DiagnosticSeverity::Error,
+            $message,
+            $symbol,
+            $code,
+            'symbol',
+            $expected,
+            $actual,
+            $causeClass,
+        );
     }
 
     /** @param list<RegistryDiagnostic> $diagnostics */

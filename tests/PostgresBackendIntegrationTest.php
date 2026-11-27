@@ -27,6 +27,8 @@ use Wolfcharaa\MessageBus\Identity\CorrelationId;
 use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
+use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
+use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Worker\WorkerControlOutcome;
 use Wolfcharaa\MessageBus\Worker\WorkerControlScope;
 use Wolfcharaa\MessageBus\Worker\WorkerDesiredState;
@@ -113,10 +115,13 @@ final class PostgresBackendIntegrationTest extends TestCase
         self::assertNotNull($first);
         self::assertTrue($backend->heartbeat($first));
         self::assertFalse($backend->cancellationRequested($first));
-        self::assertTrue($backend->fail($first, FailureCategory::Retryable, 'temporary'));
+        $failure = new FailureDiagnostic(FailureStage::HandlerResolution, \RuntimeException::class);
+        self::assertTrue($backend->fail($first, FailureCategory::Retryable, $failure->encode()));
         $status = $backend->status($deliveryId);
         self::assertNotNull($status);
         self::assertSame(DeliveryState::RetryWait, $status->state);
+        self::assertEquals($first->attempt->attemptId, $status->lastFailureAttemptId);
+        self::assertEquals($failure, $status->lastFailure);
         self::assertFalse($backend->succeed($first), 'A settled lease cannot settle again.');
 
         $second = $backend->claim('default', 'worker:integration');
@@ -125,6 +130,9 @@ final class PostgresBackendIntegrationTest extends TestCase
         $status = $backend->status($deliveryId);
         self::assertNotNull($status);
         self::assertSame(DeliveryState::Succeeded, $status->state);
+        self::assertSame(FailureCategory::Retryable->value, $status->lastFailureCategory);
+        self::assertEquals($first->attempt->attemptId, $status->lastFailureAttemptId);
+        self::assertEquals($failure, $status->lastFailure);
         self::assertSame(
             CancellationOutcome::AlreadyTerminal,
             $backend->cancel($deliveryId, new ControlActor('tester', 'late cancel'))->outcome,

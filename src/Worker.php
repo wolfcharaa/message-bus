@@ -15,23 +15,30 @@ use Wolfcharaa\MessageBus\Contract\MessageBus;
 use Wolfcharaa\MessageBus\Delivery\ClaimedDelivery;
 use Wolfcharaa\MessageBus\Delivery\DurableDeliveryBackend;
 use Wolfcharaa\MessageBus\Delivery\FailureCategory;
+use Wolfcharaa\MessageBus\Delivery\FailureClassification;
 use Wolfcharaa\MessageBus\Delivery\FailureClassifier;
 use Wolfcharaa\MessageBus\Delivery\FailureClassifiers;
+use Wolfcharaa\MessageBus\Exception\DeliverySettlementFailed;
 use Wolfcharaa\MessageBus\Exception\IncompatibleDeliveryFailure;
 use Wolfcharaa\MessageBus\Exception\TerminalDeliveryFailure;
 use Wolfcharaa\MessageBus\HandlerServiceResolver;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyAttempt;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyRuntime;
+use Wolfcharaa\MessageBus\Internal\Runtime\BestEffortRuntimeFailureSink;
 use Wolfcharaa\MessageBus\Internal\Runtime\BestEffortRuntimeObserver;
 use Wolfcharaa\MessageBus\Internal\Runtime\DeliveryCancellationSignal;
 use Wolfcharaa\MessageBus\Internal\Runtime\HandlerPipeline;
 use Wolfcharaa\MessageBus\Middleware\HandlerMiddlewareResolver;
 use Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares;
+use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
+use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Observability\NullObserverFailureSink;
+use Wolfcharaa\MessageBus\Observability\NullRuntimeFailureSink;
 use Wolfcharaa\MessageBus\Observability\NullRuntimeObserver;
 use Wolfcharaa\MessageBus\Observability\ObserverFailureSink;
 use Wolfcharaa\MessageBus\Observability\RuntimeEvent;
 use Wolfcharaa\MessageBus\Observability\RuntimeEventType;
+use Wolfcharaa\MessageBus\Observability\RuntimeFailureSink;
 use Wolfcharaa\MessageBus\Observability\RuntimeObserver;
 use Wolfcharaa\MessageBus\Registry\CompiledRegistry;
 use Wolfcharaa\MessageBus\Registry\HandlerBinding;
@@ -88,12 +95,35 @@ final readonly class WorkerProfile
         public int $maxMemoryBytes = 0,
         public bool $stopWhenEmpty = false,
     ) {
-        if ($this->name === '' || $this->lane === '' || $this->parallelism < 1
-            || $this->pollMicroseconds < 1_000 || $this->heartbeatMicroseconds < 1_000
-            || $this->shutdownGraceSeconds < 1 || $this->forceKillGraceSeconds < 1
-            || $this->maxHandledAttempts < 0 || $this->maxRuntimeSeconds < 0
-            || $this->maxMemoryBytes < 0) {
-            throw new \InvalidArgumentException('WorkerProfile contains invalid bounds.');
+        if ($this->name === '') {
+            throw new \InvalidArgumentException('WorkerProfile name must not be empty.');
+        }
+        if ($this->lane === '') {
+            throw new \InvalidArgumentException('WorkerProfile lane must not be empty.');
+        }
+        if ($this->parallelism < 1) {
+            throw new \InvalidArgumentException('WorkerProfile parallelism must be at least 1.');
+        }
+        if ($this->pollMicroseconds < 1_000) {
+            throw new \InvalidArgumentException('WorkerProfile pollMicroseconds must be at least 1000.');
+        }
+        if ($this->heartbeatMicroseconds < 1_000) {
+            throw new \InvalidArgumentException('WorkerProfile heartbeatMicroseconds must be at least 1000.');
+        }
+        if ($this->shutdownGraceSeconds < 1) {
+            throw new \InvalidArgumentException('WorkerProfile shutdownGraceSeconds must be at least 1.');
+        }
+        if ($this->forceKillGraceSeconds < 1) {
+            throw new \InvalidArgumentException('WorkerProfile forceKillGraceSeconds must be at least 1.');
+        }
+        if ($this->maxHandledAttempts < 0) {
+            throw new \InvalidArgumentException('WorkerProfile maxHandledAttempts must not be negative.');
+        }
+        if ($this->maxRuntimeSeconds < 0) {
+            throw new \InvalidArgumentException('WorkerProfile maxRuntimeSeconds must not be negative.');
+        }
+        if ($this->maxMemoryBytes < 0) {
+            throw new \InvalidArgumentException('WorkerProfile maxMemoryBytes must not be negative.');
         }
     }
 }
@@ -250,6 +280,8 @@ final readonly class DeliveryWorkerRuntime
 {
     private RuntimeObserver $observer;
 
+    private RuntimeFailureSink $failureSink;
+
     public function __construct(
         private DurableDeliveryBackend $backend,
         private MessageCodecs $codecs,
@@ -263,8 +295,10 @@ final readonly class DeliveryWorkerRuntime
         ObserverFailureSink $observerFailureSink = new NullObserverFailureSink(),
         private ClockInterface $clock = new SystemClock(),
         private ?IdempotencyRuntime $idempotency = null,
+        RuntimeFailureSink $runtimeFailureSink = new NullRuntimeFailureSink(),
     ) {
         $this->observer = new BestEffortRuntimeObserver($observer, $observerFailureSink);
+        $this->failureSink = new BestEffortRuntimeFailureSink($runtimeFailureSink, $observerFailureSink);
     }
 
     public function claim(WorkerProfile $profile, string $workerId): ?ClaimedDelivery
@@ -281,13 +315,19 @@ final readonly class DeliveryWorkerRuntime
     {
         $claim = $this->claim($profile, $workerId);
 
-        return $claim instanceof ClaimedDelivery ? $this->execute($claim) : WorkerIteration::Idle;
+        return $claim instanceof ClaimedDelivery
+            ? $this->execute($claim, workerId: $workerId, profile: $profile->name)
+            : WorkerIteration::Idle;
     }
 
-    public function execute(ClaimedDelivery $claim, ?int $childPid = null): WorkerIteration
-    {
+    public function execute(
+        ClaimedDelivery $claim,
+        ?int $childPid = null,
+        string $workerId = 'unknown',
+        string $profile = 'unknown',
+    ): WorkerIteration {
         $started = hrtime(true);
-        $handlerResolutionFailure = null;
+        $stage = FailureStage::PayloadDecode;
         if (!$this->backend->markHandlerStarted($claim, $childPid)) {
             return WorkerIteration::LostLease;
         }
@@ -301,12 +341,16 @@ final readonly class DeliveryWorkerRuntime
             $claim->attempt->attemptId,
             $claim->delivery->payload->messageName,
             $claim->delivery->targetId,
+            workerId: $workerId,
+            route: $claim->delivery->lane,
+            profile: $profile,
             attemptNumber: $claim->attempt->number,
         ));
 
         try {
             try {
                 $message = $this->codecs->decode($claim->delivery->payload);
+                $stage = FailureStage::TargetResolution;
                 $binding = $this->binding($claim, $this->registry->handlersFor($message));
             } catch (\Throwable $failure) {
                 throw new IncompatibleDeliveryFailure(
@@ -316,6 +360,7 @@ final readonly class DeliveryWorkerRuntime
                 );
             }
             $signal = new DeliveryCancellationSignal($this->backend, $claim);
+            $stage = FailureStage::ContextCreation;
             $contextType = $binding->contextClass ?? MessageContext::class;
             $context = $this->contextFactories->factory($contextType)->create(new MessageContextSeed(
                 $this->dispatcher,
@@ -323,20 +368,17 @@ final readonly class DeliveryWorkerRuntime
                 $signal,
             ));
 
-            try {
-                $service = $this->handlers->get($binding->handlerClass);
-            } catch (\Throwable $failure) {
-                $handlerResolutionFailure = $failure;
-
-                throw $failure;
-            }
+            $stage = FailureStage::HandlerResolution;
+            $service = $this->handlers->get($binding->handlerClass);
             $method = new \ReflectionMethod($service, $binding->method);
             $handler = $binding->contextClass === null
                 ? static fn(): mixed => $method->invoke($service, $message)
                 : static fn(): mixed => $method->invoke($service, $message, $context);
             $invoke = fn(): mixed => (new HandlerPipeline($this->middleware->all()))
                 ->invoke($message, $context, $handler);
+            $stage = FailureStage::HandlerExecution;
             if ($claim->delivery->policy->idempotent) {
+                $stage = FailureStage::Idempotency;
                 $idempotency = $this->idempotency
                     ?? throw new TerminalDeliveryFailure(
                         'Idempotent delivery target has no AtomicIdempotencyBoundary.',
@@ -374,6 +416,9 @@ final readonly class DeliveryWorkerRuntime
                 $claim->attempt->attemptId,
                 $claim->delivery->payload->messageName,
                 $claim->delivery->targetId,
+                workerId: $workerId,
+                route: $claim->delivery->lane,
+                profile: $profile,
                 attemptNumber: $claim->attempt->number,
                 durationMicroseconds: $this->durationMicroseconds($started),
                 outcome: 'succeeded',
@@ -381,32 +426,73 @@ final readonly class DeliveryWorkerRuntime
 
             return WorkerIteration::Succeeded;
         } catch (\Throwable $failure) {
-            $category = (new DefaultFailureClassifier())->classify($failure)
-                ?? $this->classifiers->classify($failure);
-            if (!$this->backend->fail($claim, $category, substr($failure->getMessage(), 0, 512))) {
+            $handlerResolutionFailure = $stage === FailureStage::HandlerResolution ? $failure : null;
+            $builtInCategory = (new DefaultFailureClassifier())->classify($failure);
+            $classification = $builtInCategory instanceof FailureCategory
+                ? new FailureClassification($builtInCategory)
+                : $this->classifiers->classifyDetailed($failure);
+            $category = $classification->category;
+            $primaryDiagnostic = FailureDiagnostic::fromThrowable($stage, $failure, $failure->getPrevious());
+            $primaryEvent = $this->failureEvent(
+                $claim,
+                $workerId,
+                $profile,
+                $category,
+                $primaryDiagnostic,
+                $started,
+            );
+            $this->failureSink->report($failure, $primaryEvent);
+
+            $diagnostic = $primaryDiagnostic;
+            if ($classification->classifierFailure instanceof \Throwable) {
+                $diagnostic = FailureDiagnostic::fromThrowable(
+                    FailureStage::FailureClassification,
+                    $classification->classifierFailure,
+                    $failure,
+                );
+                $this->failureSink->report(
+                    $classification->classifierFailure,
+                    $this->failureEvent($claim, $workerId, $profile, $category, $diagnostic, $started),
+                );
+            }
+
+            try {
+                $settled = $this->backend->fail($claim, $category, $diagnostic->encode());
+            } catch (\Throwable $settlementFailure) {
+                $settlementDiagnostic = FailureDiagnostic::fromThrowable(
+                    FailureStage::DeliverySettlement,
+                    $settlementFailure,
+                    $failure,
+                );
+                $this->failureSink->report(
+                    $settlementFailure,
+                    $this->failureEvent(
+                        $claim,
+                        $workerId,
+                        $profile,
+                        FailureCategory::OutcomeUnknown,
+                        $settlementDiagnostic,
+                        $started,
+                    ),
+                );
+
+                throw new DeliverySettlementFailed(
+                    $claim->delivery->deliveryId,
+                    $claim->attempt->attemptId,
+                    $failure,
+                    $settlementFailure,
+                );
+            }
+            if (!$settled) {
                 if ($handlerResolutionFailure instanceof \Throwable) {
                     throw $handlerResolutionFailure;
                 }
 
                 return WorkerIteration::LostLease;
             }
-            $this->observer->observe(new RuntimeEvent(
-                RuntimeEventType::AttemptFailed,
-                $this->clock->now(),
-                $claim->delivery->metadata->messageId,
-                $claim->delivery->deliveryId,
-                $claim->delivery->metadata->correlationId,
-                $claim->delivery->metadata->causationId,
-                $claim->attempt->attemptId,
-                $claim->delivery->payload->messageName,
-                $claim->delivery->targetId,
-                attemptNumber: $claim->attempt->number,
-                durationMicroseconds: $this->durationMicroseconds($started),
-                outcome: 'failed',
-                failureCategory: $category->value,
-                failureClass: $failure::class,
-                errorFingerprint: hash('sha256', $failure::class . "\0" . $category->value),
-            ));
+            $this->observer->observe(
+                $this->failureEvent($claim, $workerId, $profile, $category, $diagnostic, $started),
+            );
 
             if ($handlerResolutionFailure instanceof \Throwable) {
                 throw $handlerResolutionFailure;
@@ -418,10 +504,11 @@ final readonly class DeliveryWorkerRuntime
 
     public function forkFailed(ClaimedDelivery $claim): WorkerIteration
     {
+        $diagnostic = new FailureDiagnostic(FailureStage::WorkerFork, \RuntimeException::class);
         $settled = $this->backend->fail(
             $claim,
             FailureCategory::Retryable,
-            'Worker child could not be forked before handler start.',
+            $diagnostic->encode(),
         );
 
         return $settled ? WorkerIteration::Failed : WorkerIteration::LostLease;
@@ -450,6 +537,40 @@ final readonly class DeliveryWorkerRuntime
     {
         return max(0, (int) ((hrtime(true) - $started) / 1_000));
     }
+
+    private function failureEvent(
+        ClaimedDelivery $claim,
+        string $workerId,
+        string $profile,
+        FailureCategory $category,
+        FailureDiagnostic $diagnostic,
+        int $started,
+    ): RuntimeEvent {
+        return new RuntimeEvent(
+            RuntimeEventType::AttemptFailed,
+            $this->clock->now(),
+            $claim->delivery->metadata->messageId,
+            $claim->delivery->deliveryId,
+            $claim->delivery->metadata->correlationId,
+            $claim->delivery->metadata->causationId,
+            $claim->attempt->attemptId,
+            $claim->delivery->payload->messageName,
+            $claim->delivery->targetId,
+            workerId: $workerId,
+            route: $claim->delivery->lane,
+            profile: $profile,
+            attemptNumber: $claim->attempt->number,
+            durationMicroseconds: $this->durationMicroseconds($started),
+            outcome: 'failed',
+            failureCategory: $category->value,
+            failureClass: $diagnostic->failureClass,
+            errorFingerprint: $diagnostic->fingerprint,
+            failureCode: $diagnostic->code,
+            failureStage: $diagnostic->stage->value,
+            failureSummary: $diagnostic->summary,
+            relatedFailureClass: $diagnostic->relatedFailureClass,
+        );
+    }
 }
 
 /**
@@ -472,8 +593,13 @@ final class PcntlWorkerSupervisor
         private readonly string $registryHash = '0000000000000000000000000000000000000000000000000000000000000000',
         private readonly WorkerProcessSystem $process = new NativeWorkerProcessSystem(),
     ) {
-        if ($this->buildId === '' || preg_match('/^[a-f0-9]{64}$/D', $this->registryHash) !== 1) {
-            throw new \InvalidArgumentException('Worker build and registry identities are invalid.');
+        if ($this->buildId === '') {
+            throw new \InvalidArgumentException('Worker supervisor buildId must not be empty.');
+        }
+        if (preg_match('/^[a-f0-9]{64}$/D', $this->registryHash) !== 1) {
+            throw new \InvalidArgumentException(
+                'Worker supervisor registryHash must be a lowercase SHA-256 digest.',
+            );
         }
     }
 
@@ -547,6 +673,8 @@ final class PcntlWorkerSupervisor
                         $result = $this->childRuntimeFactory->createAfterFork()->execute(
                             $claim,
                             $this->process->currentPid(),
+                            $workerId,
+                            $profile->name,
                         );
                         $exitCode = $result === WorkerIteration::Succeeded ? 0 : 1;
                     } catch (\Throwable $failure) {

@@ -40,10 +40,16 @@ final readonly class IntentFingerprint
         public int $version,
         public string $digest,
     ) {
-        if (preg_match('/^[a-z][a-z0-9._-]{1,31}$/D', $this->algorithm) !== 1
-            || $this->version < 1
-            || preg_match('/^[a-f0-9]{64}$/D', $this->digest) !== 1) {
-            throw new \InvalidArgumentException('Intent fingerprint is invalid.');
+        if (preg_match('/^[a-z][a-z0-9._-]{1,31}$/D', $this->algorithm) !== 1) {
+            throw new \InvalidArgumentException(
+                'IntentFingerprint algorithm must match [a-z][a-z0-9._-]{1,31}.',
+            );
+        }
+        if ($this->version < 1) {
+            throw new \InvalidArgumentException('IntentFingerprint version must be at least 1.');
+        }
+        if (preg_match('/^[a-f0-9]{64}$/D', $this->digest) !== 1) {
+            throw new \InvalidArgumentException('IntentFingerprint digest must be a lowercase SHA-256 digest.');
         }
     }
 }
@@ -61,7 +67,7 @@ final readonly class IdempotencyIdentity
         public IntentFingerprint $fingerprint,
     ) {
         if ($this->targetId === '') {
-            throw new \InvalidArgumentException('Idempotency target identity is invalid.');
+            throw new \InvalidArgumentException('IdempotencyIdentity targetId must not be empty.');
         }
     }
 }
@@ -224,6 +230,7 @@ use Wolfcharaa\MessageBus\Idempotency\IdempotencyMaintenance;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyOutcome;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyResult;
 use Wolfcharaa\MessageBus\Internal\Postgres\QualifiedSql;
+use Wolfcharaa\MessageBus\Internal\Runtime\FailurePreservingCleanup;
 
 /**
  *  PostgreSQL atomic idempotency boundary sharing the application's PDO transaction.
@@ -322,9 +329,11 @@ final readonly class PostgresAtomicIdempotencyBoundary implements AtomicIdempote
 
             return new IdempotencyResult(IdempotencyOutcome::Executed);
         } catch (\Throwable $failure) {
-            $this->rollBackOpenTransaction();
-
-            throw $failure;
+            FailurePreservingCleanup::rethrowAfter(
+                $failure,
+                'PostgreSQL idempotency boundary rollback',
+                $this->rollBackOpenTransaction(...),
+            );
         }
     }
 
@@ -404,11 +413,14 @@ final readonly class PostgresIdempotencyMaintenance implements IdempotencyMainte
                     WHERE target_id = :target_id AND key_digest = :key_digest
                       AND state = 'completed' AND retain_until < :at
                     SQL, $this->schema));
-                foreach ($records as $record) {
+                foreach ($records as $index => $record) {
                     if (!\is_array($record)
                         || !\is_string($record['target_id'] ?? null)
                         || !\is_string($record['key_digest'] ?? null)) {
-                        throw new \UnexpectedValueException('PostgreSQL idempotency record is invalid.');
+                        throw new \UnexpectedValueException(
+                            'PostgreSQL idempotency record at index ' . $index
+                                . ' requires string target_id and key_digest fields.',
+                        );
                     }
                     $delete->execute([
                         'target_id' => $record['target_id'],
@@ -425,9 +437,11 @@ final readonly class PostgresIdempotencyMaintenance implements IdempotencyMainte
                 \count($records) === $limit,
             );
         } catch (\Throwable $failure) {
-            $this->rollBackOpenTransaction();
-
-            throw $failure;
+            FailurePreservingCleanup::rethrowAfter(
+                $failure,
+                'PostgreSQL idempotency maintenance rollback',
+                $this->rollBackOpenTransaction(...),
+            );
         }
     }
 

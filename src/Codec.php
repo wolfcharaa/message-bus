@@ -22,12 +22,20 @@ final readonly class EncodedPayload
         public string $bytes,
         public ?string $objectGraphFingerprint = null,
     ) {
-        if ($this->messageName === '' || $this->version < 1 || $this->codec === '') {
-            throw new \InvalidArgumentException('Encoded payload identity is invalid.');
+        if ($this->messageName === '') {
+            throw new \InvalidArgumentException('EncodedPayload messageName must not be empty.');
+        }
+        if ($this->version < 1) {
+            throw new \InvalidArgumentException('EncodedPayload version must be at least 1.');
+        }
+        if ($this->codec === '') {
+            throw new \InvalidArgumentException('EncodedPayload codec must not be empty.');
         }
         if ($this->objectGraphFingerprint !== null
             && preg_match('/^[a-f0-9]{64}$/D', $this->objectGraphFingerprint) !== 1) {
-            throw new \InvalidArgumentException('Encoded payload object graph fingerprint is invalid.');
+            throw new \InvalidArgumentException(
+                'EncodedPayload objectGraphFingerprint must be a lowercase SHA-256 digest.',
+            );
         }
     }
 

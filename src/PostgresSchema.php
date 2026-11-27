@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Wolfcharaa\MessageBus\Adapter\Postgres;
 
+use Wolfcharaa\MessageBus\Internal\Runtime\FailurePreservingCleanup;
+
 /**
  *  One immutable package migration plus its verified artifact hash.
  *
@@ -92,8 +94,11 @@ final readonly class SchemaManifest
         $manifest = $this->jsonObject($manifestJson);
         $file = $this->string($manifest, 'catalog_file');
         $checksum = $this->string($manifest, 'catalog_checksum');
-        if ($file !== 'schema-catalog.json' || preg_match('/^[a-f0-9]{64}$/D', $checksum) !== 1) {
-            throw new \RuntimeException('MessageBus schema catalog identity is invalid.');
+        if ($file !== 'schema-catalog.json') {
+            throw new \RuntimeException('MessageBus schema catalog_file must be schema-catalog.json.');
+        }
+        if (preg_match('/^[a-f0-9]{64}$/D', $checksum) !== 1) {
+            throw new \RuntimeException('MessageBus schema catalog_checksum must be a lowercase SHA-256 digest.');
         }
         $catalogJson = file_get_contents($this->resources . '/' . $file);
         if (!\is_string($catalogJson) || !hash_equals($checksum, hash('sha256', $catalogJson))) {
@@ -180,7 +185,9 @@ final readonly class PostgresSchemaManager
         private SchemaManifest $manifest = new SchemaManifest(),
     ) {
         if (preg_match('/^[a-z_][a-z0-9_]{0,62}$/D', $this->schema) !== 1) {
-            throw new \InvalidArgumentException('PostgreSQL schema name is invalid.');
+            throw new \InvalidArgumentException(
+                'PostgresSchemaManager schema must match [a-z_][a-z0-9_]{0,62}.',
+            );
         }
     }
 
@@ -224,11 +231,15 @@ final readonly class PostgresSchemaManager
                 }
                 $this->pdo->commit();
             } catch (\Throwable $failure) {
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-
-                throw $failure;
+                FailurePreservingCleanup::rethrowAfter(
+                    $failure,
+                    'PostgreSQL schema migration rollback',
+                    function (): void {
+                        if ($this->pdo->inTransaction()) {
+                            $this->pdo->rollBack();
+                        }
+                    },
+                );
             }
         }
     }
@@ -537,8 +548,13 @@ final readonly class PostgresSchemaManager
         }
         $tables = [];
         foreach ($rawTables as $table => $rawDefinition) {
-            if (!\is_string($table) || !\is_array($rawDefinition) || array_is_list($rawDefinition)) {
-                throw new \RuntimeException('MessageBus schema catalog table definition is invalid.');
+            if (!\is_string($table)) {
+                throw new \RuntimeException('MessageBus schema catalog table key must be a string.');
+            }
+            if (!\is_array($rawDefinition) || array_is_list($rawDefinition)) {
+                throw new \RuntimeException(
+                    'MessageBus schema catalog table ' . $table . ' definition must be an object.',
+                );
             }
             $rawColumns = $rawDefinition['columns'] ?? null;
             $rawDefaults = $rawDefinition['defaults'] ?? null;
@@ -548,14 +564,20 @@ final readonly class PostgresSchemaManager
                 || !\is_array($rawDefaults) || !array_is_list($rawDefaults)
                 || !\is_array($rawConstraints) || !array_is_list($rawConstraints)
                 || !\is_array($rawIndexes) || !array_is_list($rawIndexes)) {
-                throw new \RuntimeException('MessageBus schema catalog table members are invalid.');
+                throw new \RuntimeException(
+                    'MessageBus schema catalog table ' . $table
+                        . ' requires list members columns, defaults, constraints and indexes.',
+                );
             }
             $defaults = $this->stringList($rawDefaults, 'default column');
             $columns = [];
-            foreach ($rawColumns as $column) {
+            foreach ($rawColumns as $index => $column) {
                 if (!\is_array($column) || !array_is_list($column) || \count($column) !== 3
                     || !\is_string($column[0]) || !\is_string($column[1]) || !\is_bool($column[2])) {
-                    throw new \RuntimeException('MessageBus schema catalog column is invalid.');
+                    throw new \RuntimeException(
+                        'MessageBus schema catalog table ' . $table . ' column at index ' . $index
+                            . ' must be [string name, string type, bool nullable].',
+                    );
                 }
                 $columns[] = [$column[0], $column[1], $column[2], \in_array($column[0], $defaults, true)];
             }
@@ -584,8 +606,13 @@ final readonly class PostgresSchemaManager
         }
         $result = [];
         foreach ($raw as $name => $value) {
-            if (!\is_string($name) || !\is_string($value)) {
-                throw new \RuntimeException('MessageBus schema catalog ' . $key . ' entry is invalid.');
+            if (!\is_string($name)) {
+                throw new \RuntimeException('MessageBus schema catalog ' . $key . ' entry key must be a string.');
+            }
+            if (!\is_string($value)) {
+                throw new \RuntimeException(
+                    'MessageBus schema catalog ' . $key . ' entry ' . $name . ' must be a string.',
+                );
             }
             $result[$name] = $value;
         }
@@ -620,12 +647,18 @@ final readonly class PostgresSchemaManager
         }
         $definitions = [];
         foreach ($raw as $name => $definition) {
-            if (!\is_string($name) || !\is_array($definition) || array_is_list($definition)
+            if (!\is_string($name)) {
+                throw new \RuntimeException('MessageBus schema catalog index definition key must be a string.');
+            }
+            if (!\is_array($definition) || array_is_list($definition)
                 || !\is_bool($definition['unique'] ?? null)
                 || !\is_array($definition['columns'] ?? null)
                 || !array_is_list($definition['columns'])
                 || !\is_string($definition['predicate'] ?? null)) {
-                throw new \RuntimeException('MessageBus schema catalog index definition is invalid.');
+                throw new \RuntimeException(
+                    'MessageBus schema catalog index ' . $name
+                        . ' requires bool unique, list columns and string predicate.',
+                );
             }
             $definitions[$name] = [
                 'unique' => $definition['unique'],
@@ -679,9 +712,11 @@ final readonly class PostgresSchemaManager
     private function stringList(array $values, string $kind): array
     {
         $strings = [];
-        foreach ($values as $value) {
+        foreach ($values as $index => $value) {
             if (!\is_string($value)) {
-                throw new \RuntimeException('MessageBus schema catalog ' . $kind . ' name is invalid.');
+                throw new \RuntimeException(
+                    'MessageBus schema catalog ' . $kind . ' at index ' . $index . ' must be a string.',
+                );
             }
             $strings[] = $value;
         }

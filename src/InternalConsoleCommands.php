@@ -41,7 +41,7 @@ abstract class JsonCommand extends Command
     /** @param array<string, mixed> $payload */
     protected function result(InputInterface $input, OutputInterface $output, array $payload): void
     {
-        $document = ['schema' => 1, 'command' => (string) $this->getName()] + $payload;
+        $document = ['schema' => 2, 'command' => (string) $this->getName()] + $payload;
         if ($input->getOption('format') === 'json') {
             $output->writeln(json_encode($document, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
 
@@ -50,6 +50,71 @@ abstract class JsonCommand extends Command
         foreach ($document as $key => $value) {
             $output->writeln($key . ': ' . (\is_scalar($value) ? (string) $value : json_encode($value, JSON_THROW_ON_ERROR)));
         }
+    }
+
+    /** @return array{error: array{code: string, type: string, stage: string, message: string, exception_type: class-string, subject: array{type: string, id: string}|null}} */
+    protected function failurePayload(
+        \Throwable $failure,
+        string $stage,
+        ?string $subjectType = null,
+        ?string $subjectId = null,
+    ): array {
+        [$code, $type, $message] = match (true) {
+            $failure instanceof \InvalidArgumentException, $failure instanceof \ValueError => [
+                'MBCLI001',
+                'invalid_input',
+                'Command input validation failed.',
+            ],
+            $failure instanceof \LogicException => [
+                'MBCLI002',
+                'state_conflict',
+                'Command cannot be applied to the current retained state.',
+            ],
+            $failure instanceof \PDOException => [
+                'MBCLI003',
+                'backend_failure',
+                'Command backend operation failed.',
+            ],
+            default => [
+                'MBCLI004',
+                'internal_failure',
+                'Command failed unexpectedly.',
+            ],
+        };
+
+        return ['error' => [
+            'code' => $code,
+            'type' => $type,
+            'stage' => $stage,
+            'message' => $message,
+            'exception_type' => $failure::class,
+            'subject' => $subjectType !== null && $subjectId !== null
+                ? ['type' => $subjectType, 'id' => $subjectId]
+                : null,
+        ]];
+    }
+
+    protected function failure(
+        InputInterface $input,
+        OutputInterface $output,
+        \Throwable $failure,
+        string $stage,
+        ?string $subjectType = null,
+        ?string $subjectId = null,
+    ): void {
+        $this->result($input, $output, $this->failurePayload(
+            $failure,
+            $stage,
+            $subjectType,
+            $subjectId,
+        ));
+    }
+
+    protected function rawOptionString(InputInterface $input, string $name): ?string
+    {
+        $value = $input->getOption($name);
+
+        return \is_string($value) && $value !== '' ? $value : null;
     }
 
     protected function optionString(InputInterface $input, string $name, bool $required = false): ?string
@@ -104,18 +169,27 @@ final class RegistryCheckCommand extends JsonCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $result = $this->compiler->compile($this->source);
-        $this->result($input, $output, [
-            'valid' => $result->isValid(),
-            'diagnostics' => array_map(static fn(RegistryDiagnostic $diagnostic): array => [
-                'code' => $diagnostic->code,
-                'severity' => $diagnostic->severity->value,
-                'message' => $diagnostic->message,
-                'symbol' => $diagnostic->symbol,
-            ], $result->diagnostics),
-        ]);
+        try {
+            $result = $this->compiler->compile($this->source);
+            $this->result($input, $output, [
+                'valid' => $result->isValid(),
+                'diagnostics' => array_map(
+                    static fn(RegistryDiagnostic $diagnostic): array => $diagnostic->normalized(),
+                    $result->diagnostics,
+                ),
+            ]);
 
-        return $result->isValid() ? Command::SUCCESS : 2;
+            return $result->isValid() ? Command::SUCCESS : 2;
+        } catch (\Throwable $failure) {
+            $this->result($input, $output, ['valid' => false] + $this->failurePayload(
+                $failure,
+                'registry.check',
+                'registry',
+                'application',
+            ));
+
+            return 2;
+        }
     }
 }
 
@@ -140,24 +214,42 @@ final class RegistryCompileCommand extends JsonCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $result = $this->compiler->compile($this->source);
-        if (!$result->isValid()) {
-            $this->result($input, $output, ['written' => false, 'diagnostic_count' => \count($result->diagnostics)]);
+        try {
+            $result = $this->compiler->compile($this->source);
+            if (!$result->isValid()) {
+                $this->result($input, $output, [
+                    'written' => false,
+                    'diagnostic_count' => \count($result->diagnostics),
+                    'diagnostics' => array_map(
+                        static fn(RegistryDiagnostic $diagnostic): array => $diagnostic->normalized(),
+                        $result->diagnostics,
+                    ),
+                ]);
+
+                return 2;
+            }
+            $artifact = RegistryArtifact::fromRegistry(
+                $result->requireRegistry(),
+                $this->applicationBuildId,
+            );
+            $this->store->write($artifact, $this->path);
+            $this->result($input, $output, [
+                'written' => true,
+                'path' => $this->path,
+                'content_hash' => $artifact->contentHash,
+            ]);
+
+            return Command::SUCCESS;
+        } catch (\Throwable $failure) {
+            $this->result($input, $output, ['written' => false] + $this->failurePayload(
+                $failure,
+                'registry.compile',
+                'registry_artifact',
+                $this->path,
+            ));
 
             return 2;
         }
-        $artifact = RegistryArtifact::fromRegistry(
-            $result->requireRegistry(),
-            $this->applicationBuildId,
-        );
-        $this->store->write($artifact, $this->path);
-        $this->result($input, $output, [
-            'written' => true,
-            'path' => $this->path,
-            'content_hash' => $artifact->contentHash,
-        ]);
-
-        return Command::SUCCESS;
     }
 }
 
@@ -187,7 +279,12 @@ final class SchemaValidateCommand extends JsonCommand
 
             return Command::SUCCESS;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['valid' => false, 'error' => $failure->getMessage()]);
+            $this->result($input, $output, ['valid' => false] + $this->failurePayload(
+                $failure,
+                'schema.validate',
+                'schema',
+                'message_bus',
+            ));
 
             return 4;
         }
@@ -222,13 +319,20 @@ final class DeliveryStatusCommand extends JsonCommand
 
             return $status instanceof DeliveryStatus ? Command::SUCCESS : 3;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['error' => $failure->getMessage()]);
+            $this->failure(
+                $input,
+                $output,
+                $failure,
+                'delivery.status',
+                'delivery',
+                $this->rawOptionString($input, 'delivery-id'),
+            );
 
             return 2;
         }
     }
 
-    /** @return array<string, bool|int|string|null> */
+    /** @return array<string, bool|int|string|array<string, string|null>|null> */
     private function statusPayload(DeliveryStatus $status): array
     {
         return [
@@ -239,6 +343,8 @@ final class DeliveryStatusCommand extends JsonCommand
             'attempts' => $status->attempts,
             'updated_at' => $status->updatedAt->format(DATE_ATOM),
             'last_failure_category' => $status->lastFailureCategory,
+            'last_failure_attempt_id' => $status->lastFailureAttemptId?->value,
+            'last_failure' => $status->lastFailure?->normalized(),
         ];
     }
 }
@@ -272,7 +378,14 @@ final class DeliveryCancelCommand extends JsonCommand
 
             return Command::SUCCESS;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['error' => $failure->getMessage()]);
+            $this->failure(
+                $input,
+                $output,
+                $failure,
+                'delivery.cancel',
+                'delivery',
+                $this->rawOptionString($input, 'delivery-id'),
+            );
 
             return 2;
         }
@@ -340,7 +453,14 @@ final class DeliveryReplayCommand extends JsonCommand
 
             return Command::SUCCESS;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['error' => $failure->getMessage()]);
+            $this->failure(
+                $input,
+                $output,
+                $failure,
+                'delivery.replay',
+                'delivery',
+                $this->rawOptionString($input, 'delivery-id'),
+            );
 
             return 3;
         }
@@ -374,7 +494,7 @@ final class DeliveryRecoverCommand extends JsonCommand
 
             return Command::SUCCESS;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['error' => $failure->getMessage()]);
+            $this->failure($input, $output, $failure, 'delivery.recover');
 
             return 2;
         }
@@ -416,7 +536,7 @@ final class DeliveryPruneCommand extends JsonCommand
 
             return Command::SUCCESS;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['error' => $failure->getMessage()]);
+            $this->failure($input, $output, $failure, 'delivery.prune');
 
             return 2;
         }
@@ -458,7 +578,7 @@ final class IdempotencyPruneCommand extends JsonCommand
 
             return Command::SUCCESS;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['error' => $failure->getMessage()]);
+            $this->failure($input, $output, $failure, 'idempotency.prune');
 
             return 2;
         }
@@ -466,7 +586,7 @@ final class IdempotencyPruneCommand extends JsonCommand
 }
 
 /** @internal */
-final class WorkerRunCommand extends Command
+final class WorkerRunCommand extends JsonCommand
 {
     public function __construct(
         private readonly PcntlWorkerSupervisor $supervisor,
@@ -480,18 +600,37 @@ final class WorkerRunCommand extends Command
         $this->setName('worker:run')
             ->setDescription('Run the configured PCNTL worker profile.')
             ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Configured profile name', $this->profile->name);
+        $this->configureFormat();
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        if ($input->getOption('profile') !== $this->profile->name) {
-            $output->writeln('<error>Unknown worker profile.</error>');
+        try {
+            $profile = $this->optionString($input, 'profile', true);
+            if ($profile !== $this->profile->name) {
+                throw new \InvalidArgumentException(
+                    'Configured worker profile is ' . $this->profile->name . '; received ' . $profile . '.',
+                );
+            }
+            $this->supervisor->run($this->profile);
+            $this->result($input, $output, [
+                'profile' => $this->profile->name,
+                'outcome' => 'stopped',
+            ]);
+
+            return Command::SUCCESS;
+        } catch (\Throwable $failure) {
+            $this->failure(
+                $input,
+                $output,
+                $failure,
+                'worker.run',
+                'worker_profile',
+                $this->rawOptionString($input, 'profile'),
+            );
 
             return 2;
         }
-        $this->supervisor->run($this->profile);
-
-        return Command::SUCCESS;
     }
 }
 
@@ -514,36 +653,42 @@ final class WorkerStatusCommand extends JsonCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $statuses = $this->control->statuses(new WorkerStatusFilter(
-            $this->optionString($input, 'profile'),
-            $this->optionString($input, 'instance'),
-            $this->optionInt($input, 'stale-after'),
-        ));
-        $this->result($input, $output, ['workers' => array_map(static fn(WorkerStatus $status): array => [
-            'worker_id' => $status->workerId,
-            'profile' => $status->profile,
-            'lane' => $status->lane,
-            'pid' => $status->pid,
-            'state' => $status->state,
-            'active_attempts' => $status->activeAttempts,
-            'capacity' => $status->capacity,
-            'host' => $status->host,
-            'build_id' => $status->buildId,
-            'registry_hash' => $status->registryHash,
-            'applied_global_revision' => $status->appliedGlobalRevision,
-            'applied_profile_revision' => $status->appliedProfileRevision,
-            'required_global_revision' => $status->requiredGlobalRevision,
-            'required_profile_revision' => $status->requiredProfileRevision,
-            'effective_desired_state' => $status->effectiveDesiredState->value,
-            'activity' => $status->activity(),
-            'stale' => $status->stale,
-            'drained' => $status->drained,
-            'started_at' => $status->startedAt->format(DATE_ATOM),
-            'heartbeat_at' => $status->heartbeatAt->format(DATE_ATOM),
-            'stopped_at' => $status->stoppedAt?->format(DATE_ATOM),
-        ], $statuses)]);
+        try {
+            $statuses = $this->control->statuses(new WorkerStatusFilter(
+                $this->optionString($input, 'profile'),
+                $this->optionString($input, 'instance'),
+                $this->optionInt($input, 'stale-after'),
+            ));
+            $this->result($input, $output, ['workers' => array_map(static fn(WorkerStatus $status): array => [
+                'worker_id' => $status->workerId,
+                'profile' => $status->profile,
+                'lane' => $status->lane,
+                'pid' => $status->pid,
+                'state' => $status->state,
+                'active_attempts' => $status->activeAttempts,
+                'capacity' => $status->capacity,
+                'host' => $status->host,
+                'build_id' => $status->buildId,
+                'registry_hash' => $status->registryHash,
+                'applied_global_revision' => $status->appliedGlobalRevision,
+                'applied_profile_revision' => $status->appliedProfileRevision,
+                'required_global_revision' => $status->requiredGlobalRevision,
+                'required_profile_revision' => $status->requiredProfileRevision,
+                'effective_desired_state' => $status->effectiveDesiredState->value,
+                'activity' => $status->activity(),
+                'stale' => $status->stale,
+                'drained' => $status->drained,
+                'started_at' => $status->startedAt->format(DATE_ATOM),
+                'heartbeat_at' => $status->heartbeatAt->format(DATE_ATOM),
+                'stopped_at' => $status->stoppedAt?->format(DATE_ATOM),
+            ], $statuses)]);
 
-        return Command::SUCCESS;
+            return Command::SUCCESS;
+        } catch (\Throwable $failure) {
+            $this->failure($input, $output, $failure, 'worker.status');
+
+            return 2;
+        }
     }
 }
 
@@ -615,8 +760,15 @@ abstract class WorkerControlMutationCommand extends JsonCommand
                 'payload' => $payload,
                 'scope' => $scope,
             ];
-        } catch (\InvalidArgumentException $failure) {
-            return ['code' => 2, 'payload' => ['error' => $failure->getMessage()], 'scope' => null];
+        } catch (\Throwable $failure) {
+            return [
+                'code' => 2,
+                'payload' => $this->failurePayload(
+                    $failure,
+                    $pause ? 'worker.pause' : 'worker.resume',
+                ),
+                'scope' => null,
+            ];
         }
     }
 }
@@ -634,30 +786,39 @@ final class WorkerPauseCommand extends WorkerControlMutationCommand
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $result = $this->mutation($input, true);
-        if ($result['code'] === 0 && $this->optionBool($input, 'wait') && $result['scope'] !== null) {
-            $deadline = microtime(true) + max(1, $this->optionInt($input, 'timeout'));
-            $profile = str_starts_with($result['scope']->value, 'profile:')
-                ? substr($result['scope']->value, \strlen('profile:'))
-                : null;
-            do {
-                $statuses = $this->control->statuses(new WorkerStatusFilter($profile));
-                $drained = true;
-                foreach ($statuses as $status) {
-                    if ($status->activeAttempts !== 0 || (!$status->stale && !$status->drained)) {
-                        $drained = false;
+
+        try {
+            if ($result['code'] === 0 && $this->optionBool($input, 'wait') && $result['scope'] !== null) {
+                $deadline = microtime(true) + max(1, $this->optionInt($input, 'timeout'));
+                $profile = str_starts_with($result['scope']->value, 'profile:')
+                    ? substr($result['scope']->value, \strlen('profile:'))
+                    : null;
+                do {
+                    $statuses = $this->control->statuses(new WorkerStatusFilter($profile));
+                    $drained = true;
+                    foreach ($statuses as $status) {
+                        if ($status->activeAttempts !== 0 || (!$status->stale && !$status->drained)) {
+                            $drained = false;
+                            break;
+                        }
+                    }
+                    if ($drained) {
+                        $result['payload']['drained'] = true;
                         break;
                     }
+                    usleep(100_000);
+                } while (microtime(true) < $deadline);
+                if (($result['payload']['drained'] ?? false) !== true) {
+                    $result['payload']['drained'] = false;
+                    $result['code'] = 3;
                 }
-                if ($drained) {
-                    $result['payload']['drained'] = true;
-                    break;
-                }
-                usleep(100_000);
-            } while (microtime(true) < $deadline);
-            if (($result['payload']['drained'] ?? false) !== true) {
-                $result['payload']['drained'] = false;
-                $result['code'] = 3;
             }
+        } catch (\Throwable $failure) {
+            $result = [
+                'code' => 2,
+                'payload' => $this->failurePayload($failure, 'worker.pause.wait'),
+                'scope' => null,
+            ];
         }
         $this->result($input, $output, $result['payload']);
 
@@ -716,7 +877,7 @@ final class WorkerPruneCommand extends JsonCommand
 
             return Command::SUCCESS;
         } catch (\Throwable $failure) {
-            $this->result($input, $output, ['error' => $failure->getMessage()]);
+            $this->failure($input, $output, $failure, 'worker.prune');
 
             return 2;
         }

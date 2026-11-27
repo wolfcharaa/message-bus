@@ -23,6 +23,158 @@ enum RuntimeEventSeverity: string
 }
 
 /**
+ * Stable logical stage at which a runtime failure became observable.
+ *
+ * @api application
+ */
+enum FailureStage: string
+{
+    case Dispatch = 'dispatch';
+    case PayloadDecode = 'payload_decode';
+    case TargetResolution = 'target_resolution';
+    case ContextCreation = 'context_creation';
+    case HandlerResolution = 'handler_resolution';
+    case HandlerExecution = 'handler_execution';
+    case Idempotency = 'idempotency';
+    case FailureClassification = 'failure_classification';
+    case DeliverySettlement = 'delivery_settlement';
+    case WorkerFork = 'worker_fork';
+    case LeaseRecovery = 'lease_recovery';
+    case DeliveryAcceptance = 'delivery_acceptance';
+
+    public function code(): string
+    {
+        return match ($this) {
+            self::Dispatch => 'MBD001',
+            self::PayloadDecode => 'MBD101',
+            self::TargetResolution => 'MBD102',
+            self::ContextCreation => 'MBD103',
+            self::HandlerResolution => 'MBD104',
+            self::HandlerExecution => 'MBD105',
+            self::Idempotency => 'MBD106',
+            self::FailureClassification => 'MBD107',
+            self::DeliverySettlement => 'MBD108',
+            self::WorkerFork => 'MBD109',
+            self::LeaseRecovery => 'MBD110',
+            self::DeliveryAcceptance => 'MBD111',
+        };
+    }
+
+    public function summary(): string
+    {
+        return match ($this) {
+            self::Dispatch => 'Message dispatch failed.',
+            self::PayloadDecode => 'Persisted message payload decoding failed.',
+            self::TargetResolution => 'Persisted delivery target resolution failed.',
+            self::ContextCreation => 'Handler context creation failed.',
+            self::HandlerResolution => 'Handler service resolution failed.',
+            self::HandlerExecution => 'Handler execution failed.',
+            self::Idempotency => 'Idempotent handler execution failed.',
+            self::FailureClassification => 'Application failure classification failed.',
+            self::DeliverySettlement => 'Delivery failure settlement failed.',
+            self::WorkerFork => 'Worker child process creation failed.',
+            self::LeaseRecovery => 'Expired delivery attempt recovery detected lost ownership.',
+            self::DeliveryAcceptance => 'Durable delivery acceptance failed.',
+        };
+    }
+}
+
+/**
+ * Safe machine-readable failure details shared by events and retained status.
+ *
+ * The arbitrary exception message and trace are deliberately excluded.
+ *
+ * @api application
+ */
+final readonly class FailureDiagnostic
+{
+    public string $code;
+
+    public string $summary;
+
+    public string $fingerprint;
+
+    public function __construct(
+        public FailureStage $stage,
+        public string $failureClass,
+        public ?string $relatedFailureClass = null,
+    ) {
+        foreach (['failureClass' => $this->failureClass, 'relatedFailureClass' => $this->relatedFailureClass] as $field => $value) {
+            if ($value !== null && ($value === '' || \strlen($value) > 255)) {
+                throw new \InvalidArgumentException('Failure diagnostic field ' . $field . ' must contain 1..255 bytes.');
+            }
+        }
+        $this->code = $this->stage->code();
+        $this->summary = $this->stage->summary();
+        $this->fingerprint = hash(
+            'sha256',
+            $this->code . "\0" . $this->stage->value . "\0" . $this->failureClass . "\0" . ($this->relatedFailureClass ?? ''),
+        );
+    }
+
+    public static function fromThrowable(
+        FailureStage $stage,
+        \Throwable $failure,
+        ?\Throwable $relatedFailure = null,
+    ): self {
+        return new self(
+            $stage,
+            $failure::class,
+            $relatedFailure instanceof \Throwable ? $relatedFailure::class : null,
+        );
+    }
+
+    /** @return array{code: string, stage: string, summary: string, failure_class: string, related_failure_class: string|null, fingerprint: string} */
+    public function normalized(): array
+    {
+        return [
+            'code' => $this->code,
+            'stage' => $this->stage->value,
+            'summary' => $this->summary,
+            'failure_class' => $this->failureClass,
+            'related_failure_class' => $this->relatedFailureClass,
+            'fingerprint' => $this->fingerprint,
+        ];
+    }
+
+    public function encode(): string
+    {
+        return json_encode(
+            ['schema' => 1] + $this->normalized(),
+            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
+        );
+    }
+
+    public static function tryFromEncoded(string $encoded): ?self
+    {
+        try {
+            $value = json_decode($encoded, true, 32, JSON_THROW_ON_ERROR);
+            if (!\is_array($value) || array_is_list($value) || ($value['schema'] ?? null) !== 1
+                || !\is_string($value['stage'] ?? null)
+                || !\is_string($value['failure_class'] ?? null)
+                || (!\is_string($value['related_failure_class'] ?? null)
+                    && ($value['related_failure_class'] ?? null) !== null)) {
+                return null;
+            }
+            $diagnostic = new self(
+                FailureStage::from($value['stage']),
+                $value['failure_class'],
+                $value['related_failure_class'] ?? null,
+            );
+            if (($value['code'] ?? null) !== $diagnostic->code
+                || ($value['summary'] ?? null) !== $diagnostic->summary
+                || ($value['fingerprint'] ?? null) !== $diagnostic->fingerprint) {
+                return null;
+            }
+
+            return $diagnostic;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+}
+
+/**
  *  Stable runtime fact category emitted by the package.
  *
  * @api application
@@ -44,6 +196,39 @@ enum RuntimeEventType: string
             self::DispatchFailed, self::AttemptFailed => RuntimeEventSeverity::Error,
             self::DeliveryRecovered => RuntimeEventSeverity::Warning,
             default => RuntimeEventSeverity::Debug,
+        };
+    }
+
+    /** @return list<string> */
+    public function requiredFields(): array
+    {
+        return match ($this) {
+            self::DispatchStarted => ['message_id', 'correlation_id', 'message_name'],
+            self::DispatchCompleted => [
+                'message_id', 'correlation_id', 'message_name', 'duration_us', 'outcome',
+            ],
+            self::DispatchFailed => [
+                'message_id', 'correlation_id', 'message_name', 'duration_us', 'outcome',
+                'failure_class', 'error_fingerprint', 'failure_code', 'failure_stage', 'failure_summary',
+            ],
+            self::DeliveryAccepted => [
+                'message_id', 'delivery_id', 'correlation_id', 'message_name', 'target_id', 'route', 'outcome',
+            ],
+            self::AttemptStarted => [
+                'message_id', 'delivery_id', 'correlation_id', 'attempt_id', 'message_name', 'target_id',
+                'worker_id', 'route', 'profile', 'attempt_number',
+            ],
+            self::AttemptSucceeded => [
+                'message_id', 'delivery_id', 'correlation_id', 'attempt_id', 'message_name', 'target_id',
+                'worker_id', 'route', 'profile', 'attempt_number', 'duration_us', 'outcome',
+            ],
+            self::AttemptFailed => [
+                'message_id', 'delivery_id', 'correlation_id', 'attempt_id', 'message_name', 'target_id',
+                'worker_id', 'route', 'profile', 'attempt_number', 'duration_us', 'outcome',
+                'failure_category', 'failure_class', 'error_fingerprint', 'failure_code', 'failure_stage',
+                'failure_summary',
+            ],
+            self::DeliveryRecovered => ['delivery_id', 'outcome'],
         };
     }
 }
@@ -75,26 +260,79 @@ final readonly class RuntimeEvent
         public ?string $failureClass = null,
         public ?string $errorFingerprint = null,
         public int $schemaVersion = 1,
+        public ?string $failureCode = null,
+        public ?string $failureStage = null,
+        public ?string $failureSummary = null,
+        public ?string $relatedFailureClass = null,
     ) {
         foreach ([
-            $this->messageName,
-            $this->targetId,
-            $this->workerId,
-            $this->route,
-            $this->profile,
-            $this->outcome,
-            $this->failureCategory,
-            $this->failureClass,
-        ] as $value) {
+            'messageName' => $this->messageName,
+            'targetId' => $this->targetId,
+            'workerId' => $this->workerId,
+            'route' => $this->route,
+            'profile' => $this->profile,
+            'outcome' => $this->outcome,
+            'failureCategory' => $this->failureCategory,
+            'failureClass' => $this->failureClass,
+            'failureCode' => $this->failureCode,
+            'failureStage' => $this->failureStage,
+            'failureSummary' => $this->failureSummary,
+            'relatedFailureClass' => $this->relatedFailureClass,
+        ] as $field => $value) {
             if ($value !== null && ($value === '' || \strlen($value) > 255)) {
-                throw new \InvalidArgumentException('Runtime event string field is invalid.');
+                throw new \InvalidArgumentException('Runtime event field ' . $field . ' must contain 1..255 bytes.');
             }
         }
-        if ($this->schemaVersion !== 1 || ($this->attemptNumber !== null && $this->attemptNumber < 1)
-            || ($this->durationMicroseconds !== null && $this->durationMicroseconds < 0)
-            || ($this->errorFingerprint !== null
-                && preg_match('/^[a-f0-9]{64}$/D', $this->errorFingerprint) !== 1)) {
-            throw new \InvalidArgumentException('Runtime event version or numeric field is invalid.');
+        if ($this->schemaVersion !== 1) {
+            throw new \InvalidArgumentException('Runtime event schemaVersion must be 1.');
+        }
+        if ($this->attemptNumber !== null && $this->attemptNumber < 1) {
+            throw new \InvalidArgumentException('Runtime event attemptNumber must be at least 1.');
+        }
+        if ($this->durationMicroseconds !== null && $this->durationMicroseconds < 0) {
+            throw new \InvalidArgumentException('Runtime event durationMicroseconds must not be negative.');
+        }
+        if ($this->errorFingerprint !== null
+            && preg_match('/^[a-f0-9]{64}$/D', $this->errorFingerprint) !== 1) {
+            throw new \InvalidArgumentException('Runtime event errorFingerprint must be a lowercase SHA-256 digest.');
+        }
+        if (($this->failureCode === null) !== ($this->failureStage === null)
+            || ($this->failureCode === null) !== ($this->failureSummary === null)) {
+            throw new \InvalidArgumentException(
+                'Runtime event failureCode, failureStage and failureSummary must be provided together.',
+            );
+        }
+        $this->assertRequiredFields();
+    }
+
+    private function assertRequiredFields(): void
+    {
+        $fields = [
+            'message_id' => $this->messageId,
+            'delivery_id' => $this->deliveryId,
+            'correlation_id' => $this->correlationId,
+            'attempt_id' => $this->attemptId,
+            'message_name' => $this->messageName,
+            'target_id' => $this->targetId,
+            'worker_id' => $this->workerId,
+            'route' => $this->route,
+            'profile' => $this->profile,
+            'attempt_number' => $this->attemptNumber,
+            'duration_us' => $this->durationMicroseconds,
+            'outcome' => $this->outcome,
+            'failure_category' => $this->failureCategory,
+            'failure_class' => $this->failureClass,
+            'error_fingerprint' => $this->errorFingerprint,
+            'failure_code' => $this->failureCode,
+            'failure_stage' => $this->failureStage,
+            'failure_summary' => $this->failureSummary,
+        ];
+        foreach ($this->type->requiredFields() as $field) {
+            if ($fields[$field] === null) {
+                throw new \InvalidArgumentException(
+                    'Runtime event ' . $this->type->value . ' requires field ' . $field . '.',
+                );
+            }
         }
     }
 
@@ -127,6 +365,10 @@ final readonly class RuntimeEvent
             'failure_category' => $this->failureCategory,
             'failure_class' => $this->failureClass,
             'error_fingerprint' => $this->errorFingerprint,
+            'failure_code' => $this->failureCode,
+            'failure_stage' => $this->failureStage,
+            'failure_summary' => $this->failureSummary,
+            'related_failure_class' => $this->relatedFailureClass,
         ];
     }
 }
@@ -154,6 +396,18 @@ interface ObserverFailureSink
 }
 
 /**
+ * Process-local reporting channel that receives the original runtime throwable.
+ *
+ * Implementations must not throw and must keep exception data out of portable events.
+ *
+ * @api spi
+ */
+interface RuntimeFailureSink
+{
+    public function report(\Throwable $failure, RuntimeEvent $event): void;
+}
+
+/**
  *  Default zero-cost observer.
  *
  * @api application
@@ -174,6 +428,16 @@ final readonly class NullObserverFailureSink implements ObserverFailureSink
 }
 
 /**
+ * Explicit opt-out from process-local runtime failure reporting.
+ *
+ * @api application
+ */
+final readonly class NullRuntimeFailureSink implements RuntimeFailureSink
+{
+    public function report(\Throwable $failure, RuntimeEvent $event): void {}
+}
+
+/**
  *  Optional PSR-3 adapter; psr/log is only a suggested package dependency.
  *
  * @api adapter
@@ -188,6 +452,27 @@ final readonly class PsrLogRuntimeObserver implements RuntimeObserver
             $event->severity()->value,
             'message_bus.' . $event->type->value,
             array_filter($event->normalized(), static fn(null|int|string $value): bool => $value !== null),
+        );
+    }
+}
+
+/**
+ * PSR-3 process-local failure sink retaining the original exception and trace.
+ *
+ * @api adapter
+ */
+final readonly class PsrLogRuntimeFailureSink implements RuntimeFailureSink
+{
+    public function __construct(private LoggerInterface $logger) {}
+
+    public function report(\Throwable $failure, RuntimeEvent $event): void
+    {
+        $this->logger->error(
+            'message_bus.runtime_failure',
+            array_filter(
+                $event->normalized() + ['exception' => $failure],
+                static fn(mixed $value): bool => $value !== null,
+            ),
         );
     }
 }

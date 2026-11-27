@@ -10,6 +10,7 @@ use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\LeaseToken;
 use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
+use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
 use Wolfcharaa\MessageBus\Registry\MessageRole;
 
 /**
@@ -52,7 +53,14 @@ final readonly class DeliveryStatus
         public int $attempts,
         public \DateTimeImmutable $updatedAt,
         public ?string $lastFailureCategory = null,
-    ) {}
+        public ?AttemptId $lastFailureAttemptId = null,
+        public ?FailureDiagnostic $lastFailure = null,
+    ) {
+        if ($this->lastFailure instanceof FailureDiagnostic
+            && !($this->lastFailureAttemptId instanceof AttemptId)) {
+            throw new \InvalidArgumentException('DeliveryStatus lastFailure requires lastFailureAttemptId.');
+        }
+    }
 }
 
 /**
@@ -92,11 +100,29 @@ final readonly class DeliveryPolicy
         public int $idempotencySafetyMarginSeconds = 60,
         public bool $retryLostAttempts = false,
     ) {
-        if ($this->name === '' || $this->maxAttempts < 1 || $this->retryDelaySeconds < 0
-            || $this->leaseSeconds < 1 || $this->maxElapsedSeconds < 1
-            || $this->idempotencyRetentionSeconds < 0 || $this->replayWindowSeconds < 0
-            || $this->idempotencySafetyMarginSeconds < 0) {
-            throw new \InvalidArgumentException('DeliveryPolicy contains invalid bounds.');
+        if ($this->name === '') {
+            throw new \InvalidArgumentException('DeliveryPolicy name must not be empty.');
+        }
+        if ($this->maxAttempts < 1) {
+            throw new \InvalidArgumentException('DeliveryPolicy maxAttempts must be at least 1.');
+        }
+        if ($this->retryDelaySeconds < 0) {
+            throw new \InvalidArgumentException('DeliveryPolicy retryDelaySeconds must not be negative.');
+        }
+        if ($this->leaseSeconds < 1) {
+            throw new \InvalidArgumentException('DeliveryPolicy leaseSeconds must be at least 1.');
+        }
+        if ($this->maxElapsedSeconds < 1) {
+            throw new \InvalidArgumentException('DeliveryPolicy maxElapsedSeconds must be at least 1.');
+        }
+        if ($this->idempotencyRetentionSeconds < 0) {
+            throw new \InvalidArgumentException('DeliveryPolicy idempotencyRetentionSeconds must not be negative.');
+        }
+        if ($this->replayWindowSeconds < 0) {
+            throw new \InvalidArgumentException('DeliveryPolicy replayWindowSeconds must not be negative.');
+        }
+        if ($this->idempotencySafetyMarginSeconds < 0) {
+            throw new \InvalidArgumentException('DeliveryPolicy idempotencySafetyMarginSeconds must not be negative.');
         }
         $requiredRetention = $this->maxElapsedSeconds
             + $this->replayWindowSeconds
@@ -158,6 +184,26 @@ interface FailureClassifier
 }
 
 /**
+ * Classification outcome retaining a failure raised by the classifier itself.
+ *
+ * @api application
+ */
+final readonly class FailureClassification
+{
+    public function __construct(
+        public FailureCategory $category,
+        public ?\Throwable $classifierFailure = null,
+    ) {
+        if ($this->classifierFailure instanceof \Throwable
+            && $this->category !== FailureCategory::ClassifierError) {
+            throw new \InvalidArgumentException(
+                'FailureClassification classifierFailure requires category classifier_error.',
+            );
+        }
+    }
+}
+
+/**
  *  Ordered classifier chain with a conservative terminal fallback.
  *
  * @api application
@@ -168,14 +214,21 @@ final readonly class FailureClassifiers
 
     public function classify(\Throwable $failure): FailureCategory
     {
+        return $this->classifyDetailed($failure)->category;
+    }
+
+    public function classifyDetailed(\Throwable $failure): FailureClassification
+    {
         if (!$this->application instanceof FailureClassifier) {
-            return FailureCategory::Retryable;
+            return new FailureClassification(FailureCategory::Retryable);
         }
 
         try {
-            return $this->application->classify($failure) ?? FailureCategory::Retryable;
-        } catch (\Throwable) {
-            return FailureCategory::ClassifierError;
+            return new FailureClassification(
+                $this->application->classify($failure) ?? FailureCategory::Retryable,
+            );
+        } catch (\Throwable $classifierFailure) {
+            return new FailureClassification(FailureCategory::ClassifierError, $classifierFailure);
         }
     }
 }
@@ -249,12 +302,17 @@ final readonly class ControlActor
         /** @var array<string, bool|float|int|string|null> */
         public array $metadata = [],
     ) {
-        if ($this->actor === '' || $this->reason === '') {
-            throw new \InvalidArgumentException('Control actor and reason are required.');
+        if ($this->actor === '') {
+            throw new \InvalidArgumentException('ControlActor actor must not be empty.');
         }
-        foreach ([$this->operationId, $this->idempotencyKey] as $identity) {
+        if ($this->reason === '') {
+            throw new \InvalidArgumentException('ControlActor reason must not be empty.');
+        }
+        foreach (['operationId' => $this->operationId, 'idempotencyKey' => $this->idempotencyKey] as $field => $identity) {
             if ($identity !== null && preg_match('/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}$/D', $identity) !== 1) {
-                throw new \InvalidArgumentException('Control operation identity is invalid.');
+                throw new \InvalidArgumentException(
+                    'ControlActor ' . $field . ' must match [a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}.',
+                );
             }
         }
         if (\strlen(json_encode($this->metadata, JSON_THROW_ON_ERROR)) > 4_096) {

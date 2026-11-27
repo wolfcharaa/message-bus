@@ -32,6 +32,8 @@ use Wolfcharaa\MessageBus\Metadata\MetadataEnricher;
 use Wolfcharaa\MessageBus\Metadata\MetadataSchema;
 use Wolfcharaa\MessageBus\Middleware\HandlerMiddlewareResolver;
 use Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares;
+use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
+use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Observability\NullObserverFailureSink;
 use Wolfcharaa\MessageBus\Observability\NullRuntimeObserver;
 use Wolfcharaa\MessageBus\Observability\ObserverFailureSink;
@@ -207,6 +209,11 @@ final class DefaultMessageBus implements MessageBusContract
 
             return $result;
         } catch (\Throwable $failure) {
+            $diagnostic = FailureDiagnostic::fromThrowable(
+                FailureStage::Dispatch,
+                $failure,
+                $failure->getPrevious(),
+            );
             $this->observer->observe(new RuntimeEvent(
                 RuntimeEventType::DispatchFailed,
                 $this->clock->now(),
@@ -216,8 +223,12 @@ final class DefaultMessageBus implements MessageBusContract
                 messageName: $message::class,
                 durationMicroseconds: $this->durationMicroseconds($started),
                 outcome: 'failed',
-                failureClass: $failure::class,
-                errorFingerprint: hash('sha256', $failure::class),
+                failureClass: $diagnostic->failureClass,
+                errorFingerprint: $diagnostic->fingerprint,
+                failureCode: $diagnostic->code,
+                failureStage: $diagnostic->stage->value,
+                failureSummary: $diagnostic->summary,
+                relatedFailureClass: $diagnostic->relatedFailureClass,
             ));
 
             throw $failure;
@@ -241,18 +252,39 @@ final class DefaultMessageBus implements MessageBusContract
     {
         $bindings = $this->registry->handlersFor($message);
         if (\count($bindings) !== 1) {
-            throw new CommandNotAccepted('Command has no unique compiled recipient.');
+            throw new CommandNotAccepted(
+                'Command ' . $message::class . ' message ' . $metadata->messageId->value
+                    . ' has no unique compiled recipient at target_resolution.',
+                messageId: $metadata->messageId,
+                messageName: $message::class,
+                stage: FailureStage::TargetResolution,
+            );
         }
         $binding = $bindings[0];
         $route = $this->routes->route($binding);
         if ($route->mode !== DeliveryMode::Durable) {
-            throw new CommandNotAccepted('Command delivery route must be durable.');
+            throw new CommandNotAccepted(
+                'Command ' . $message::class . ' message ' . $metadata->messageId->value
+                    . ' target ' . $binding->id . ' requires a durable route at delivery_acceptance.',
+                messageId: $metadata->messageId,
+                messageName: $message::class,
+                targetId: $binding->id,
+                stage: FailureStage::DeliveryAcceptance,
+            );
         }
 
         try {
             $entry = $this->accept($binding, $message, $metadata, $route->policy, $route->lane);
         } catch (\Throwable $failure) {
-            throw new CommandNotAccepted('Command could not reach durable acceptance.', 0, $failure);
+            throw new CommandNotAccepted(
+                'Command ' . $message::class . ' message ' . $metadata->messageId->value
+                    . ' target ' . $binding->id . ' failed at delivery_acceptance.',
+                previous: $failure,
+                messageId: $metadata->messageId,
+                messageName: $message::class,
+                targetId: $binding->id,
+                stage: FailureStage::DeliveryAcceptance,
+            );
         }
 
         return new CommandReceipt($metadata->messageId, $entry);
@@ -281,8 +313,9 @@ final class DefaultMessageBus implements MessageBusContract
                 $entries[] = new PublicationEntry(
                     $binding->id,
                     PublicationOutcome::Failed,
-                    failureCategory: $failure::class,
-                    failureSummary: substr($failure->getMessage(), 0, 512),
+                    failureCategory: 'inline_handler_error',
+                    failureSummary: 'Inline event handler execution failed.',
+                    failureClass: $failure::class,
                 );
                 $failures[] = $failure;
             }

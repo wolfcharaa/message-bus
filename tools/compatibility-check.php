@@ -47,6 +47,12 @@ foreach (RuntimeEventType::cases() as $type) {
         || ($definition['severity'] ?? null) !== $type->severity()->value) {
         throw new RuntimeException('Runtime event schema or severity catalog is stale: ' . $type->value);
     }
+    $requiredFields = $definition['required_fields'] ?? null;
+    if (!\is_array($requiredFields) || !array_is_list($requiredFields)
+        || array_filter($requiredFields, 'is_string') !== $requiredFields) {
+        throw new RuntimeException('Runtime event required fields are invalid: ' . $type->value);
+    }
+    sameValues($type->value . ' required field', $type->requiredFields(), $requiredFields);
 }
 
 $wire = document('wire');
@@ -78,6 +84,7 @@ sameValues('Diagnostic', $actualCodes, $expectedCodes);
 
 $cli = document('cli');
 $expectedCommands = $cli['commands'] ?? null;
+$errorDefinition = $cli['error'] ?? null;
 $consoleSource = (string) file_get_contents(__DIR__ . '/../src/InternalConsoleCommands.php');
 preg_match_all("/(?:setName|configureMutation)\('([^']+)'/", $consoleSource, $matches);
 $actualCommands = array_values(array_unique($matches[1] ?? []));
@@ -85,6 +92,26 @@ if (!\is_array($expectedCommands) || array_is_list($expectedCommands)) {
     throw new RuntimeException('CLI compatibility definitions must be an object.');
 }
 sameValues('CLI', $actualCommands, array_values(array_filter(array_keys($expectedCommands), 'is_string')));
+if (($cli['output_schema'] ?? null) !== 2 || !\is_array($errorDefinition) || array_is_list($errorDefinition)) {
+    throw new RuntimeException('CLI output/error schema definition is invalid.');
+}
+$errorFields = $errorDefinition['fields'] ?? null;
+$errorCodes = $errorDefinition['codes'] ?? null;
+if (!\is_array($errorFields) || !array_is_list($errorFields)
+    || !\is_array($errorCodes) || !array_is_list($errorCodes)) {
+    throw new RuntimeException('CLI error fields or codes must be lists.');
+}
+sameValues(
+    'CLI error field',
+    ['code', 'type', 'stage', 'message', 'exception_type', 'subject'],
+    array_values(array_filter($errorFields, 'is_string')),
+);
+preg_match_all("/'(MBCLI[0-9]{3})'/", $consoleSource, $matches);
+sameValues(
+    'CLI error code',
+    array_values(array_unique($matches[1] ?? [])),
+    array_values(array_filter($errorCodes, 'is_string')),
+);
 
 fwrite(STDOUT, sprintf(
     "Compatibility catalogs are current: %d events, %d diagnostics, %d commands.\n",

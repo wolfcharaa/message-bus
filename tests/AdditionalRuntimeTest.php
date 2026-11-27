@@ -37,10 +37,15 @@ use Wolfcharaa\MessageBus\Delivery\DeliveryOperations;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicies;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicy;
 use Wolfcharaa\MessageBus\Delivery\DeliveryState;
+use Wolfcharaa\MessageBus\Delivery\DeliveryStatus;
 use Wolfcharaa\MessageBus\Delivery\FailureCategory;
+use Wolfcharaa\MessageBus\Delivery\FailureClassification;
 use Wolfcharaa\MessageBus\Delivery\FailureClassifier;
 use Wolfcharaa\MessageBus\Delivery\FailureClassifiers;
+use Wolfcharaa\MessageBus\Exception\CleanupFailed;
+use Wolfcharaa\MessageBus\Exception\CommandNotAccepted;
 use Wolfcharaa\MessageBus\Exception\IncompatibleDeliveryFailure;
+use Wolfcharaa\MessageBus\Exception\InvalidMessageBusConfiguration;
 use Wolfcharaa\MessageBus\HandlerServices;
 use Wolfcharaa\MessageBus\Idempotency\AtomicIdempotencyBoundary;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyAttempt;
@@ -53,20 +58,27 @@ use Wolfcharaa\MessageBus\Idempotency\IdempotencyResult;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyRuntime;
 use Wolfcharaa\MessageBus\Idempotency\IntentFingerprint;
 use Wolfcharaa\MessageBus\Idempotency\TargetIdempotencyResolver;
+use Wolfcharaa\MessageBus\Identity\AttemptId;
 use Wolfcharaa\MessageBus\Identity\CorrelationId;
 use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Identity\RandomIdentityGenerator;
+use Wolfcharaa\MessageBus\Internal\Runtime\BestEffortRuntimeFailureSink;
 use Wolfcharaa\MessageBus\Internal\Runtime\BestEffortRuntimeObserver;
 use Wolfcharaa\MessageBus\Internal\Runtime\DeliveryCancellationSignal;
+use Wolfcharaa\MessageBus\Internal\Runtime\FailurePreservingCleanup;
 use Wolfcharaa\MessageBus\Internal\Runtime\OneShotNextHandler;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
 use Wolfcharaa\MessageBus\Metadata\MetadataSchema;
+use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
+use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Observability\NullObserverFailureSink;
 use Wolfcharaa\MessageBus\Observability\ObserverFailureSink;
+use Wolfcharaa\MessageBus\Observability\PsrLogRuntimeFailureSink;
 use Wolfcharaa\MessageBus\Observability\PsrLogRuntimeObserver;
 use Wolfcharaa\MessageBus\Observability\RuntimeEvent;
 use Wolfcharaa\MessageBus\Observability\RuntimeEventType;
+use Wolfcharaa\MessageBus\Observability\RuntimeFailureSink;
 use Wolfcharaa\MessageBus\Observability\RuntimeObserver;
 use Wolfcharaa\MessageBus\Receipt\PublicationEntry;
 use Wolfcharaa\MessageBus\Receipt\PublicationOutcome;
@@ -88,6 +100,7 @@ use Wolfcharaa\MessageBus\Worker\DefaultFailureClassifier;
 use Wolfcharaa\MessageBus\Worker\DeliveryWorkerRuntime;
 use Wolfcharaa\MessageBus\Worker\WorkerIteration;
 use Wolfcharaa\MessageBus\Worker\WorkerProfile;
+use Wolfcharaa\MessageBus\Worker\WorkerStatusFilter;
 
 final class AdditionalRuntimeTest extends TestCase
 {
@@ -175,6 +188,258 @@ final class AdditionalRuntimeTest extends TestCase
         new PublicationReceipt($messageId, [$entry, $entry]);
     }
 
+    public function testValidationFailuresNameTheExactFieldAndRule(): void
+    {
+        $cases = [
+            [
+                static fn(): DeliveryPolicy => new DeliveryPolicy('invalid', maxAttempts: 0),
+                'DeliveryPolicy maxAttempts must be at least 1.',
+            ],
+            [
+                static fn(): WorkerProfile => new WorkerProfile('worker', 'default', parallelism: 0),
+                'WorkerProfile parallelism must be at least 1.',
+            ],
+            [
+                static fn(): EncodedPayload => new EncodedPayload('message.name', 0, 'json', '{}'),
+                'EncodedPayload version must be at least 1.',
+            ],
+            [
+                static fn(): Payload => new Payload(0, 'json'),
+                'Payload version must be at least 1.',
+            ],
+            [
+                static fn(): WorkerStatusFilter => new WorkerStatusFilter('profile', 'instance'),
+                'WorkerStatusFilter accepts either profile or instance, not both.',
+            ],
+            [
+                static fn(): RuntimeEvent => new RuntimeEvent(
+                    RuntimeEventType::DispatchStarted,
+                    new \DateTimeImmutable('2026-11-22T10:00:00+00:00'),
+                    correlationId: new CorrelationId('correlation:missing-message'),
+                    messageName: 'message.name',
+                ),
+                'Runtime event dispatch_started requires field message_id.',
+            ],
+        ];
+
+        foreach ($cases as [$operation, $expected]) {
+            try {
+                $operation();
+                self::fail('Invalid value was accepted: ' . $expected);
+            } catch (\InvalidArgumentException $failure) {
+                self::assertSame($expected, $failure->getMessage());
+            }
+        }
+    }
+
+    public function testFailureContractsCoverEveryValidationBoundary(): void
+    {
+        $invalid = [
+            [
+                static fn(): Payload => new Payload(1, 'INVALID'),
+                'Payload codec must match [a-z][a-z0-9._-]{1,31}.',
+            ],
+            [
+                static fn(): EncodedPayload => new EncodedPayload('message.name', 1, '', '{}'),
+                'EncodedPayload codec must not be empty.',
+            ],
+            [
+                static fn(): DeliveryStatus => new DeliveryStatus(
+                    new DeliveryId('delivery:invalid-status'),
+                    new MessageId('message:invalid-status'),
+                    'target',
+                    DeliveryState::Failed,
+                    1,
+                    new \DateTimeImmutable('2026-11-22T10:00:00+00:00'),
+                    lastFailure: new FailureDiagnostic(FailureStage::HandlerExecution, \RuntimeException::class),
+                ),
+                'DeliveryStatus lastFailure requires lastFailureAttemptId.',
+            ],
+            [
+                static fn(): FailureClassification => new FailureClassification(
+                    FailureCategory::Retryable,
+                    new \RuntimeException(),
+                ),
+                'FailureClassification classifierFailure requires category classifier_error.',
+            ],
+            [
+                static fn(): ControlActor => new ControlActor('tester', ''),
+                'ControlActor reason must not be empty.',
+            ],
+            [
+                static fn(): ControlActor => new ControlActor(
+                    'tester',
+                    'invalid identity',
+                    idempotencyKey: 'short',
+                ),
+                'ControlActor idempotencyKey must match [a-zA-Z0-9][a-zA-Z0-9._:-]{7,127}.',
+            ],
+            [
+                static fn(): PublicationEntry => new PublicationEntry('target', PublicationOutcome::Failed),
+                'Failed publication outcomes require failureCategory, failureSummary and failureClass.',
+            ],
+            [
+                static fn(): DeliveryRoute => new DeliveryRoute(DeliveryMode::Inline, 'default', ''),
+                'DeliveryRoute lane must not be empty.',
+            ],
+            [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'x',
+                    DiagnosticSeverity::Error,
+                    'invalid code',
+                ),
+                'Registry diagnostic code must match [A-Z][A-Z0-9._-]{2,31}.',
+            ],
+            [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'TEST001',
+                    DiagnosticSeverity::Error,
+                    '',
+                ),
+                'Registry diagnostic message must not be empty.',
+            ],
+            [
+                static fn(): FailureDiagnostic => new FailureDiagnostic(FailureStage::Dispatch, ''),
+                'Failure diagnostic field failureClass must contain 1..255 bytes.',
+            ],
+            [
+                static fn(): FailureDiagnostic => new FailureDiagnostic(
+                    FailureStage::Dispatch,
+                    \RuntimeException::class,
+                    '',
+                ),
+                'Failure diagnostic field relatedFailureClass must contain 1..255 bytes.',
+            ],
+            [
+                static fn(): object => (new \ReflectionClass(CleanupFailed::class))->newInstanceArgs([
+                    'test cleanup',
+                    new \RuntimeException(),
+                    [],
+                ]),
+                'CleanupFailed requires an operation and at least one cleanup failure.',
+            ],
+        ];
+
+        foreach ($invalid as [$operation, $message]) {
+            try {
+                $operation();
+                self::fail('Invalid value was accepted: ' . $message);
+            } catch (\InvalidArgumentException $failure) {
+                self::assertSame($message, $failure->getMessage());
+            }
+        }
+
+        $diagnostic = FailureDiagnostic::fromThrowable(
+            FailureStage::HandlerResolution,
+            $primary = new \RuntimeException('primary'),
+            $related = new \LogicException('related'),
+        );
+        self::assertSame($primary::class, $diagnostic->failureClass);
+        self::assertSame($related::class, $diagnostic->relatedFailureClass);
+        self::assertEquals($diagnostic, FailureDiagnostic::tryFromEncoded($diagnostic->encode()));
+        self::assertNull(FailureDiagnostic::tryFromEncoded('not-json'));
+        self::assertNull(FailureDiagnostic::tryFromEncoded('[]'));
+        self::assertNull(FailureDiagnostic::tryFromEncoded('{"schema":2}'));
+        self::assertNull(FailureDiagnostic::tryFromEncoded(str_replace(
+            'MBD104',
+            'MBD999',
+            $diagnostic->encode(),
+        )));
+
+        $configuration = new CommandNotAccepted(
+            'acceptance failed',
+            previous: $primary,
+            messageId: new MessageId('message:command-not-accepted'),
+            messageName: 'message.name',
+            targetId: 'target',
+            stage: FailureStage::DeliveryAcceptance,
+        );
+        self::assertSame($primary, $configuration->getPrevious());
+        self::assertSame(FailureStage::DeliveryAcceptance, $configuration->stage);
+
+        try {
+            FailurePreservingCleanup::rethrowAfter($primary, 'clean cleanup', static function (): void {});
+        } catch (\RuntimeException $failure) {
+            self::assertSame($primary, $failure);
+        }
+    }
+
+    public function testPolicyAndWorkerValidationIdentifyEveryInvalidField(): void
+    {
+        $invalid = [
+            [static fn(): DeliveryPolicy => new DeliveryPolicy('policy', retryDelaySeconds: -1), 'DeliveryPolicy retryDelaySeconds must not be negative.'],
+            [static fn(): DeliveryPolicy => new DeliveryPolicy('policy', leaseSeconds: 0), 'DeliveryPolicy leaseSeconds must be at least 1.'],
+            [static fn(): DeliveryPolicy => new DeliveryPolicy('policy', maxElapsedSeconds: 0), 'DeliveryPolicy maxElapsedSeconds must be at least 1.'],
+            [static fn(): DeliveryPolicy => new DeliveryPolicy('policy', idempotencyRetentionSeconds: -1), 'DeliveryPolicy idempotencyRetentionSeconds must not be negative.'],
+            [static fn(): DeliveryPolicy => new DeliveryPolicy('policy', replayWindowSeconds: -1), 'DeliveryPolicy replayWindowSeconds must not be negative.'],
+            [static fn(): DeliveryPolicy => new DeliveryPolicy('policy', idempotencySafetyMarginSeconds: -1), 'DeliveryPolicy idempotencySafetyMarginSeconds must not be negative.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', ''), 'WorkerProfile lane must not be empty.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', 'default', pollMicroseconds: 999), 'WorkerProfile pollMicroseconds must be at least 1000.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', 'default', heartbeatMicroseconds: 999), 'WorkerProfile heartbeatMicroseconds must be at least 1000.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', 'default', shutdownGraceSeconds: 0), 'WorkerProfile shutdownGraceSeconds must be at least 1.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', 'default', forceKillGraceSeconds: 0), 'WorkerProfile forceKillGraceSeconds must be at least 1.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', 'default', maxHandledAttempts: -1), 'WorkerProfile maxHandledAttempts must not be negative.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', 'default', maxRuntimeSeconds: -1), 'WorkerProfile maxRuntimeSeconds must not be negative.'],
+            [static fn(): WorkerProfile => new WorkerProfile('worker', 'default', maxMemoryBytes: -1), 'WorkerProfile maxMemoryBytes must not be negative.'],
+        ];
+
+        foreach ($invalid as [$operation, $message]) {
+            try {
+                $operation();
+                self::fail('Invalid value was accepted: ' . $message);
+            } catch (\InvalidArgumentException $failure) {
+                self::assertSame($message, $failure->getMessage());
+            }
+        }
+    }
+
+    public function testRuntimeEventValidationIdentifiesEveryInvalidField(): void
+    {
+        $invalid = [
+            [
+                static fn(): RuntimeEvent => new RuntimeEvent(
+                    RuntimeEventType::DispatchStarted,
+                    new \DateTimeImmutable(),
+                    schemaVersion: 2,
+                ),
+                'Runtime event schemaVersion must be 1.',
+            ],
+            [
+                static fn(): RuntimeEvent => new RuntimeEvent(
+                    RuntimeEventType::DispatchStarted,
+                    new \DateTimeImmutable(),
+                    durationMicroseconds: -1,
+                ),
+                'Runtime event durationMicroseconds must not be negative.',
+            ],
+            [
+                static fn(): RuntimeEvent => new RuntimeEvent(
+                    RuntimeEventType::DispatchStarted,
+                    new \DateTimeImmutable(),
+                    errorFingerprint: 'invalid',
+                ),
+                'Runtime event errorFingerprint must be a lowercase SHA-256 digest.',
+            ],
+            [
+                static fn(): RuntimeEvent => new RuntimeEvent(
+                    RuntimeEventType::DispatchStarted,
+                    new \DateTimeImmutable(),
+                    failureCode: 'MBD001',
+                ),
+                'Runtime event failureCode, failureStage and failureSummary must be provided together.',
+            ],
+        ];
+
+        foreach ($invalid as [$operation, $message]) {
+            try {
+                $operation();
+                self::fail('Invalid runtime event was accepted: ' . $message);
+            } catch (\InvalidArgumentException $failure) {
+                self::assertSame($message, $failure->getMessage());
+            }
+        }
+    }
+
     public function testContextFactoryMetadataAndCancellationContracts(): void
     {
         $metadata = new MessageMetadata(
@@ -231,6 +496,22 @@ final class AdditionalRuntimeTest extends TestCase
         $replayedClaim = $backend->claim('default', 'worker');
         self::assertNotNull($replayedClaim);
         self::assertTrue($backend->fail($replayedClaim, FailureCategory::Terminal, 'test cleanup'));
+
+        $retrying = $this->draft('delivery:retained-failure', new DeliveryPolicy('retrying', maxAttempts: 2));
+        $backend->accept($retrying);
+        $firstRetry = $backend->claim('default', 'worker');
+        self::assertNotNull($firstRetry);
+        $diagnostic = new FailureDiagnostic(FailureStage::HandlerExecution, \RuntimeException::class);
+        self::assertTrue($backend->fail($firstRetry, FailureCategory::Retryable, $diagnostic->encode()));
+        $secondRetry = $backend->claim('default', 'worker');
+        self::assertNotNull($secondRetry);
+        self::assertEquals($diagnostic, $backend->status($retrying->deliveryId)?->lastFailure);
+        self::assertTrue($backend->succeed($secondRetry));
+        $succeeded = $backend->status($retrying->deliveryId);
+        self::assertNotNull($succeeded);
+        self::assertSame(FailureCategory::Retryable->value, $succeeded->lastFailureCategory);
+        self::assertEquals($firstRetry->attempt->attemptId, $succeeded->lastFailureAttemptId);
+        self::assertEquals($diagnostic, $succeeded->lastFailure);
 
         $expiring = $this->draft(
             'delivery:recover-expired',
@@ -392,8 +673,9 @@ final class AdditionalRuntimeTest extends TestCase
         try {
             $invalid->requireRegistry();
             self::fail('Invalid registry compilation produced a runtime registry.');
-        } catch (\RuntimeException) {
-            self::addToAssertionCount(1);
+        } catch (InvalidMessageBusConfiguration $failure) {
+            self::assertSame($invalid->diagnostics, $failure->diagnostics);
+            self::assertStringContainsString('MBR014@' . AdditionalOrphanQuery::class, $failure->getMessage());
         }
     }
 
@@ -440,6 +722,16 @@ final class AdditionalRuntimeTest extends TestCase
                 return new IdempotencyResult(IdempotencyOutcome::Executed);
             }
         };
+        $missingResolver = (new RegistryCompiler(rules: [new RuntimeConfigurationRule(
+            $routes,
+            $policies,
+            new IdempotencyRuntime(new IdempotencyIdentityResolvers([]), $boundary),
+        )]))->compile($source);
+        self::assertFalse($missingResolver->isValid());
+        self::assertSame(['MBC008'], array_column($missingResolver->diagnostics, 'code'));
+        self::assertSame('resolver for target ' . $bindingId, $missingResolver->diagnostics[0]->expected);
+        self::assertSame('not configured', $missingResolver->diagnostics[0]->actual);
+
         $runtime = new IdempotencyRuntime(
             new IdempotencyIdentityResolvers([new TargetIdempotencyResolver($bindingId, $resolver)]),
             $boundary,
@@ -536,18 +828,36 @@ final class AdditionalRuntimeTest extends TestCase
     public function testObserverAndWorkerFailureExposeTypedOutcomes(): void
     {
         $logger = new RecordingLogger();
+        $diagnostic = new FailureDiagnostic(FailureStage::HandlerExecution, \RuntimeException::class);
         $event = new RuntimeEvent(
             RuntimeEventType::AttemptFailed,
             new \DateTimeImmutable('2026-11-22T10:00:00+00:00'),
             new MessageId('message:observer-event'),
             new DeliveryId('delivery:observer-event'),
+            new CorrelationId('correlation:observer-event'),
+            attemptId: new AttemptId('attempt:observer-event'),
+            messageName: 'observer.event',
+            targetId: 'observer.target',
+            workerId: 'worker:observer-event',
+            route: 'default',
+            profile: 'observer',
+            attemptNumber: 1,
+            durationMicroseconds: 10,
+            outcome: 'failed',
             failureCategory: 'terminal',
-            failureClass: \RuntimeException::class,
-            errorFingerprint: hash('sha256', 'observer-test'),
+            failureClass: $diagnostic->failureClass,
+            errorFingerprint: $diagnostic->fingerprint,
+            failureCode: $diagnostic->code,
+            failureStage: $diagnostic->stage->value,
+            failureSummary: $diagnostic->summary,
         );
         (new PsrLogRuntimeObserver($logger))->observe($event);
         self::assertSame('message_bus.attempt_failed', $logger->records[0]['message']);
         self::assertSame('terminal', $logger->records[0]['context']['failure_category']);
+        $loggedFailure = new \RuntimeException('process-local detail');
+        (new PsrLogRuntimeFailureSink($logger))->report($loggedFailure, $event);
+        self::assertSame($loggedFailure, $logger->records[1]['context']['exception']);
+        self::assertArrayNotHasKey('exception', $logger->records[0]['context']);
         self::assertSame('warning', RuntimeEventType::DeliveryRecovered->severity()->value);
         self::assertSame('debug', RuntimeEventType::DispatchStarted->severity()->value);
         (new NullObserverFailureSink())->report(new \RuntimeException('ignored'), $event);
@@ -579,6 +889,11 @@ final class AdditionalRuntimeTest extends TestCase
         (new BestEffortRuntimeObserver(new ThrowingRuntimeObserver(), new ThrowingObserverFailureSink()))
             ->observe($event);
         self::addToAssertionCount(1);
+        (new BestEffortRuntimeFailureSink(
+            new ThrowingRuntimeFailureSink(),
+            new ThrowingObserverFailureSink(),
+        ))->report(new \RuntimeException('original runtime failure'), $event);
+        self::addToAssertionCount(1);
 
         $handler = new FailingCommandHandler();
         $registry = (new RegistryCompiler())->compile(new ExplicitClassSource([
@@ -603,23 +918,135 @@ final class AdditionalRuntimeTest extends TestCase
             $registry,
             new HandlerServices([FailingCommandHandler::class => $handler]),
             self::createStub(MessageBus::class),
+            observer: $events = new RecordingRuntimeObserver(),
+            runtimeFailureSink: $runtimeFailures = new RecordingRuntimeFailureSink(),
         );
         self::assertSame(WorkerIteration::Failed, $runtime->runOnce(new WorkerProfile('failure', 'default'), 'worker'));
-        self::assertSame(DeliveryState::Failed, $backend->status(new DeliveryId('delivery:worker-failure'))?->state);
+        $status = $backend->status(new DeliveryId('delivery:worker-failure'));
+        self::assertNotNull($status);
+        self::assertSame(DeliveryState::Failed, $status->state);
+        self::assertNotNull($status->lastFailure);
+        self::assertSame(FailureStage::HandlerExecution, $status->lastFailure->stage);
+        self::assertSame('MBD105', $status->lastFailure->code);
+        self::assertSame(\RuntimeException::class, $status->lastFailure->failureClass);
+        self::assertSame('Handler execution failed.', $status->lastFailure->summary);
+        self::assertNotNull($status->lastFailureAttemptId);
+        self::assertSame($handler->failure, $runtimeFailures->records[0]['failure']);
+        self::assertSame('worker', $runtimeFailures->records[0]['event']->workerId);
+        self::assertSame('failure', $runtimeFailures->records[0]['event']->profile);
+        $failedEvent = $events->last();
+        self::assertSame(RuntimeEventType::AttemptFailed, $failedEvent->type);
+        self::assertSame('MBD105', $failedEvent->failureCode);
+        self::assertSame('default', $failedEvent->route);
+        self::assertStringNotContainsString('expected failure', $status->lastFailure->encode());
         self::assertSame(WorkerIteration::Idle, $runtime->runOnce(new WorkerProfile('failure', 'default'), 'worker'));
         self::assertSame(FailureCategory::Retryable, (new FailureClassifiers())->classify(new \RuntimeException()));
-        self::assertSame(FailureCategory::ClassifierError, (new FailureClassifiers(
-            new class implements FailureClassifier {
+        $classifierFailure = new \RuntimeException('classifier failed');
+        $classification = (new FailureClassifiers(
+            new readonly class ($classifierFailure) implements FailureClassifier {
+                public function __construct(private \Throwable $failure) {}
+
                 public function classify(\Throwable $failure): ?FailureCategory
                 {
-                    throw new \RuntimeException('classifier failed');
+                    throw $this->failure;
                 }
             },
-        ))->classify(new \RuntimeException()));
+        ))->classifyDetailed(new \RuntimeException());
+        self::assertSame(FailureCategory::ClassifierError, $classification->category);
+        self::assertSame($classifierFailure, $classification->classifierFailure);
         self::assertSame(FailureCategory::Cancelled, (new DefaultFailureClassifier())
             ->classify(new CancellationRequested()));
         self::assertSame(FailureCategory::Incompatible, (new DefaultFailureClassifier())
             ->classify(new IncompatibleDeliveryFailure()));
+    }
+
+    public function testClassifierFailureRetainsBothThrowablesAndPersistsExactStage(): void
+    {
+        $handlerFailure = new HandlerExecutionFailure('sensitive handler detail');
+        $classifierFailure = new ClassifierExecutionFailure('sensitive classifier detail');
+        $handler = new FailingCommandHandler($handlerFailure);
+        $registry = (new RegistryCompiler())->compile(new ExplicitClassSource([
+            FailingCommand::class,
+            FailingCommandHandler::class,
+        ]))->requireRegistry();
+        $backend = new InMemoryDeliveryBackend(new MutableClock(), new SequenceIdentities());
+        $codecs = new MessageCodecs(
+            [FailingCommand::class => new JsonMessageCodec(FailingCommand::class)],
+            ['failing.command' => [1 => new JsonMessageCodec(FailingCommand::class)]],
+        );
+        $backend->accept($this->draft(
+            'delivery:classifier-failure',
+            new DeliveryPolicy('terminal'),
+            $codecs->encode(new FailingCommand('x')),
+            FailingCommand::class,
+            FailingCommandHandler::class,
+        ));
+        $classifiers = new FailureClassifiers(new readonly class ($classifierFailure) implements FailureClassifier {
+            public function __construct(private \Throwable $failure) {}
+
+            public function classify(\Throwable $failure): ?FailureCategory
+            {
+                throw $this->failure;
+            }
+        });
+        $runtime = new DeliveryWorkerRuntime(
+            $backend,
+            $codecs,
+            $registry,
+            new HandlerServices([FailingCommandHandler::class => $handler]),
+            self::createStub(MessageBus::class),
+            classifiers: $classifiers,
+            observer: $events = new RecordingRuntimeObserver(),
+            runtimeFailureSink: $failures = new RecordingRuntimeFailureSink(),
+        );
+
+        self::assertSame(
+            WorkerIteration::Failed,
+            $runtime->runOnce(new WorkerProfile('classifier', 'default'), 'worker:classifier'),
+        );
+        $status = $backend->status(new DeliveryId('delivery:classifier-failure'));
+        self::assertNotNull($status);
+        self::assertSame(FailureCategory::ClassifierError->value, $status->lastFailureCategory);
+        self::assertNotNull($status->lastFailure);
+        self::assertSame(FailureStage::FailureClassification, $status->lastFailure->stage);
+        self::assertSame(ClassifierExecutionFailure::class, $status->lastFailure->failureClass);
+        self::assertSame(HandlerExecutionFailure::class, $status->lastFailure->relatedFailureClass);
+        self::assertSame([$handlerFailure, $classifierFailure], array_column($failures->records, 'failure'));
+        $event = $events->last();
+        self::assertSame('MBD107', $event->failureCode);
+        self::assertSame(HandlerExecutionFailure::class, $event->relatedFailureClass);
+        self::assertStringNotContainsString('sensitive', (string) json_encode($event->normalized()));
+    }
+
+    public function testCleanupFailurePreservesPrimaryAndAttemptsEveryCleanup(): void
+    {
+        $primary = new \RuntimeException('primary');
+        $first = new \RuntimeException('first cleanup');
+        $second = new \RuntimeException('second cleanup');
+        $attempted = [];
+
+        try {
+            FailurePreservingCleanup::rethrowAfter(
+                $primary,
+                'test cleanup',
+                static function () use (&$attempted, $first): never {
+                    $attempted[] = 'first';
+
+                    throw $first;
+                },
+                static function () use (&$attempted, $second): never {
+                    $attempted[] = 'second';
+
+                    throw $second;
+                },
+            );
+        } catch (CleanupFailed $failure) {
+            self::assertSame($primary, $failure->primaryFailure);
+            self::assertSame($primary, $failure->getPrevious());
+            self::assertSame([$first, $second], $failure->cleanupFailures);
+            self::assertSame(['first', 'second'], $attempted);
+            self::assertStringContainsString('test cleanup', $failure->getMessage());
+        }
     }
 
     private function draft(
@@ -741,6 +1168,42 @@ final readonly class ThrowingRuntimeObserver implements RuntimeObserver
     }
 }
 
+final readonly class ThrowingRuntimeFailureSink implements RuntimeFailureSink
+{
+    public function report(\Throwable $failure, RuntimeEvent $event): void
+    {
+        throw new \RuntimeException('runtime failure sink failed');
+    }
+}
+
+final class RecordingRuntimeObserver implements RuntimeObserver
+{
+    /** @var list<RuntimeEvent> */
+    public array $events = [];
+
+    public function observe(RuntimeEvent $event): void
+    {
+        $this->events[] = $event;
+    }
+
+    public function last(): RuntimeEvent
+    {
+        return $this->events[array_key_last($this->events)]
+            ?? throw new \LogicException('No runtime event was recorded.');
+    }
+}
+
+final class RecordingRuntimeFailureSink implements RuntimeFailureSink
+{
+    /** @var list<array{failure: \Throwable, event: RuntimeEvent}> */
+    public array $records = [];
+
+    public function report(\Throwable $failure, RuntimeEvent $event): void
+    {
+        $this->records[] = ['failure' => $failure, 'event' => $event];
+    }
+}
+
 final class RecordingObserverFailureSink implements ObserverFailureSink
 {
     public int $failures = 0;
@@ -768,9 +1231,15 @@ final readonly class FailingCommand implements Command
 
 final readonly class FailingCommandHandler
 {
+    public function __construct(public \Throwable $failure = new \RuntimeException('expected failure')) {}
+
     #[Handler]
     public function __invoke(FailingCommand $command): void
     {
-        throw new \RuntimeException('expected failure');
+        throw $this->failure;
     }
 }
+
+final class HandlerExecutionFailure extends \RuntimeException {}
+
+final class ClassifierExecutionFailure extends \RuntimeException {}

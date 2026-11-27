@@ -1,6 +1,6 @@
 ---
 doc_id: reference.cli
-contract_revision: 4
+contract_revision: 5
 ---
 
 # CLI reference
@@ -15,6 +15,10 @@ Optional Symfony Console adapter предоставляет versioned text/JSON 
 
 - `worker:run`, `worker:status`, `worker:pause`, `worker:resume`, `worker:prune` — runtime operations. Status принимает `--profile` либо exact `--instance`, показывает convergence/stale/drained; prune удаляет только terminal worker history и остаётся dry-run без `--execute`.
 
-- JSON document содержит `schema` и `command`; invalid input, conflict/timeout и schema failure используют non-zero exit codes.
+- Каждый JSON document использует output `schema: 2` и содержит `command`. Перехваченная ошибка команды возвращается единым объектом `error` с полями `code`, `type`, `stage`, безопасным `message`, `exception_type` и необязательным subject `{type,id}`. Raw exception message не выводится.
+
+- Коды ошибок: `MBCLI001` — invalid input, `MBCLI002` — конфликт retained state, `MBCLI003` — backend failure, `MBCLI004` — неожиданная internal failure. `stage` указывает операцию команды, например `delivery.status` или `registry.compile`; non-zero exit codes остаются специфичными для команды.
+
+- `delivery:status` выводит `last_failure_category`, `last_failure_attempt_id` и redacted descriptor `last_failure`, если была сохранена canonical diagnostic.
 
 Точные signatures перечислены в [публичном API](../reference/public-api.md); при конфликте source manifest является нормативным.

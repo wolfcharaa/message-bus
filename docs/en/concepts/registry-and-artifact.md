@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.registry-and-artifact
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Registry and artifact
@@ -11,7 +11,7 @@ The compiler consumes a bounded class source, validates declarations, and emits 
 
 - The fingerprint changes when a binding, role, method, context, or message identity changes.
 
-- Diagnostic codes `MBR001…MBR017` are stable for automation; diagnostic text is for people.
+- Diagnostic codes `MBR001…MBR020` and runtime-configuration codes `MBC001…MBC008` are stable for automation. Structured rule, subject, expected/actual, and cause-class fields locate the violation; diagnostic text is for people.
 
 - Any hash or schema mismatch blocks bootstrap before message handling.
 
