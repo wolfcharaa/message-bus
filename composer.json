@@ -54,6 +54,7 @@
     "minimum-stability": "stable",
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.95",
+        "llm/skills": "^1.20",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-strict-rules": "^2.0",
@@ -67,10 +68,14 @@
         "ext-pcntl": "Required by the production PCNTL worker supervisor.",
         "ext-posix": "Required for worker child signalling.",
         "ext-pdo_pgsql": "Required by the PostgreSQL durable runtime.",
+        "llm/skills": "Synchronizes the bundled MessageBus integration skill into consumer projects.",
         "psr/log": "Required only by the optional PSR-3 runtime observer.",
         "symfony/console": "Required only by optional operator commands."
     },
     "config": {
+        "allow-plugins": {
+            "llm/skills": true
+        },
         "platform": {
             "php": "8.3.0"
         },

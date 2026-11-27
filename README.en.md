@@ -1,5 +1,7 @@
 # MessageBus
 
+[Русская версия](README.md)
+
 A typed PHP 8.3+ message bus with a deterministic registry and optional durable
 delivery through PostgreSQL and PCNTL. The library exposes one
 `MessageBus::dispatch()` method for Query, Request, Command, and Event. The host
@@ -22,7 +24,15 @@ JSON, and `psr/clock`.
 - [Durable PostgreSQL](docs/en/getting-started/durable-postgres.md) — Command,
   durable Event, delivery status/control, and worker processes.
 
-The shortest observable path:
+After installation, verify the minimal composition with the packaged example:
+
+```bash
+php vendor/romanfedorskij/message-bus/examples/orchestration/run.php
+# Hello Ada
+```
+
+The application-facing call looks like this; the complete composition is linked
+below:
 
 ```php
 /** @implements \Wolfcharaa\MessageBus\Contract\Query<string> */
@@ -60,10 +70,13 @@ not scan handlers on every startup.
 - Only `@api` symbols listed in the
   [generated reference](docs/en/reference/public-api.md) are public. `Internal`
   is not an extension contract.
-- Every `MBR`, `MBC`, `MBD`, and `MBCLI` code, cause, and correction is listed
-  in the [diagnostics reference](docs/en/reference/diagnostics.md).
+- When something fails, follow the
+  [diagnostic troubleshooting guide](docs/en/guides/troubleshooting-diagnostics.md),
+  then look up the exact `MBR`, `MBC`, `MBD`, or `MBCLI` code in the
+  [diagnostics reference](docs/en/reference/diagnostics.md).
 
-Operational tasks live in the [English documentation](docs/en); the Russian
+The capability map and next tasks live in the
+[English documentation](docs/en/reference/capability-map.md); the Russian
 edition starts at [README.md](README.md). The stable-v6 transition is documented
 in the [migration guide](docs/en/migration/v6-to-v7.md); there are intentionally
 no compatibility shims for Envelope, Flow, or queue internals.
@@ -78,7 +91,12 @@ automatically:
 composer require --dev llm/skills
 composer skills:init --quick
 composer skills:update romanfedorskij/message-bus
+composer skills:show romanfedorskij/message-bus
 ```
+
+The last command must list `integrate-message-bus` with status `OK`. The plugin
+copies the skill into the configured agent directory; do not edit the vendor
+copy.
 
 ## Development
 
@@ -90,6 +108,7 @@ composer cs:check
 composer rector:check
 composer api:check
 composer docs:check
+composer skills:validate
 ```
 
 PostgreSQL integration and the durable example require a disposable database.

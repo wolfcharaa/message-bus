@@ -14,6 +14,9 @@
   secret redaction assertions.
 - Preserved durable acceptance stages in dispatch failures and reported
   variadic handler parameters without hiding that they are also optional.
+- Added a paired diagnostic troubleshooting path, expanded the bundled
+  integration skill with code-directed failure triage, and enabled `llm/skills`
+  in the development toolchain.
 
 ## 7.0.0-alpha.1 — 2026-11-23
 

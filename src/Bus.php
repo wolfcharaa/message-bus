@@ -124,7 +124,18 @@ final readonly class SystemClock implements ClockInterface
 }
 
 /**
- *  Main v7 runtime implementing the single generic dispatch boundary.
+ * Main v7 runtime implementing the single generic dispatch boundary.
+ *
+ * The application composes the compiled registry, DI-backed handler resolver,
+ * routes, optional durable runtime, contexts, middleware, and observer once.
+ * Construction validates that compiled handlers and durable dependencies are
+ * available. `dispatch()` then returns the role-specific result and rethrows
+ * the exact application, DI, codec, or backend failure after emitting a safe
+ * runtime diagnostic.
+ *
+ * Typical use after application-owned composition:
+ *
+ *     $result = $bus->dispatch($message);
  *
  * @api application
  */

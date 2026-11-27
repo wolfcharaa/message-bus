@@ -46,6 +46,12 @@ interface Event extends Message {}
 /**
  * Single application dispatch boundary for all four message roles.
  *
+ * Query and Request return the handler result immediately. Command returns
+ * durable acceptance, while Event returns publication evidence. Handler and
+ * DI failures are rethrown unchanged; safe MBD diagnostics are emitted through
+ * runtime observation and retained status instead of replacing the original
+ * throwable.
+ *
  * @api application
  */
 interface MessageBus
@@ -240,7 +246,12 @@ final class DeliverySettlementFailed extends \RuntimeException
 }
 
 /**
- *  Stable configuration/registry diagnostic promoted to an exception.
+ * Stable configuration/registry diagnostic promoted to an exception.
+ *
+ * `RegistryCompilationResult::requireRegistry()` places every complete error
+ * message in the exception text and preserves the structured diagnostic list
+ * in `$diagnostics` for tooling. Consumers should branch on stable codes and
+ * fields rather than parse the human-readable message.
  *
  * @api application
  */

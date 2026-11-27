@@ -1,6 +1,6 @@
 ---
 doc_id: getting-started.orchestration
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Оркестрация без очереди
@@ -14,5 +14,8 @@ contract_revision: 1
 - Inline handler выполняется в вызывающем процессе; исключение возвращается вызывающему коду.
 
 - Начните с `examples/orchestration/run.php` и не подключайте PostgreSQL/worker без durable-сценария.
+
+- Если компиляция или dispatch завершились ошибкой, не заменяйте исходное
+  исключение: следуйте [руководству по диагностике](../guides/troubleshooting-diagnostics.md).
 
 Точные signatures перечислены в [публичном API](../reference/public-api.md); при конфликте source manifest является нормативным.

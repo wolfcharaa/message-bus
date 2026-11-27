@@ -1,6 +1,6 @@
 ---
 name: integrate-message-bus
-description: Integrate romanfedorskij/message-bus 7.x into a PHP 8.3+ application after inspecting its message roles, handler composition, transaction boundary, PostgreSQL ownership, codecs, worker model, and operations. Use for orchestration-only or durable PostgreSQL wiring, registry artifacts, migration planning, and integration verification. Do not use for developing the package itself.
+description: Integrate and troubleshoot romanfedorskij/message-bus 7.x in a PHP 8.3+ application after inspecting message roles, handlers, DI, transaction boundaries, PostgreSQL ownership, codecs, workers, operations, and stable diagnostic codes. Use for orchestration-only or durable PostgreSQL wiring, registry artifacts, migration planning, integration verification, and MBR/MBC/MBD/MBCLI failure triage. Do not use for developing the package itself.
 ---
 
 # Integrate MessageBus
@@ -8,6 +8,12 @@ description: Integrate romanfedorskij/message-bus 7.x into a PHP 8.3+ applicatio
 Work in the consumer repository. Follow its instructions, use the public API,
 docs and examples installed with the exact package version, and never edit
 `vendor/` or import `Wolfcharaa\MessageBus\Internal`.
+
+If this skill was expected but is not available, run
+`composer skills:show romanfedorskij/message-bus` from the consumer repository.
+An installed copy must report `integrate-message-bus` as `OK`; synchronize it
+with `composer skills:update romanfedorskij/message-bus` rather than editing the
+copy under `vendor/`.
 
 ## Establish the integration contract first
 
@@ -86,6 +92,42 @@ cancel, replay, recover or prune without explicit authority for that mutation
 and environment. Before pruning, preserve application-owned business history.
 After the first v7 acceptance, treat recovery as forward-only.
 
+## Diagnose by stable code before changing the integration
+
+Use the diagnostics reference installed with the exact package release:
+`vendor/romanfedorskij/message-bus/docs/en/reference/diagnostics.md` or its
+`docs/ru/` pair. Preserve the original throwable and its `previous` chain; the
+safe descriptor is an index for correlation, not a replacement for the real
+DI, handler, codec, classifier, or backend exception.
+
+Route the investigation by prefix:
+
+- `MBR` — read `symbol`, `expected`, `actual`, and `cause_class`; correct the
+  message/handler declaration or Composer discovery, then rebuild the registry
+  artifact;
+- `MBC` — correct the exact target route, policy, idempotency runtime, or
+  resolver before starting the runtime;
+- `MBD` — correlate `stage`, delivery/message/attempt IDs, `failure_class`,
+  optional `related_failure_class`, protected logs, and the original throwable
+  delivered to the caller or `RuntimeFailureSink`;
+- `MBCLI` — use `stage`, `subject`, and `exception_type` to find the operation,
+  then inspect protected application/backend logs because CLI output is
+  intentionally redacted.
+
+For `MBD104`, fix the application container registration or factory shown by
+the original container exception; do not wrap it in a generic library error.
+For a class placed outside every Composer PSR-4/classmap path, run
+`composer dump-autoload --optimize --strict-psr`, correct the mapping or class
+location, verify `ComposerClassMapSource` prefixes, and rebuild the artifact.
+An entirely invisible message/handler pair cannot produce an `MBR` code until
+Composer can discover at least one of those classes.
+
+Do not retry `MBR` or `MBC` failures. Do not retry an `MBD` failure merely from
+its code; use the configured failure category and delivery policy. Never add
+payloads, arbitrary exception messages, credentials, or secret metadata to a
+portable diagnostic to make troubleshooting easier.
+
 Report the selected profile, Integration Contract, public capabilities used,
 host/package ownership, files changed, checks and runtime evidence, unresolved
-compatibility risks, and every mutation that was or was not performed.
+compatibility risks, observed diagnostic codes and preserved cause chain, and
+every mutation that was or was not performed.

@@ -1,6 +1,6 @@
 ---
 doc_id: reference.capability-map
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Capability map
@@ -14,5 +14,9 @@ contract_revision: 1
 - Extension → только `@api spi`; custom adapter не импортирует `Internal`.
 
 - Testing → in-memory profile для semantics плюс PostgreSQL/process suites для persistence и fork guarantees.
+
+- Диагностика → [руководство по разбору](../guides/troubleshooting-diagnostics.md)
+  задаёт порядок действий, а [справочник](diagnostics.md) — точное значение и
+  исправление каждого `MBR`, `MBC`, `MBD` и `MBCLI`.
 
 Точные signatures перечислены в [публичном API](../reference/public-api.md); при конфликте source manifest является нормативным.

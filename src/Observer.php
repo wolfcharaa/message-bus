@@ -86,6 +86,8 @@ enum FailureStage: string
  * exception message and trace are deliberately excluded. Previously encoded
  * schema-1 values remain readable when their code and fingerprint are valid;
  * their display summary is refreshed to the current canonical text.
+ * Use the MBD code to locate the failed boundary, then correlate IDs and the
+ * original throwable from the caller or RuntimeFailureSink.
  *
  * @api application
  */

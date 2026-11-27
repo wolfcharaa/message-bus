@@ -1,9 +1,11 @@
 # MessageBus
 
-Типизированный PHP 8.3+ message bus с детерминированным реестром и опциональной
-durable delivery через PostgreSQL и PCNTL. Библиотека даёт один
-`MessageBus::dispatch()` для Query, Request, Command и Event; DI, business
-transactions, deployment и authorization остаются у приложения.
+[English](README.en.md)
+
+Типизированная шина сообщений для PHP 8.3+ с детерминированным реестром и
+опциональной надёжной доставкой через PostgreSQL и PCNTL. Библиотека даёт один
+`MessageBus::dispatch()` для Query, Request, Command и Event; DI-контейнер,
+бизнес-транзакции, развёртывание и авторизация остаются у приложения.
 
 ## Установка
 
@@ -22,7 +24,15 @@ Console и PSR-3 подключаются только для соответст
 - [Durable PostgreSQL](docs/ru/getting-started/durable-postgres.md) — Command,
   durable Event, delivery status/control и worker processes.
 
-Минимальный наблюдаемый путь:
+После установки проверьте минимальную композицию из поставляемого примера:
+
+```bash
+php vendor/romanfedorskij/message-bus/examples/orchestration/run.php
+# Hello Ada
+```
+
+Основной вызов в приложении выглядит так; полная композиция приведена ниже по
+ссылке:
 
 ```php
 /** @implements \Wolfcharaa\MessageBus\Contract\Query<string> */
@@ -60,11 +70,14 @@ registry компилируется при сборке и загружаетс�
 - Публичны только symbols с `@api`, перечисленные в
   [generated reference](docs/ru/reference/public-api.md). `Internal` не является
   extension contract.
-- Все коды `MBR`, `MBC`, `MBD` и `MBCLI`, причины и способы исправления собраны
-  в [справочнике диагностик](docs/ru/reference/diagnostics.md).
+- Для разбора сбоя используйте
+  [пошаговое руководство](docs/ru/guides/troubleshooting-diagnostics.md), затем
+  найдите точный `MBR`, `MBC`, `MBD` или `MBCLI` в
+  [справочнике диагностик](docs/ru/reference/diagnostics.md).
 
-Операционные задачи собраны в [RU documentation](docs/ru), английская версия —
-в [README.en.md](README.en.md). Переход со стабильной v6 описан в
+Карта возможностей и дальнейших задач находится в
+[RU documentation](docs/ru/reference/capability-map.md), английская версия — в
+[README.en.md](README.en.md). Переход со стабильной v6 описан в
 [migration guide](docs/ru/migration/v6-to-v7.md); compatibility shims для
 Envelope/Flow/queue internals намеренно отсутствуют.
 
@@ -77,7 +90,11 @@ application и строит минимальную configuration map. Он не 
 composer require --dev llm/skills
 composer skills:init --quick
 composer skills:update romanfedorskij/message-bus
+composer skills:show romanfedorskij/message-bus
 ```
+
+Последняя команда должна показать `integrate-message-bus` со статусом `OK`.
+Плагин копирует skill в настроенный каталог агентов; vendor-копию не редактируют.
 
 ## Разработка
 
@@ -89,6 +106,7 @@ composer cs:check
 composer rector:check
 composer api:check
 composer docs:check
+composer skills:validate
 ```
 
 PostgreSQL integration и durable example требуют disposable database. Все

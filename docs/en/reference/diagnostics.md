@@ -1,6 +1,6 @@
 ---
 doc_id: reference.diagnostics
-contract_revision: 3
+contract_revision: 4
 ---
 
 # Diagnostics reference
@@ -8,6 +8,9 @@ contract_revision: 3
 <a href="../../ru/reference/diagnostics.md">Русская версия</a>
 
 This is the complete reference for the library-owned `MBR`, `MBC`, `MBD`, and `MBCLI` codes. A code identifies a stable rule. The English `message` is self-contained: it repeats the code, exact class/method/target, expected state, and observed state. Automation should still compare structured fields rather than parse prose.
+
+For the safe response sequence rather than code lookup alone, start with the
+[diagnostic troubleshooting guide](../guides/troubleshooting-diagnostics.md).
 
 ## Reading a diagnostic
 

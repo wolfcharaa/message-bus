@@ -14,7 +14,15 @@ if (preg_match('/\A---\Rname: ([a-z0-9-]+)\Rdescription: ([^\r\n]+)\R---\R/', $c
 if ($matches[1] !== 'integrate-message-bus' || \strlen($matches[2]) < 80 || \strlen($matches[2]) > 1024) {
     throw new RuntimeException('Packaged MessageBus skill identity or description is invalid.');
 }
-foreach (['vendor/', 'Wolfcharaa\\MessageBus\\Internal', 'examples/orchestration/run.php', 'docs/en/'] as $required) {
+foreach ([
+    'vendor/',
+    'Wolfcharaa\\MessageBus\\Internal',
+    'examples/orchestration/run.php',
+    'docs/en/reference/diagnostics.md',
+    'composer skills:show',
+    'composer dump-autoload --optimize --strict-psr',
+    'MBD104',
+] as $required) {
     if (!str_contains($content, $required)) {
         throw new RuntimeException('Packaged MessageBus skill is missing a safety or documentation reference: ' . $required);
     }
