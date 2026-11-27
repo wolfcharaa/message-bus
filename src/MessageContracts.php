@@ -128,9 +128,18 @@ final class CommandNotAccepted extends \RuntimeException {}
  */
 final class PublicationFailed extends \RuntimeException
 {
-    public function __construct(public readonly PublicationReceipt $receipt)
-    {
-        parent::__construct('One or more event subscriptions failed.');
+    /**
+     * @param list<\Throwable> $failures original failures in receipt order
+     */
+    public function __construct(
+        public readonly PublicationReceipt $receipt,
+        public readonly array $failures = [],
+    ) {
+        parent::__construct(
+            'One or more event subscriptions failed.',
+            0,
+            $this->failures[0] ?? null,
+        );
     }
 }
 

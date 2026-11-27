@@ -561,6 +561,23 @@
             "enum_cases": []
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Context\\MessageContextFactoryResolver",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Resolves the exact context factory from the current application scope.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "factory(string $context): Wolfcharaa\\MessageBus\\Context\\MessageContextFactory",
+                "has(string $context): bool"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Context\\MessageContextSeed",
             "kind": "class",
             "role": "application",
@@ -1231,10 +1248,11 @@
                 "Throwable"
             ],
             "methods": [
-                "__construct(Wolfcharaa\\MessageBus\\Receipt\\PublicationReceipt $receipt): mixed"
+                "__construct(Wolfcharaa\\MessageBus\\Receipt\\PublicationReceipt $receipt, array $failures = array (\n)): mixed"
             ],
             "properties": [
-                "readonly Wolfcharaa\\MessageBus\\Receipt\\PublicationReceipt $receipt"
+                "readonly Wolfcharaa\\MessageBus\\Receipt\\PublicationReceipt $receipt",
+                "readonly array $failures"
             ],
             "constants": [],
             "enum_cases": []
@@ -1252,6 +1270,23 @@
                 "Throwable"
             ],
             "methods": [],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\HandlerServiceResolver",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Resolves one compiler-validated handler from the current application scope.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "get(string $class): object",
+                "has(string $class): bool"
+            ],
             "properties": [],
             "constants": [],
             "enum_cases": []
@@ -1720,6 +1755,41 @@
             "interfaces": [],
             "methods": [
                 "process(object $message, Wolfcharaa\\MessageBus\\Context\\MessageContext $context, Wolfcharaa\\MessageBus\\Middleware\\NextHandler $next): mixed"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Resolves the complete middleware chain for each handler invocation.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "all(): array"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewares",
+            "kind": "class",
+            "role": "application",
+            "summary": "Exact fixed middleware list for applications that do not need scoped resolution.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver"
+            ],
+            "methods": [
+                "__construct(array $middleware = array (\n)): mixed",
+                "all(): array"
             ],
             "properties": [],
             "constants": [],

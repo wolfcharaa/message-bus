@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.messages-and-handlers
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Messages and handlers
@@ -14,5 +14,11 @@ contract_revision: 1
 - Command and durable Event require `#[MessageName]` and a versioned `#[Payload]`.
 
 - The runtime never infers a role from a class name or handler attribute.
+
+- Handler resolver/container failures are never discarded. Query and Request
+  expose them directly; aggregate Event failure keeps every original exception
+  in `PublicationFailed::$failures` and chains the first one as `previous`. A
+  durable worker settles the current attempt before rethrowing a handler
+  resolution failure; the PCNTL child renders it before terminating.
 
 Exact signatures are listed in the [public API](../reference/public-api.md); if they conflict, the source manifest is normative.

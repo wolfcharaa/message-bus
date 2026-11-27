@@ -287,6 +287,7 @@ final readonly class DeliveryWorkerRuntime
     public function execute(ClaimedDelivery $claim, ?int $childPid = null): WorkerIteration
     {
         $started = hrtime(true);
+        $handlerResolutionFailure = null;
         if (!$this->backend->markHandlerStarted($claim, $childPid)) {
             return WorkerIteration::LostLease;
         }
@@ -321,7 +322,14 @@ final readonly class DeliveryWorkerRuntime
                 $claim->delivery->metadata,
                 $signal,
             ));
-            $service = $this->handlers->get($binding->handlerClass);
+
+            try {
+                $service = $this->handlers->get($binding->handlerClass);
+            } catch (\Throwable $failure) {
+                $handlerResolutionFailure = $failure;
+
+                throw $failure;
+            }
             $method = new \ReflectionMethod($service, $binding->method);
             $handler = $binding->contextClass === null
                 ? static fn(): mixed => $method->invoke($service, $message)
@@ -376,6 +384,10 @@ final readonly class DeliveryWorkerRuntime
             $category = (new DefaultFailureClassifier())->classify($failure)
                 ?? $this->classifiers->classify($failure);
             if (!$this->backend->fail($claim, $category, substr($failure->getMessage(), 0, 512))) {
+                if ($handlerResolutionFailure instanceof \Throwable) {
+                    throw $handlerResolutionFailure;
+                }
+
                 return WorkerIteration::LostLease;
             }
             $this->observer->observe(new RuntimeEvent(
@@ -395,6 +407,10 @@ final readonly class DeliveryWorkerRuntime
                 failureClass: $failure::class,
                 errorFingerprint: hash('sha256', $failure::class . "\0" . $category->value),
             ));
+
+            if ($handlerResolutionFailure instanceof \Throwable) {
+                throw $handlerResolutionFailure;
+            }
 
             return WorkerIteration::Failed;
         }
@@ -525,16 +541,23 @@ final class PcntlWorkerSupervisor
                     continue;
                 }
                 if ($pid === 0) {
-                    $result = $this->childRuntimeFactory->createAfterFork()->execute(
-                        $claim,
-                        $this->process->currentPid(),
-                    );
+                    $exitCode = 1;
+
+                    try {
+                        $result = $this->childRuntimeFactory->createAfterFork()->execute(
+                            $claim,
+                            $this->process->currentPid(),
+                        );
+                        $exitCode = $result === WorkerIteration::Succeeded ? 0 : 1;
+                    } catch (\Throwable $failure) {
+                        fwrite(STDERR, $failure . PHP_EOL);
+                    }
                     // A normal PHP shutdown would destruct inherited parent resources (notably PDO)
                     // and can send a protocol-level disconnect over the parent's still-live socket.
                     // The single-attempt child has already settled its delivery through fresh resources,
                     // so terminate without running the inherited object graph's destructors.
                     $this->process->signal($this->process->currentPid(), SIGKILL);
-                    exit($result === WorkerIteration::Succeeded ? 0 : 1);
+                    exit($exitCode);
                 }
                 $children[$pid] = [
                     'claim' => $claim,

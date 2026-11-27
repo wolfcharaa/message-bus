@@ -126,8 +126,11 @@ final readonly class DefaultMessageContextFactory implements MessageContextFacto
     }
 }
 
-/** Resolves the exact context factory from the current application scope. */
-/** @api spi */
+/**
+ * Resolves the exact context factory from the current application scope.
+ *
+ * @api spi
+ */
 interface MessageContextFactoryResolver
 {
     /** @param class-string<MessageContext> $context */

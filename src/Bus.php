@@ -48,8 +48,15 @@ use Wolfcharaa\MessageBus\Registry\MessageRole;
 use Wolfcharaa\MessageBus\Routing\DeliveryMode;
 use Wolfcharaa\MessageBus\Routing\DeliveryRoutes;
 
-/** Resolves one compiler-validated handler from the current application scope. */
-/** @api spi */
+/**
+ * Resolves one compiler-validated handler from the current application scope.
+ *
+ * Implementations must not suppress failures raised by the underlying DI
+ * container. A failure from get() remains observable through the dispatch
+ * exception chain.
+ *
+ * @api spi
+ */
 interface HandlerServiceResolver
 {
     /** @param class-string $class */
@@ -254,6 +261,7 @@ final class DefaultMessageBus implements MessageBusContract
     private function dispatchEvent(Event $message, MessageMetadata $metadata): PublicationReceipt
     {
         $entries = [];
+        $failures = [];
         foreach ($this->registry->handlersFor($message) as $binding) {
             $route = $this->routes->route($binding);
 
@@ -276,12 +284,13 @@ final class DefaultMessageBus implements MessageBusContract
                     failureCategory: $failure::class,
                     failureSummary: substr($failure->getMessage(), 0, 512),
                 );
+                $failures[] = $failure;
             }
         }
 
         $receipt = new PublicationReceipt($metadata->messageId, $entries);
         if (!$receipt->isComplete()) {
-            throw new PublicationFailed($receipt);
+            throw new PublicationFailed($receipt, $failures);
         }
 
         return $receipt;

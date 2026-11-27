@@ -27,6 +27,7 @@ use Wolfcharaa\MessageBus\Delivery\DeliveryPolicy;
 use Wolfcharaa\MessageBus\Delivery\DeliveryState;
 use Wolfcharaa\MessageBus\DurableRuntime;
 use Wolfcharaa\MessageBus\Exception\PublicationFailed;
+use Wolfcharaa\MessageBus\HandlerServiceResolver;
 use Wolfcharaa\MessageBus\HandlerServices;
 use Wolfcharaa\MessageBus\Identity\AttemptId;
 use Wolfcharaa\MessageBus\Identity\CorrelationId;
@@ -114,6 +115,85 @@ final class CoreRuntimeTest extends TestCase
 
         self::assertSame(1, $successful->calls);
         self::assertSame(1, $failing->calls);
+    }
+
+    public function testHandlerResolverFailureRemainsInEventExceptionChain(): void
+    {
+        $containerFailure = new DependencyContainerFailure('Cannot autowire projection dependency.');
+        $registry = (new RegistryCompiler())->compile(new ExplicitClassSource([
+            UserRegistered::class,
+            SuccessfulProjection::class,
+        ]))->requireRegistry();
+        $bus = new DefaultMessageBus(
+            $registry,
+            new FailingHandlerResolver($containerFailure),
+            new DeliveryRoutes([
+                'projection.user-registered' => new DeliveryRoute(DeliveryMode::Inline),
+            ]),
+        );
+
+        try {
+            $bus->dispatch(new UserRegistered('user-1'));
+            self::fail('Container resolution failure was not exposed.');
+        } catch (PublicationFailed $failure) {
+            self::assertSame($containerFailure, $failure->getPrevious());
+            self::assertSame([$containerFailure], $failure->failures);
+            self::assertSame(
+                DependencyContainerFailure::class,
+                $failure->receipt->entries[0]->failureCategory,
+            );
+            self::assertSame(
+                'Cannot autowire projection dependency.',
+                $failure->receipt->entries[0]->failureSummary,
+            );
+        }
+    }
+
+    public function testHandlerResolverFailureIsNotWrappedForQuery(): void
+    {
+        $containerFailure = new DependencyContainerFailure('Cannot autowire query dependency.');
+        $registry = (new RegistryCompiler())->compile(new ExplicitClassSource([
+            FindGreeting::class,
+            FindGreetingHandler::class,
+        ]))->requireRegistry();
+        $bus = new DefaultMessageBus(
+            $registry,
+            new FailingHandlerResolver($containerFailure),
+            new DeliveryRoutes([]),
+        );
+
+        try {
+            $bus->dispatch(new FindGreeting('Ada'));
+            self::fail('Container resolution failure was not exposed.');
+        } catch (DependencyContainerFailure $failure) {
+            self::assertSame($containerFailure, $failure);
+        }
+    }
+
+    public function testWorkerSettlesThenRethrowsHandlerResolverFailure(): void
+    {
+        $runtime = $this->runtime([new RegisterUserHandler()]);
+        $receipt = $runtime->bus->dispatch(new RegisterUser('resolver-failure@example.test'));
+        self::assertInstanceOf(CommandReceipt::class, $receipt);
+        $deliveryId = $receipt->entry->deliveryId;
+        self::assertInstanceOf(DeliveryId::class, $deliveryId);
+        $containerFailure = new DependencyContainerFailure('Cannot autowire command dependency.');
+        $worker = new DeliveryWorkerRuntime(
+            $runtime->backend,
+            $runtime->codecs,
+            $runtime->registry,
+            new FailingHandlerResolver($containerFailure),
+            $runtime->bus,
+        );
+
+        try {
+            $worker->runOnce(new WorkerProfile('resolver-failure', 'default'), 'worker:resolver-failure');
+            self::fail('Container resolution failure was not exposed.');
+        } catch (DependencyContainerFailure $failure) {
+            self::assertSame($containerFailure, $failure);
+        }
+
+        self::assertSame(DeliveryState::Failed, $this->statusState($runtime->backend, $deliveryId));
     }
 
     public function testCancellationAndReplayPreserveHistory(): void
@@ -355,6 +435,23 @@ final class FailingProjection
         ++$this->calls;
 
         throw new \RuntimeException('audit unavailable');
+    }
+}
+
+final class DependencyContainerFailure extends \RuntimeException {}
+
+final readonly class FailingHandlerResolver implements HandlerServiceResolver
+{
+    public function __construct(private \Throwable $failure) {}
+
+    public function get(string $class): object
+    {
+        throw $this->failure;
+    }
+
+    public function has(string $class): bool
+    {
+        return true;
     }
 }
 

@@ -323,7 +323,8 @@ Stable configuration/registry diagnostic promoted to an exception.
 Raised after every Event subscription was attempted and at least one failed.
 
 - Вид: `class`
-- `__construct(Wolfcharaa\MessageBus\Receipt\PublicationReceipt $receipt): mixed`
+- `__construct(Wolfcharaa\MessageBus\Receipt\PublicationReceipt $receipt, array $failures = array (
+)): mixed`
 
 ### `Wolfcharaa\MessageBus\Exception\TerminalDeliveryFailure`
 
@@ -474,6 +475,15 @@ Validates keys allowed in application metadata and rejects system spoofing.
 - `__construct(array $allowedKeys = array (
 )): mixed`
 - `validate(array $values): void`
+
+### `Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares`
+
+Exact fixed middleware list for applications that do not need scoped resolution.
+
+- Вид: `class`
+- `__construct(array $middleware = array (
+)): mixed`
+- `all(): array`
 
 ### `Wolfcharaa\MessageBus\Observability\NullObserverFailureSink`
 
@@ -728,6 +738,14 @@ Creates the exact context type requested by a handler's second parameter.
 - Вид: `interface`
 - `create(Wolfcharaa\MessageBus\Context\MessageContextSeed $seed): Wolfcharaa\MessageBus\Context\MessageContext`
 
+### `Wolfcharaa\MessageBus\Context\MessageContextFactoryResolver`
+
+Resolves the exact context factory from the current application scope.
+
+- Вид: `interface`
+- `factory(string $context): Wolfcharaa\MessageBus\Context\MessageContextFactory`
+- `has(string $context): bool`
+
 ### `Wolfcharaa\MessageBus\Delivery\ClaimedDelivery`
 
 Claimed work plus its fenced attempt credential.
@@ -781,6 +799,14 @@ Classifies a thrown handler/runtime failure in an ordered classifier chain.
 - Вид: `interface`
 - `classify(Throwable $failure): ?Wolfcharaa\MessageBus\Delivery\FailureCategory`
 
+### `Wolfcharaa\MessageBus\HandlerServiceResolver`
+
+Resolves one compiler-validated handler from the current application scope.
+
+- Вид: `interface`
+- `get(string $class): object`
+- `has(string $class): bool`
+
 ### `Wolfcharaa\MessageBus\Idempotency\AtomicIdempotencyBoundary`
 
 Transaction boundary coupling idempotency claim, domain effect and completion.
@@ -819,6 +845,13 @@ One handler-attempt middleware extension point.
 
 - Вид: `interface`
 - `process(object $message, Wolfcharaa\MessageBus\Context\MessageContext $context, Wolfcharaa\MessageBus\Middleware\NextHandler $next): mixed`
+
+### `Wolfcharaa\MessageBus\Middleware\HandlerMiddlewareResolver`
+
+Resolves the complete middleware chain for each handler invocation.
+
+- Вид: `interface`
+- `all(): array`
 
 ### `Wolfcharaa\MessageBus\Middleware\NextHandler`
 
