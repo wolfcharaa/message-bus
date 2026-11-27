@@ -10,7 +10,7 @@ application retains DI, business transactions, deployment, and authorization.
 ## Installation
 
 ```bash
-composer require romanfedorskij/message-bus:^7.0@alpha
+composer require romanfedorskij/message-bus:^7.0@beta
 ```
 
 The durable profile requires `ext-pdo_pgsql`, `ext-pcntl`, and `ext-posix`.

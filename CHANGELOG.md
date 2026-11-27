@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 7.0.0-beta.1 — 2026-11-27
 
 - Made built-in registry, runtime-configuration, runtime-failure, and CLI error
   messages self-contained with stable codes and exact failure locations while

@@ -10,7 +10,7 @@
 ## Установка
 
 ```bash
-composer require romanfedorskij/message-bus:^7.0@alpha
+composer require romanfedorskij/message-bus:^7.0@beta
 ```
 
 Для durable profile нужны `ext-pdo_pgsql`, `ext-pcntl` и `ext-posix`. Symfony
