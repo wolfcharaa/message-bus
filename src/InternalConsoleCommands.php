@@ -86,12 +86,43 @@ abstract class JsonCommand extends Command
             'code' => $code,
             'type' => $type,
             'stage' => $stage,
-            'message' => $message,
+            'message' => $this->detailedFailureMessage(
+                $code,
+                $message,
+                $stage,
+                $failure::class,
+                $subjectType,
+                $subjectId,
+            ),
             'exception_type' => $failure::class,
             'subject' => $subjectType !== null && $subjectId !== null
                 ? ['type' => $subjectType, 'id' => $subjectId]
                 : null,
         ]];
+    }
+
+    /** @param class-string $failureClass */
+    private function detailedFailureMessage(
+        string $code,
+        string $summary,
+        string $stage,
+        string $failureClass,
+        ?string $subjectType,
+        ?string $subjectId,
+    ): string {
+        $parts = [
+            '[' . $code . '] ' . $summary,
+            'Stage: ' . $stage,
+        ];
+        if ($subjectType !== null && $subjectId !== null) {
+            $parts[] = 'Subject: ' . $subjectType . ' "' . $subjectId . '"';
+        }
+        $parts[] = 'Exception type: ' . $failureClass;
+
+        return implode(' ', array_map(
+            static fn(string $part): string => rtrim($part, ". \t\n\r\0\x0B") . '.',
+            $parts,
+        ));
     }
 
     protected function failure(

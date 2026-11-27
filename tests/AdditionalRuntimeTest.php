@@ -299,6 +299,14 @@ final class AdditionalRuntimeTest extends TestCase
                 'Registry diagnostic message must not be empty.',
             ],
             [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'MBR999',
+                    DiagnosticSeverity::Error,
+                    '[MBR999] Incomplete built-in diagnostic.',
+                ),
+                'Built-in registry diagnostic MBR999 requires non-empty symbol.',
+            ],
+            [
                 static fn(): FailureDiagnostic => new FailureDiagnostic(FailureStage::Dispatch, ''),
                 'Failure diagnostic field failureClass must contain 1..255 bytes.',
             ],
@@ -337,6 +345,13 @@ final class AdditionalRuntimeTest extends TestCase
         self::assertSame($primary::class, $diagnostic->failureClass);
         self::assertSame($related::class, $diagnostic->relatedFailureClass);
         self::assertEquals($diagnostic, FailureDiagnostic::tryFromEncoded($diagnostic->encode()));
+        $legacy = json_decode($diagnostic->encode(), true, 32, JSON_THROW_ON_ERROR);
+        self::assertIsArray($legacy);
+        $legacy['summary'] = 'Handler service resolution failed.';
+        self::assertEquals(
+            $diagnostic,
+            FailureDiagnostic::tryFromEncoded(json_encode($legacy, JSON_THROW_ON_ERROR)),
+        );
         self::assertNull(FailureDiagnostic::tryFromEncoded('not-json'));
         self::assertNull(FailureDiagnostic::tryFromEncoded('[]'));
         self::assertNull(FailureDiagnostic::tryFromEncoded('{"schema":2}'));
@@ -675,7 +690,9 @@ final class AdditionalRuntimeTest extends TestCase
             self::fail('Invalid registry compilation produced a runtime registry.');
         } catch (InvalidMessageBusConfiguration $failure) {
             self::assertSame($invalid->diagnostics, $failure->diagnostics);
-            self::assertStringContainsString('MBR014@' . AdditionalOrphanQuery::class, $failure->getMessage());
+            self::assertStringContainsString('[MBR014]', $failure->getMessage());
+            self::assertStringContainsString(AdditionalOrphanQuery::class, $failure->getMessage());
+            self::assertStringContainsString('Actual: 0 compiled handler(s).', $failure->getMessage());
         }
     }
 
@@ -730,7 +747,9 @@ final class AdditionalRuntimeTest extends TestCase
         self::assertFalse($missingResolver->isValid());
         self::assertSame(['MBC008'], array_column($missingResolver->diagnostics, 'code'));
         self::assertSame('resolver for target ' . $bindingId, $missingResolver->diagnostics[0]->expected);
-        self::assertSame('not configured', $missingResolver->diagnostics[0]->actual);
+        self::assertSame('no resolver is registered for this target', $missingResolver->diagnostics[0]->actual);
+        self::assertStringContainsString('[MBC008]', $missingResolver->diagnostics[0]->message);
+        self::assertStringContainsString($bindingId, $missingResolver->diagnostics[0]->message);
 
         $runtime = new IdempotencyRuntime(
             new IdempotencyIdentityResolvers([new TargetIdempotencyResolver($bindingId, $resolver)]),
@@ -929,7 +948,7 @@ final class AdditionalRuntimeTest extends TestCase
         self::assertSame(FailureStage::HandlerExecution, $status->lastFailure->stage);
         self::assertSame('MBD105', $status->lastFailure->code);
         self::assertSame(\RuntimeException::class, $status->lastFailure->failureClass);
-        self::assertSame('Handler execution failed.', $status->lastFailure->summary);
+        self::assertSame('[MBD105] The resolved handler threw while processing the message.', $status->lastFailure->summary);
         self::assertNotNull($status->lastFailureAttemptId);
         self::assertSame($handler->failure, $runtimeFailures->records[0]['failure']);
         self::assertSame('worker', $runtimeFailures->records[0]['event']->workerId);

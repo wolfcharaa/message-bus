@@ -60,6 +60,8 @@ registry компилируется при сборке и загружаетс�
 - Публичны только symbols с `@api`, перечисленные в
   [generated reference](docs/ru/reference/public-api.md). `Internal` не является
   extension contract.
+- Все коды `MBR`, `MBC`, `MBD` и `MBCLI`, причины и способы исправления собраны
+  в [справочнике диагностик](docs/ru/reference/diagnostics.md).
 
 Операционные задачи собраны в [RU documentation](docs/ru), английская версия —
 в [README.en.md](README.en.md). Переход со стабильной v6 описан в

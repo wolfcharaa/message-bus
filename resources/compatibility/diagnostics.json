@@ -6,5 +6,9 @@
         "MBR013", "MBR014", "MBR015", "MBR016", "MBR017", "MBR018",
         "MBR019", "MBR020",
         "MBC001", "MBC002", "MBC003", "MBC004", "MBC005", "MBC006", "MBC007", "MBC008"
+    ],
+    "runtime_codes": [
+        "MBD001", "MBD101", "MBD102", "MBD103", "MBD104", "MBD105",
+        "MBD106", "MBD107", "MBD108", "MBD109", "MBD110", "MBD111"
     ]
 }

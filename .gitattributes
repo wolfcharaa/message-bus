@@ -1,5 +1,6 @@
 /.context export-ignore
 /.agents export-ignore
+/.aws export-ignore
 /.codex export-ignore
 /.github export-ignore
 /.idea export-ignore

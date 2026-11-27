@@ -210,7 +210,9 @@ final class DefaultMessageBus implements MessageBusContract
             return $result;
         } catch (\Throwable $failure) {
             $diagnostic = FailureDiagnostic::fromThrowable(
-                FailureStage::Dispatch,
+                $failure instanceof CommandNotAccepted && $failure->stage instanceof FailureStage
+                    ? $failure->stage
+                    : FailureStage::Dispatch,
                 $failure,
                 $failure->getPrevious(),
             );

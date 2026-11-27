@@ -116,6 +116,11 @@ final readonly class ExplicitClassSource implements RegistryClassSource
 final readonly class ComposerClassMapSource implements RegistryClassSource
 {
     /**
+     * Only classes already present in the supplied Composer classmaps can be
+     * discovered. A class outside its configured PSR-4/classmap path is
+     * invisible here; validate Composer autoloading separately with
+     * `composer dump-autoload --optimize --strict-psr`.
+     *
      * @param list<string> $classMapFiles
      * @param non-empty-list<string> $namespacePrefixes
      */
@@ -185,6 +190,11 @@ enum DiagnosticSeverity: string
 /**
  *  Machine-readable registry compiler diagnostic.
  *
+ * `MBRnnn` and `MBCnnn` are reserved for library rules. Those diagnostics
+ * require non-empty symbol, expected and actual fields, and repeat all three
+ * values plus the code in `message`. Custom validation rules should use their
+ * own stable code prefix.
+ *
  * @api tooling
  */
 final readonly class RegistryDiagnostic
@@ -207,6 +217,25 @@ final readonly class RegistryDiagnostic
         }
         if ($this->message === '') {
             throw new \InvalidArgumentException('Registry diagnostic message must not be empty.');
+        }
+        if (preg_match('/^MB[RC][0-9]{3}$/D', $this->code) === 1) {
+            foreach (['symbol' => $this->symbol, 'expected' => $this->expected, 'actual' => $this->actual] as $field => $value) {
+                if ($value === null || $value === '') {
+                    throw new \InvalidArgumentException(
+                        'Built-in registry diagnostic ' . $this->code . ' requires non-empty ' . $field . '.',
+                    );
+                }
+                if (!str_contains($this->message, $value)) {
+                    throw new \InvalidArgumentException(
+                        'Built-in registry diagnostic ' . $this->code . ' message must include ' . $field . '.',
+                    );
+                }
+            }
+            if (!str_contains($this->message, '[' . $this->code . ']')) {
+                throw new \InvalidArgumentException(
+                    'Built-in registry diagnostic message must include [' . $this->code . '].',
+                );
+            }
         }
     }
 
@@ -254,14 +283,17 @@ final readonly class RegistryCompilationResult
     public function requireRegistry(): CompiledRegistry
     {
         if (!$this->isValid()) {
-            $references = array_map(
-                static fn(RegistryDiagnostic $diagnostic): string => $diagnostic->code
-                    . ($diagnostic->symbol === null ? '' : '@' . $diagnostic->symbol),
+            $errors = array_values(array_filter(
                 $this->diagnostics,
-            );
+                static fn(RegistryDiagnostic $diagnostic): bool => $diagnostic->severity === DiagnosticSeverity::Error,
+            ));
 
             throw new InvalidMessageBusConfiguration(
-                'MessageBus registry is invalid: ' . implode(', ', $references) . '.',
+                'MessageBus registry compilation failed with ' . \count($errors) . ' error(s): '
+                    . implode(' | ', array_map(
+                        static fn(RegistryDiagnostic $diagnostic): string => $diagnostic->message,
+                        $errors,
+                    )),
                 $this->diagnostics,
             );
         }
@@ -294,7 +326,13 @@ final readonly class RegistryCompiler
 
         foreach (array_values(array_unique($classes)) as $class) {
             if (!class_exists($class)) {
-                $diagnostics[] = $this->error('MBR001', 'Handler class does not exist.', $class);
+                $diagnostics[] = $this->error(
+                    'MBR001',
+                    'A registry class supplied by the class source is not autoloadable.',
+                    $class,
+                    expected: 'class_exists(subject) returns true through the configured Composer autoloader',
+                    actual: 'class_exists(subject) returned false',
+                );
 
                 continue;
             }
@@ -309,24 +347,36 @@ final readonly class RegistryCompiler
                     if ($role === MessageRole::Command || $role === MessageRole::Event) {
                         $attributes = $reflection->getAttributes(MessageName::class);
                         if (\count($attributes) !== 1) {
-                            $diagnostics[] = $this->error('MBR012', 'Durable message classes require one #[MessageName].', $class);
+                            $diagnostics[] = $this->error(
+                                'MBR012',
+                                'A durable Command or Event has an invalid #[MessageName] attribute count.',
+                                $class,
+                                expected: 'exactly 1 #[MessageName] attribute',
+                                actual: \count($attributes) . ' #[MessageName] attribute(s)',
+                            );
                         } else {
                             try {
                                 $name = $attributes[0]->newInstance()->value;
                             } catch (\Throwable $failure) {
                                 $diagnostics[] = $this->error(
                                     'MBR020',
-                                    '#[MessageName] construction failed.',
+                                    'The #[MessageName] attribute could not be constructed for a durable message.',
                                     $class,
-                                    expected: 'A valid #[MessageName] instance.',
-                                    actual: 'Attribute constructor threw.',
+                                    expected: 'a #[MessageName] value matching [a-z][a-z0-9._:-]{2,127}',
+                                    actual: 'attribute construction threw ' . $failure::class,
                                     causeClass: $failure::class,
                                 );
 
                                 continue;
                             }
                             if (isset($messageNames[$name]) && $messageNames[$name] !== $class) {
-                                $diagnostics[] = $this->error('MBR016', 'Durable MessageName must be unique.', $name);
+                                $diagnostics[] = $this->error(
+                                    'MBR016',
+                                    'Two durable message classes declare the same MessageName value.',
+                                    $name,
+                                    expected: 'one message class owns this MessageName value',
+                                    actual: $messageNames[$name] . ' and ' . $class,
+                                );
                             }
                             $messageNames[$name] = $class;
                         }
@@ -395,26 +445,46 @@ final readonly class RegistryCompiler
     ): void {
         $symbol = $class->getName() . '::' . $method->getName();
         if (\count($attributes) !== 1 || !$method->isPublic() || $method->isStatic()) {
-            $diagnostics[] = $this->error('MBR002', '#[Handler] requires one public non-static method.', $symbol);
+            $visibility = $method->isPublic() ? 'public' : ($method->isProtected() ? 'protected' : 'private');
+            $diagnostics[] = $this->error(
+                'MBR002',
+                'A method marked as a handler has an invalid attribute count, visibility, or static modifier.',
+                $symbol,
+                expected: 'exactly 1 #[Handler] attribute on a public non-static method',
+                actual: \count($attributes) . ' #[Handler] attribute(s), ' . $visibility . ', '
+                    . ($method->isStatic() ? 'static' : 'non-static'),
+            );
 
             return;
         }
 
         $parameters = $method->getParameters();
         if (\count($parameters) < 1 || \count($parameters) > 2) {
-            $diagnostics[] = $this->error('MBR003', 'Handler must accept one message and optional context.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR003',
+                'A handler method has an invalid number of parameters.',
+                $symbol,
+                expected: '1 message parameter and optionally 1 MessageContext parameter',
+                actual: \count($parameters) . ' parameter(s)',
+            );
 
             return;
         }
         foreach ($parameters as $parameter) {
             if ($parameter->isOptional() || $parameter->isVariadic()) {
+                $violations = [];
+                if ($parameter->isOptional()) {
+                    $violations[] = 'optional';
+                }
+                if ($parameter->isVariadic()) {
+                    $violations[] = 'variadic';
+                }
                 $diagnostics[] = $this->error(
                     'MBR018',
                     'Handler parameter must be required and non-variadic.',
                     $symbol,
                     expected: 'required non-variadic parameter',
-                    actual: '$' . $parameter->getName()
-                        . ($parameter->isOptional() ? ' is optional' : ' is variadic'),
+                    actual: '$' . $parameter->getName() . ' is ' . implode(' and ', $violations),
                 );
 
                 return;
@@ -424,7 +494,13 @@ final readonly class RegistryCompiler
         $namedMessageClass = $this->namedClass($parameters[0]->getType());
         $messageClass = $namedMessageClass === null ? null : $this->messageClass($namedMessageClass);
         if ($messageClass === null) {
-            $diagnostics[] = $this->error('MBR004', 'First handler parameter must be one concrete Message class.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR004',
+                'The first handler parameter does not resolve to a loadable Message class.',
+                $symbol,
+                expected: 'one named, autoloadable class implementing Message',
+                actual: 'declared first-parameter type is ' . $this->typeName($parameters[0]->getType()),
+            );
 
             return;
         }
@@ -450,12 +526,24 @@ final readonly class RegistryCompiler
         if (isset($parameters[1])) {
             $contextClass = $this->namedClass($parameters[1]->getType());
             if ($contextClass === null || !is_a($contextClass, MessageContext::class, true)) {
-                $diagnostics[] = $this->error('MBR005', 'Second handler parameter must extend MessageContext.', $symbol);
+                $diagnostics[] = $this->error(
+                    'MBR005',
+                    'The second handler parameter is not a loadable MessageContext class.',
+                    $symbol,
+                    expected: 'one named, autoloadable class extending MessageContext',
+                    actual: 'declared second-parameter type is ' . $this->typeName($parameters[1]->getType()),
+                );
 
                 return;
             }
             if (!$this->contextFactories->has($contextClass)) {
-                $diagnostics[] = $this->error('MBR006', 'No exact context factory is registered.', $contextClass);
+                $diagnostics[] = $this->error(
+                    'MBR006',
+                    'The handler context type has no exact registered factory.',
+                    $contextClass,
+                    expected: 'a MessageContextFactory registered for this exact context class',
+                    actual: 'no exact factory is registered',
+                );
 
                 return;
             }
@@ -464,19 +552,37 @@ final readonly class RegistryCompiler
         $return = $method->getReturnType();
         if (($role === MessageRole::Command || $role === MessageRole::Event)
             && (!$return instanceof \ReflectionNamedType || $return->getName() !== 'void')) {
-            $diagnostics[] = $this->error('MBR007', 'Command and Event handlers must explicitly return void.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR007',
+                'A Command or Event handler has an invalid return type.',
+                $symbol,
+                expected: 'an explicit void return type',
+                actual: 'declared return type is ' . $this->typeName($return),
+            );
 
             return;
         }
 
         if (($role === MessageRole::Query || $role === MessageRole::Request) && !$return instanceof \ReflectionType) {
-            $diagnostics[] = $this->error('MBR008', 'Query and Request handlers need an explicit return type.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR008',
+                'A Query or Request handler has no declared return type.',
+                $symbol,
+                expected: 'an explicit return type',
+                actual: 'no return type is declared',
+            );
 
             return;
         }
 
         if ($role === MessageRole::Query && $return instanceof \ReflectionNamedType && $return->getName() === 'void') {
-            $diagnostics[] = $this->error('MBR009', 'Query handlers cannot return void.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR009',
+                'A Query handler declares void and therefore cannot produce its query result.',
+                $symbol,
+                expected: 'a non-void return type matching Query<TResult>',
+                actual: 'declared return type is void',
+            );
 
             return;
         }
@@ -486,28 +592,47 @@ final readonly class RegistryCompiler
         } catch (\Throwable $failure) {
             $diagnostics[] = $this->error(
                 'MBR017',
-                '#[Handler] construction failed.',
+                'The #[Handler] attribute could not be constructed for a handler method.',
                 $symbol,
-                expected: 'A valid #[Handler] instance.',
-                actual: 'Attribute constructor threw.',
+                expected: 'a valid #[Handler] attribute; Event subscriptionId matches [a-z0-9][a-z0-9._:-]{2,127}',
+                actual: 'attribute construction threw ' . $failure::class,
                 causeClass: $failure::class,
             );
 
             return;
         }
         if ($role === MessageRole::Event && ($attribute->subscriptionId === null || $attribute->subscriptionId === '')) {
-            $diagnostics[] = $this->error('MBR010', 'Event handlers require a stable subscriptionId.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR010',
+                'An Event handler has no stable subscription identity.',
+                $symbol,
+                expected: 'a non-empty #[Handler(subscriptionId: ...)] value',
+                actual: $attribute->subscriptionId === null ? 'subscriptionId is null' : 'subscriptionId is empty',
+            );
 
             return;
         }
         if ($role !== MessageRole::Event && $attribute->subscriptionId !== null) {
-            $diagnostics[] = $this->error('MBR011', 'subscriptionId is valid only for Event handlers.', $symbol);
+            $diagnostics[] = $this->error(
+                'MBR011',
+                'A non-Event handler declares an Event-only subscriptionId.',
+                $symbol,
+                expected: 'subscriptionId is null for ' . $role->value . ' handlers',
+                actual: 'subscriptionId is "' . $attribute->subscriptionId . '"',
+            );
 
             return;
         }
         if (($role === MessageRole::Command || $role === MessageRole::Event)
             && \count((new \ReflectionClass($messageClass))->getAttributes(MessageName::class)) !== 1) {
-            $diagnostics[] = $this->error('MBR012', 'Durable message classes require one #[MessageName].', $messageClass);
+            $attributeCount = \count((new \ReflectionClass($messageClass))->getAttributes(MessageName::class));
+            $diagnostics[] = $this->error(
+                'MBR012',
+                'A durable Command or Event has an invalid #[MessageName] attribute count.',
+                $messageClass,
+                expected: 'exactly 1 #[MessageName] attribute',
+                actual: $attributeCount . ' #[MessageName] attribute(s)',
+            );
 
             return;
         }
@@ -540,7 +665,14 @@ final readonly class RegistryCompiler
             MessageRole::Event->value => is_a($messageClass, Event::class, true),
         ]);
         if (\count($roles) !== 1) {
-            $diagnostics[] = $this->error('MBR013', 'Message class must implement exactly one role.', $symbol);
+            $actualRoles = array_keys($roles);
+            $diagnostics[] = $this->error(
+                'MBR013',
+                'A Message class does not implement exactly one supported message role.',
+                $symbol,
+                expected: 'exactly one of Query, Request, Command, or Event',
+                actual: $actualRoles === [] ? 'no message role' : implode(', ', $actualRoles),
+            );
 
             return null;
         }
@@ -559,12 +691,26 @@ final readonly class RegistryCompiler
         foreach ($bindings as $messageClass => $messageBindings) {
             $role = $messageRoles[$messageClass];
             if ($role !== MessageRole::Event && \count($messageBindings) !== 1) {
-                $diagnostics[] = $this->error('MBR014', 'Query, Request and Command require exactly one handler.', $messageClass);
+                $diagnostics[] = $this->error(
+                    'MBR014',
+                    'A Query, Request, or Command does not have exactly one compiled handler.',
+                    $messageClass,
+                    expected: 'exactly 1 compiled handler for role ' . $role->value,
+                    actual: \count($messageBindings) . ' compiled handler(s)',
+                );
             }
 
             $ids = array_map(static fn(HandlerBinding $binding): string => $binding->id, $messageBindings);
             if (\count($ids) !== \count(array_unique($ids))) {
-                $diagnostics[] = $this->error('MBR015', 'Handler binding identity must be unique.', $messageClass);
+                $idCounts = array_count_values($ids);
+                $duplicates = array_keys(array_filter($idCounts, static fn(int $count): bool => $count > 1));
+                $diagnostics[] = $this->error(
+                    'MBR015',
+                    'A message has duplicate compiled handler binding identities.',
+                    $messageClass,
+                    expected: 'every handler binding ID is unique for this message',
+                    actual: 'duplicate binding ID(s): ' . implode(', ', $duplicates),
+                );
             }
         }
     }
@@ -594,6 +740,11 @@ final readonly class RegistryCompiler
         return $class;
     }
 
+    private function typeName(?\ReflectionType $type): string
+    {
+        return $type instanceof \ReflectionType ? (string) $type : 'not declared';
+    }
+
     private function error(
         string $code,
         string $message,
@@ -605,7 +756,7 @@ final readonly class RegistryCompiler
         return new RegistryDiagnostic(
             $code,
             DiagnosticSeverity::Error,
-            $message,
+            $this->detailedMessage($code, $message, $symbol, $expected, $actual, $causeClass),
             $symbol,
             $code,
             'symbol',
@@ -613,6 +764,34 @@ final readonly class RegistryCompiler
             $actual,
             $causeClass,
         );
+    }
+
+    private function detailedMessage(
+        string $code,
+        string $summary,
+        ?string $symbol,
+        ?string $expected,
+        ?string $actual,
+        ?string $causeClass,
+    ): string {
+        $parts = ['[' . $code . '] ' . $summary];
+        if ($symbol !== null) {
+            $parts[] = 'Subject: ' . $symbol;
+        }
+        if ($expected !== null) {
+            $parts[] = 'Expected: ' . $expected;
+        }
+        if ($actual !== null) {
+            $parts[] = 'Actual: ' . $actual;
+        }
+        if ($causeClass !== null) {
+            $parts[] = 'Cause class: ' . $causeClass;
+        }
+
+        return implode(' ', array_map(
+            static fn(string $part): string => rtrim($part, ". \t\n\r\0\x0B") . '.',
+            $parts,
+        ));
     }
 
     /** @param list<RegistryDiagnostic> $diagnostics */

@@ -6,6 +6,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Wolfcharaa\MessageBus\Delivery\DeliveryState;
 use Wolfcharaa\MessageBus\Delivery\FailureCategory;
+use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Observability\RuntimeEventType;
 use Wolfcharaa\MessageBus\Registry\MessageRole;
 
@@ -73,6 +74,7 @@ sameValues(
 
 $diagnostics = document('diagnostics');
 $expectedCodes = $diagnostics['codes'] ?? null;
+$expectedRuntimeCodes = $diagnostics['runtime_codes'] ?? null;
 $registrySource = (string) file_get_contents(__DIR__ . '/../src/Registry.php')
     . (string) file_get_contents(__DIR__ . '/../src/Routing.php');
 preg_match_all("/'(MB[RC][0-9]{3})'/", $registrySource, $matches);
@@ -81,6 +83,14 @@ if (!\is_array($expectedCodes) || !array_is_list($expectedCodes)) {
     throw new RuntimeException('Diagnostic compatibility list is invalid.');
 }
 sameValues('Diagnostic', $actualCodes, $expectedCodes);
+if (!\is_array($expectedRuntimeCodes) || !array_is_list($expectedRuntimeCodes)) {
+    throw new RuntimeException('Runtime diagnostic compatibility list is invalid.');
+}
+sameValues(
+    'Runtime diagnostic',
+    array_map(static fn(FailureStage $stage): string => $stage->code(), FailureStage::cases()),
+    $expectedRuntimeCodes,
+);
 
 $cli = document('cli');
 $expectedCommands = $cli['commands'] ?? null;
@@ -113,9 +123,22 @@ sameValues(
     array_values(array_filter($errorCodes, 'is_string')),
 );
 
+$allDocumentedCodes = [...$expectedCodes, ...$expectedRuntimeCodes, ...$errorCodes];
+foreach (['en', 'ru'] as $locale) {
+    $reference = file_get_contents(__DIR__ . '/../docs/' . $locale . '/reference/diagnostics.md');
+    if (!\is_string($reference)) {
+        throw new RuntimeException('Cannot read ' . $locale . ' diagnostics reference.');
+    }
+    foreach ($allDocumentedCodes as $code) {
+        if (!str_contains($reference, '`' . $code . '`')) {
+            throw new RuntimeException($locale . ' diagnostics reference does not document ' . $code . '.');
+        }
+    }
+}
+
 fwrite(STDOUT, sprintf(
     "Compatibility catalogs are current: %d events, %d diagnostics, %d commands.\n",
     count($eventDefinitions),
-    count($expectedCodes),
+    count($allDocumentedCodes),
     count($expectedCommands),
 ));

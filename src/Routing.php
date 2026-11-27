@@ -92,23 +92,40 @@ final readonly class RuntimeConfigurationRule implements RegistryValidationRule
                 $targets[$binding->id] = true;
                 if ($binding->role === MessageRole::Query || $binding->role === MessageRole::Request) {
                     if ($this->routes->has($binding)) {
+                        $route = $this->routes->route($binding);
                         $diagnostics[] = $this->error(
                             'MBC001',
-                            'Query and Request targets execute inline and must not have a DeliveryRoute.',
+                            'An inline Query or Request target has a DeliveryRoute that runtime dispatch will not use.',
                             $binding->id,
+                            expected: 'no DeliveryRoute for a ' . $binding->role->value . ' target',
+                            actual: 'route mode=' . $route->mode->value
+                                . ', policy=' . $route->policy
+                                . ', lane=' . $route->lane,
                         );
                     }
 
                     continue;
                 }
                 if (!$this->routes->has($binding)) {
-                    $diagnostics[] = $this->error('MBC002', 'Command and Event targets require a DeliveryRoute.', $binding->id);
+                    $diagnostics[] = $this->error(
+                        'MBC002',
+                        'A Command or Event target has no configured DeliveryRoute.',
+                        $binding->id,
+                        expected: 'one DeliveryRoute for this ' . $binding->role->value . ' target',
+                        actual: 'no route is configured',
+                    );
 
                     continue;
                 }
                 $route = $this->routes->route($binding);
                 if ($binding->role === MessageRole::Command && $route->mode !== DeliveryMode::Durable) {
-                    $diagnostics[] = $this->error('MBC003', 'Command targets require durable delivery.', $binding->id);
+                    $diagnostics[] = $this->error(
+                        'MBC003',
+                        'A Command target is configured with a non-durable delivery mode.',
+                        $binding->id,
+                        expected: 'route mode=' . DeliveryMode::Durable->value,
+                        actual: 'route mode=' . $route->mode->value,
+                    );
 
                     continue;
                 }
@@ -118,10 +135,10 @@ final readonly class RuntimeConfigurationRule implements RegistryValidationRule
                 if (!$this->policies->has($route->policy)) {
                     $diagnostics[] = $this->error(
                         'MBC004',
-                        'Durable route references an unknown DeliveryPolicy.',
+                        'A durable route references a DeliveryPolicy that is not registered.',
                         $binding->id,
-                        expected: 'registered DeliveryPolicy name',
-                        actual: $route->policy,
+                        expected: 'a registered DeliveryPolicy name',
+                        actual: 'policy "' . $route->policy . '" is not registered',
                     );
 
                     continue;
@@ -130,27 +147,29 @@ final readonly class RuntimeConfigurationRule implements RegistryValidationRule
                 if ($policy->idempotent && !$this->idempotency instanceof IdempotencyRuntime) {
                     $diagnostics[] = $this->error(
                         'MBC005',
-                        'Idempotent target requires an IdempotencyRuntime with an atomic boundary.',
+                        'An idempotent durable target has no IdempotencyRuntime atomic boundary.',
                         $binding->id,
-                        expected: IdempotencyRuntime::class,
-                        actual: 'not configured',
+                        expected: IdempotencyRuntime::class . ' configured with an atomic boundary',
+                        actual: 'IdempotencyRuntime is not configured',
                     );
                 } elseif ($policy->idempotent
                     && $this->idempotency instanceof IdempotencyRuntime
                     && !$this->idempotency->identities->has($binding->id)) {
                     $diagnostics[] = $this->error(
                         'MBC008',
-                        'Idempotent target requires an exact target-scoped identity resolver.',
+                        'An idempotent durable target has no exact target-scoped identity resolver.',
                         $binding->id,
                         expected: 'resolver for target ' . $binding->id,
-                        actual: 'not configured',
+                        actual: 'no resolver is registered for this target',
                     );
                 }
                 if ($policy->retryLostAttempts && !$policy->idempotent) {
                     $diagnostics[] = $this->error(
                         'MBC006',
-                        'Automatic lost-attempt retry requires an idempotent target policy.',
+                        'A DeliveryPolicy enables lost-attempt retry without idempotent execution.',
                         $binding->id,
+                        expected: 'retryLostAttempts=true requires idempotent=true',
+                        actual: 'retryLostAttempts=true and idempotent=false',
                     );
                 }
             }
@@ -160,8 +179,10 @@ final readonly class RuntimeConfigurationRule implements RegistryValidationRule
                 if (!isset($targets[$targetId])) {
                     $diagnostics[] = $this->error(
                         'MBC007',
-                        'Idempotency resolver references an unknown compiled target.',
+                        'An idempotency identity resolver references a target absent from the compiled registry.',
                         $targetId,
+                        expected: 'resolver target ID exists in the compiled registry',
+                        actual: 'target ID is not compiled',
                     );
                 }
             }
@@ -180,12 +201,36 @@ final readonly class RuntimeConfigurationRule implements RegistryValidationRule
         return new RegistryDiagnostic(
             $code,
             DiagnosticSeverity::Error,
-            $message,
+            $this->detailedMessage($code, $message, $symbol, $expected, $actual),
             $symbol,
             $code,
             'target',
             $expected,
             $actual,
         );
+    }
+
+    private function detailedMessage(
+        string $code,
+        string $summary,
+        string $symbol,
+        ?string $expected,
+        ?string $actual,
+    ): string {
+        $parts = [
+            '[' . $code . '] ' . $summary,
+            'Target: ' . $symbol,
+        ];
+        if ($expected !== null) {
+            $parts[] = 'Expected: ' . $expected;
+        }
+        if ($actual !== null) {
+            $parts[] = 'Actual: ' . $actual;
+        }
+
+        return implode(' ', array_map(
+            static fn(string $part): string => rtrim($part, ". \t\n\r\0\x0B") . '.',
+            $parts,
+        ));
     }
 }

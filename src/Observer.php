@@ -63,18 +63,18 @@ enum FailureStage: string
     public function summary(): string
     {
         return match ($this) {
-            self::Dispatch => 'Message dispatch failed.',
-            self::PayloadDecode => 'Persisted message payload decoding failed.',
-            self::TargetResolution => 'Persisted delivery target resolution failed.',
-            self::ContextCreation => 'Handler context creation failed.',
-            self::HandlerResolution => 'Handler service resolution failed.',
-            self::HandlerExecution => 'Handler execution failed.',
-            self::Idempotency => 'Idempotent handler execution failed.',
-            self::FailureClassification => 'Application failure classification failed.',
-            self::DeliverySettlement => 'Delivery failure settlement failed.',
-            self::WorkerFork => 'Worker child process creation failed.',
-            self::LeaseRecovery => 'Expired delivery attempt recovery detected lost ownership.',
-            self::DeliveryAcceptance => 'Durable delivery acceptance failed.',
+            self::Dispatch => '[MBD001] Message dispatch failed before a result was returned.',
+            self::PayloadDecode => '[MBD101] A persisted message payload could not be decoded into its message class.',
+            self::TargetResolution => '[MBD102] A persisted delivery target could not be resolved in the compiled registry.',
+            self::ContextCreation => '[MBD103] The MessageContext required by a compiled handler could not be created.',
+            self::HandlerResolution => '[MBD104] The compiled handler class could not be resolved by the DI container.',
+            self::HandlerExecution => '[MBD105] The resolved handler threw while processing the message.',
+            self::Idempotency => '[MBD106] The idempotency boundary or identity resolution failed.',
+            self::FailureClassification => '[MBD107] The application failure classifier threw while classifying another failure.',
+            self::DeliverySettlement => '[MBD108] The backend could not persist the delivery failure outcome.',
+            self::WorkerFork => '[MBD109] The worker supervisor could not create a child process.',
+            self::LeaseRecovery => '[MBD110] Lease recovery found that the worker no longer owns the delivery attempt.',
+            self::DeliveryAcceptance => '[MBD111] The durable backend did not accept the Command or Event delivery.',
         };
     }
 }
@@ -82,7 +82,10 @@ enum FailureStage: string
 /**
  * Safe machine-readable failure details shared by events and retained status.
  *
- * The arbitrary exception message and trace are deliberately excluded.
+ * The canonical summary starts with the stable MBD code. The arbitrary
+ * exception message and trace are deliberately excluded. Previously encoded
+ * schema-1 values remain readable when their code and fingerprint are valid;
+ * their display summary is refreshed to the current canonical text.
  *
  * @api application
  */
@@ -162,7 +165,6 @@ final readonly class FailureDiagnostic
                 $value['related_failure_class'] ?? null,
             );
             if (($value['code'] ?? null) !== $diagnostic->code
-                || ($value['summary'] ?? null) !== $diagnostic->summary
                 || ($value['fingerprint'] ?? null) !== $diagnostic->fingerprint) {
                 return null;
             }

@@ -1,6 +1,6 @@
 ---
 doc_id: reference.cli
-contract_revision: 5
+contract_revision: 6
 ---
 
 # CLI reference
@@ -17,7 +17,7 @@ The optional Symfony Console adapter provides versioned text/JSON commands; bina
 
 - Every JSON document uses output `schema: 2` and includes `command`. A caught command failure uses one stable `error` object with `code`, `type`, `stage`, safe `message`, `exception_type`, and optional `{type,id}` subject. Raw exception messages are not emitted.
 
-- Error codes are `MBCLI001` invalid input, `MBCLI002` retained-state conflict, `MBCLI003` backend failure, and `MBCLI004` unexpected internal failure. The `stage` identifies the command operation such as `delivery.status` or `registry.compile`; non-zero exit codes remain command-specific.
+- Error codes are `MBCLI001` invalid input, `MBCLI002` retained-state conflict, `MBCLI003` backend failure, and `MBCLI004` unexpected internal failure. The safe message repeats the code, `stage`, subject, and exception type without copying the arbitrary exception text. Conditions and recovery steps are in the [diagnostics reference](diagnostics.md); non-zero exit codes remain command-specific.
 
 - `delivery:status` exposes `last_failure_category`, `last_failure_attempt_id`, and the redacted `last_failure` descriptor when canonical diagnostics were retained.
 

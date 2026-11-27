@@ -60,6 +60,8 @@ not scan handlers on every startup.
 - Only `@api` symbols listed in the
   [generated reference](docs/en/reference/public-api.md) are public. `Internal`
   is not an extension contract.
+- Every `MBR`, `MBC`, `MBD`, and `MBCLI` code, cause, and correction is listed
+  in the [diagnostics reference](docs/en/reference/diagnostics.md).
 
 Operational tasks live in the [English documentation](docs/en); the Russian
 edition starts at [README.md](README.md). The stable-v6 transition is documented

@@ -1,6 +1,6 @@
 ---
 doc_id: reference.cli
-contract_revision: 5
+contract_revision: 6
 ---
 
 # CLI reference
@@ -17,7 +17,7 @@ Optional Symfony Console adapter предоставляет versioned text/JSON 
 
 - Каждый JSON document использует output `schema: 2` и содержит `command`. Перехваченная ошибка команды возвращается единым объектом `error` с полями `code`, `type`, `stage`, безопасным `message`, `exception_type` и необязательным subject `{type,id}`. Raw exception message не выводится.
 
-- Коды ошибок: `MBCLI001` — invalid input, `MBCLI002` — конфликт retained state, `MBCLI003` — backend failure, `MBCLI004` — неожиданная internal failure. `stage` указывает операцию команды, например `delivery.status` или `registry.compile`; non-zero exit codes остаются специфичными для команды.
+- Коды ошибок: `MBCLI001` — invalid input, `MBCLI002` — конфликт retained state, `MBCLI003` — backend failure, `MBCLI004` — неожиданная internal failure. Безопасное message повторяет code, `stage`, subject и exception type, не копируя произвольный exception text. Условия и действия описаны в [справочнике диагностик](diagnostics.md); non-zero exit codes остаются специфичными для команды.
 
 - `delivery:status` выводит `last_failure_category`, `last_failure_attempt_id` и redacted descriptor `last_failure`, если была сохранена canonical diagnostic.
 

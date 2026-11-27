@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Made built-in registry, runtime-configuration, runtime-failure, and CLI error
+  messages self-contained with stable codes and exact failure locations while
+  continuing to redact arbitrary exception text from portable diagnostics.
+- Added a complete paired RU/EN reference for all 44 diagnostic codes and
+  compatibility checks that prevent either edition from omitting a code.
+- Kept previously persisted schema-1 failure descriptors readable after the
+  expanded canonical summaries.
+- Added direct, catalog-locked scenarios for all 44 diagnostic codes, including
+  exact subjects, expected and actual states, stage/cause preservation, and
+  secret redaction assertions.
+- Preserved durable acceptance stages in dispatch failures and reported
+  variadic handler parameters without hiding that they are also optional.
+
 ## 7.0.0-alpha.1 — 2026-11-23
 
 - Replaced the v6 multi-path API with one generic `dispatch()` and four exact
