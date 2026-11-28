@@ -43,7 +43,7 @@ use Wolfcharaa\MessageBus\Worker\WorkerProfile;
  */
 final readonly class Console
 {
-    private const string VERSION = '7.0.0-beta.2';
+    private const string VERSION = '7.0.0-beta.3';
 
     public static function registry(
         RegistryCompiler $compiler,

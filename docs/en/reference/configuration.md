@@ -1,6 +1,6 @@
 ---
 doc_id: reference.configuration
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Configuration reference
@@ -10,6 +10,10 @@ The library reads no environment variables. The host explicitly composes registr
 - Orchestration-only requires registry, handlers, and routes.
 
 - Durable adds a backend, codecs, policies, worker profile/control, and observer as required.
+
+- Handler execution composes global middleware objects, durable-policy class
+  references, and classes compiled from `#[Handler(middleware: [...])]` in that
+  order. Referenced classes resolve through the handler application scope.
 
 - An unknown handler, context factory, route, codec, or policy blocks construction or bootstrap.
 

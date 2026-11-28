@@ -1,6 +1,6 @@
 ---
 doc_id: reference.capability-map
-contract_revision: 4
+contract_revision: 5
 ---
 
 # Capability map
@@ -16,6 +16,10 @@ contract_revision: 4
   service definitions, lifetime PDO/process, routes, policies и моментом migrations.
 
 - Extension → только `@api spi`; custom adapter не импортирует `Internal`.
+
+- Перехват handler → [handler middleware](../guides/handler-middleware.md); host
+  владеет global objects и DI services, binding — локальными class references,
+  durable policy — своей persisted attempt-level цепочкой.
 
 - Testing → in-memory profile для semantics плюс PostgreSQL/process suites для persistence и fork guarantees.
 

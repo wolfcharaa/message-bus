@@ -66,21 +66,28 @@ interface MessageBus
 namespace Wolfcharaa\MessageBus\Attribute;
 
 /**
- * Marks one public handler method and its optional stable delivery identity.
+ * Marks one public handler method, its stable delivery identity, and local
+ * middleware that wraps only this binding.
  *
  * Events require `subscriptionId`. Commands may declare `bindingId` when the
  * application needs a stable route/target key independent of the PHP class;
  * omitting it preserves the message class as the binding ID. Query and Request
- * handlers do not accept either durable identity.
+ * handlers do not accept either durable identity. Middleware class references
+ * preserve declared order in the registry artifact and resolve from the same
+ * application service scope as the handler.
  *
  * @api application
  */
 #[\Attribute(\Attribute::TARGET_METHOD)]
 final readonly class Handler
 {
+    /**
+     * @param list<class-string> $middleware compiler validation narrows every entry to HandlerMiddleware
+     */
     public function __construct(
         public ?string $subscriptionId = null,
         public ?string $bindingId = null,
+        public array $middleware = [],
     ) {
         foreach (['subscriptionId' => $this->subscriptionId, 'bindingId' => $this->bindingId] as $name => $value) {
             if ($value !== null && preg_match('/^[a-z0-9][a-z0-9._:-]{2,127}$/D', $value) !== 1) {

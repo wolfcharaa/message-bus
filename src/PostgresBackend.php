@@ -28,6 +28,7 @@ use Wolfcharaa\MessageBus\Identity\RandomIdentityGenerator;
 use Wolfcharaa\MessageBus\Internal\Postgres\QualifiedSql;
 use Wolfcharaa\MessageBus\Internal\Runtime\FailurePreservingCleanup;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
+use Wolfcharaa\MessageBus\Middleware\HandlerMiddleware;
 use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
 use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Registry\MessageRole;
@@ -670,6 +671,7 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
             'replay_window_seconds' => $policy->replayWindowSeconds,
             'idempotency_safety_margin_seconds' => $policy->idempotencySafetyMarginSeconds,
             'retry_lost_attempts' => $policy->retryLostAttempts,
+            'middleware' => $policy->middleware,
         ], JSON_THROW_ON_ERROR);
     }
 
@@ -689,6 +691,7 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
             $this->integer($policy, 'replay_window_seconds'),
             $this->integer($policy, 'idempotency_safety_margin_seconds'),
             $this->boolean($policy, 'retry_lost_attempts'),
+            $this->stringList($policy, 'middleware'),
         );
     }
 
@@ -809,6 +812,31 @@ final readonly class PostgresDeliveryBackend implements DurableDeliveryBackend
         }
 
         return $value;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return list<class-string<HandlerMiddleware<mixed>>>
+     */
+    private function stringList(array $row, string $key): array
+    {
+        $value = $row[$key] ?? [];
+        if (!\is_array($value) || !array_is_list($value)) {
+            throw new \UnexpectedValueException('PostgreSQL field must be a list of strings: ' . $key);
+        }
+
+        $strings = [];
+        foreach ($value as $item) {
+            if (!\is_string($item) || !is_a($item, HandlerMiddleware::class, true)) {
+                throw new \UnexpectedValueException(
+                    'PostgreSQL field ' . $key . ' must contain only autoloadable '
+                    . HandlerMiddleware::class . ' class names.',
+                );
+            }
+            $strings[] = $item;
+        }
+
+        return $strings;
     }
 
     /** @param array<string, mixed> $row */

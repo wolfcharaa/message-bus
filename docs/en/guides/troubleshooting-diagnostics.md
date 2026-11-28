@@ -50,10 +50,11 @@ Start with the earliest `MBR` for the class. `MBR002`–`MBR011`, `MBR018`, and
 often a consequence of the invalid handler being excluded from compiled
 bindings. Correct the earlier diagnostic before investigating cardinality.
 
-If the DI container fails during dispatch, `MBD104` preserves the
-`handler_resolution` stage and the library rethrows the original container
-exception. Correct the registration/factory named by that exception; do not
-catch and replace it with a generic `Handler failed` error.
+If the DI container fails while resolving a handler or a policy/local handler
+middleware, `MBD104` preserves the `handler_resolution` stage and the library
+rethrows the original container exception. Correct the registration/factory
+named by that exception; do not catch and replace it with a generic
+`Handler failed` error.
 
 ### Invalid `MessageName`
 

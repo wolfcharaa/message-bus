@@ -27,6 +27,8 @@ requires PHP, JSON, and `psr/clock`.
 - [Composer-based handler discovery](docs/en/getting-started/composer-directory-discovery.md) —
   a quick start without a manual class list, safe development refreshes, and a
   production artifact without filesystem scanning.
+- [Handler middleware](docs/en/guides/handler-middleware.md) — the global chain,
+  local interceptors in `#[Handler]`, and reusable durable-policy middleware.
 
 After installation, verify the minimal composition with the packaged example:
 
@@ -85,6 +87,10 @@ to an existing Symfony `Application` through the `Console::register*()` methods.
   class is declared with `#[Handler(bindingId: 'command.name')]`.
 - Event attempts every subscription and throws `PublicationFailed` with the
   complete `PublicationReceipt` on partial failure.
+- A handler attempt runs in explicit global middleware → delivery-policy
+  middleware → binding-local `#[Handler]` middleware → handler order. Every
+  class reference resolves through the same DI scope, and container failures
+  are not replaced.
 - The PostgreSQL adapter uses database time, `SKIP LOCKED`, and fenced lease CAS.
 - The production worker is a PCNTL parent with a fresh child/runtime per attempt.
 - Only `@api` symbols listed in the

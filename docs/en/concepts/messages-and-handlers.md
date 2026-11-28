@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.messages-and-handlers
-contract_revision: 3
+contract_revision: 4
 ---
 
 # Messages and handlers
@@ -18,6 +18,12 @@ contract_revision: 3
   identity. `MBR029` identifies an identity placed on the wrong role.
 
 - Command and durable Event require `#[MessageName]` and a versioned `#[Payload]`.
+
+- `#[Handler(middleware: [...])]` declares the middleware classes used only by
+  this binding. The compiler stores their order in the registry artifact;
+  `MBR030` identifies the exact invalid entry. See
+  [handler middleware](../guides/handler-middleware.md) for global and policy
+  composition.
 
 - The runtime never infers a role from a class name or handler attribute.
 

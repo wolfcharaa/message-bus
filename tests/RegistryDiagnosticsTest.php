@@ -322,6 +322,13 @@ final class RegistryDiagnosticsTest extends TestCase
             'bindingId is null for query handlers',
             'bindingId is "query.binding"',
         ];
+        yield 'MBR030 invalid handler-local middleware' => [
+            'MBR030',
+            self::compile([InvalidMiddlewareDetailedHandler::class]),
+            InvalidMiddlewareDetailedHandler::class . '::__invoke',
+            'middleware[0] is a class implementing Wolfcharaa\MessageBus\Middleware\HandlerMiddleware',
+            'middleware[0] is class "stdClass"',
+        ];
     }
 
     /**
@@ -676,6 +683,15 @@ final readonly class UnexpectedSubscriptionDetailedHandler
 final readonly class UnexpectedBindingIdDetailedHandler
 {
     #[Handler(bindingId: 'query.binding')]
+    public function __invoke(DetailedHandlerQuery $query): string
+    {
+        return $query::class;
+    }
+}
+
+final readonly class InvalidMiddlewareDetailedHandler
+{
+    #[Handler(middleware: [\stdClass::class])]
     public function __invoke(DetailedHandlerQuery $query): string
     {
         return $query::class;

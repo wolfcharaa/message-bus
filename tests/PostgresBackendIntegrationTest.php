@@ -12,6 +12,7 @@ use Wolfcharaa\MessageBus\Adapter\Postgres\PostgresIdempotencyMaintenance;
 use Wolfcharaa\MessageBus\Adapter\Postgres\PostgresSchemaManager;
 use Wolfcharaa\MessageBus\Adapter\Postgres\PostgresWorkerControl;
 use Wolfcharaa\MessageBus\Codec\EncodedPayload;
+use Wolfcharaa\MessageBus\Context\MessageContext;
 use Wolfcharaa\MessageBus\Delivery\CancellationOutcome;
 use Wolfcharaa\MessageBus\Delivery\ControlActor;
 use Wolfcharaa\MessageBus\Delivery\DeliveryDraft;
@@ -27,6 +28,8 @@ use Wolfcharaa\MessageBus\Identity\CorrelationId;
 use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
+use Wolfcharaa\MessageBus\Middleware\HandlerMiddleware;
+use Wolfcharaa\MessageBus\Middleware\NextHandler;
 use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
 use Wolfcharaa\MessageBus\Observability\FailureStage;
 use Wolfcharaa\MessageBus\Worker\WorkerControlOutcome;
@@ -89,6 +92,7 @@ final class PostgresBackendIntegrationTest extends TestCase
             leaseSeconds: 30,
             idempotent: true,
             retryLostAttempts: true,
+            middleware: [PostgresPolicyMiddleware::class],
         );
         $acceptance = $backend->accept(new DeliveryDraft(
             $deliveryId,
@@ -113,6 +117,7 @@ final class PostgresBackendIntegrationTest extends TestCase
 
         $first = $backend->claim('default', 'worker:integration');
         self::assertNotNull($first);
+        self::assertSame([PostgresPolicyMiddleware::class], $first->delivery->policy->middleware);
         self::assertTrue($backend->heartbeat($first));
         self::assertFalse($backend->cancellationRequested($first));
         $failure = new FailureDiagnostic(FailureStage::HandlerResolution, \RuntimeException::class);
@@ -326,5 +331,14 @@ final class PostgresBackendIntegrationTest extends TestCase
             $deliveryId,
             new \DateTimeImmutable('2099-01-01T00:00:00+00:00'),
         );
+    }
+}
+
+/** @implements HandlerMiddleware<mixed> */
+final readonly class PostgresPolicyMiddleware implements HandlerMiddleware
+{
+    public function process(object $message, MessageContext $context, NextHandler $next): mixed
+    {
+        return $next->handle();
     }
 }

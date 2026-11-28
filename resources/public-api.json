@@ -215,7 +215,7 @@
             "name": "Wolfcharaa\\MessageBus\\Adapter\\Psr\\Container\\PsrContainerHandlerServiceResolver",
             "kind": "class",
             "role": "adapter",
-            "summary": "Resolves compiled handlers from a PSR-11 container without translating its failures.",
+            "summary": "Resolves compiled handlers and their middleware from a PSR-11 container",
             "final": true,
             "readonly": true,
             "parent": null,
@@ -260,17 +260,18 @@
             "name": "Wolfcharaa\\MessageBus\\Attribute\\Handler",
             "kind": "class",
             "role": "application",
-            "summary": "Marks one public handler method and its optional stable delivery identity.",
+            "summary": "Marks one public handler method, its stable delivery identity, and local",
             "final": true,
             "readonly": true,
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(?string $subscriptionId = NULL, ?string $bindingId = NULL): mixed"
+                "__construct(?string $subscriptionId = NULL, ?string $bindingId = NULL, array $middleware = array (\n)): mixed"
             ],
             "properties": [
                 "readonly ?string $bindingId",
-                "readonly ?string $subscriptionId"
+                "readonly ?string $subscriptionId",
+                "readonly array $middleware"
             ],
             "constants": [],
             "enum_cases": []
@@ -1004,15 +1005,16 @@
             "name": "Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy",
             "kind": "class",
             "role": "application",
-            "summary": "Fully resolved and persisted retry/deadline/priority policy.",
+            "summary": "Fully resolved and persisted retry/deadline/priority/attempt policy.",
             "final": true,
             "readonly": true,
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(string $name, int $maxAttempts = 1, int $retryDelaySeconds = 0, int $leaseSeconds = 60, int $maxElapsedSeconds = 300, int $priority = 0, bool $idempotent = false, int $idempotencyRetentionSeconds = 86400, int $replayWindowSeconds = 0, int $idempotencySafetyMarginSeconds = 60, bool $retryLostAttempts = false): mixed"
+                "__construct(string $name, int $maxAttempts = 1, int $retryDelaySeconds = 0, int $leaseSeconds = 60, int $maxElapsedSeconds = 300, int $priority = 0, bool $idempotent = false, int $idempotencyRetentionSeconds = 86400, int $replayWindowSeconds = 0, int $idempotencySafetyMarginSeconds = 60, bool $retryLostAttempts = false, array $middleware = array (\n)): mixed"
             ],
             "properties": [
+                "readonly array $middleware",
                 "readonly bool $idempotent",
                 "readonly bool $retryLostAttempts",
                 "readonly int $idempotencyRetentionSeconds",
@@ -1411,7 +1413,7 @@
             "name": "Wolfcharaa\\MessageBus\\HandlerServiceResolver",
             "kind": "interface",
             "role": "spi",
-            "summary": "Resolves one compiler-validated handler from the current application scope.",
+            "summary": "Resolves one compiler-validated handler or handler middleware from the",
             "final": false,
             "readonly": false,
             "parent": null,
@@ -1897,13 +1899,13 @@
             "name": "Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver",
             "kind": "interface",
             "role": "spi",
-            "summary": "Resolves the complete middleware chain for each handler invocation.",
+            "summary": "Resolves the complete middleware chain for one exact handler binding.",
             "final": false,
             "readonly": false,
             "parent": null,
             "interfaces": [],
             "methods": [
-                "all(): array"
+                "for(Wolfcharaa\\MessageBus\\Registry\\HandlerBinding $binding, Wolfcharaa\\MessageBus\\HandlerServiceResolver $services, ?Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy = NULL): array"
             ],
             "properties": [],
             "constants": [],
@@ -1913,7 +1915,7 @@
             "name": "Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewares",
             "kind": "class",
             "role": "application",
-            "summary": "Exact fixed middleware list for applications that do not need scoped resolution.",
+            "summary": "Composes global, delivery-policy, and handler-local middleware in that order.",
             "final": true,
             "readonly": true,
             "parent": null,
@@ -1921,8 +1923,8 @@
                 "Wolfcharaa\\MessageBus\\Middleware\\HandlerMiddlewareResolver"
             ],
             "methods": [
-                "__construct(array $middleware = array (\n)): mixed",
-                "all(): array"
+                "__construct(array $global = array (\n)): mixed",
+                "for(Wolfcharaa\\MessageBus\\Registry\\HandlerBinding $binding, Wolfcharaa\\MessageBus\\HandlerServiceResolver $services, ?Wolfcharaa\\MessageBus\\Delivery\\DeliveryPolicy $policy = NULL): array"
             ],
             "properties": [],
             "constants": [],
@@ -2466,12 +2468,13 @@
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(string $id, string $messageClass, Wolfcharaa\\MessageBus\\Registry\\MessageRole $role, string $handlerClass, string $method, ?string $contextClass, ?string $subscriptionId): mixed"
+                "__construct(string $id, string $messageClass, Wolfcharaa\\MessageBus\\Registry\\MessageRole $role, string $handlerClass, string $method, ?string $contextClass, ?string $subscriptionId, array $middleware = array (\n)): mixed"
             ],
             "properties": [
                 "readonly ?string $contextClass",
                 "readonly ?string $subscriptionId",
                 "readonly Wolfcharaa\\MessageBus\\Registry\\MessageRole $role",
+                "readonly array $middleware",
                 "readonly string $handlerClass",
                 "readonly string $id",
                 "readonly string $messageClass",

@@ -6,6 +6,7 @@ namespace Wolfcharaa\MessageBus\Registry;
 
 use Wolfcharaa\MessageBus\Context\MessageContext;
 use Wolfcharaa\MessageBus\Contract\Message;
+use Wolfcharaa\MessageBus\Middleware\HandlerMiddleware;
 
 /**
  *  Self-hashed portable compiled-registry artifact.
@@ -16,7 +17,7 @@ final readonly class RegistryArtifact
 {
     private const int SCHEMA = 1;
 
-    /** @param list<array<string, bool|int|string|null>> $bindings */
+    /** @param list<array<string, bool|int|string|list<string>|null>> $bindings */
     public function __construct(
         public string $registryFingerprint,
         public array $bindings,
@@ -46,6 +47,7 @@ final readonly class RegistryArtifact
                     'handler_method' => $binding->method,
                     'context_class' => $binding->contextClass,
                     'subscription_id' => $binding->subscriptionId,
+                    'middleware' => $binding->middleware,
                 ];
             }
         }
@@ -147,6 +149,18 @@ final readonly class RegistryArtifact
                     . '" must be one of: ' . implode(', ', array_column(MessageRole::cases(), 'value')) . '.',
                 );
             }
+            $middleware = $this->stringList($row, 'middleware');
+            $validatedMiddleware = [];
+            foreach ($middleware as $middlewareIndex => $middlewareClass) {
+                if (!is_a($middlewareClass, HandlerMiddleware::class, true)) {
+                    throw new \UnexpectedValueException(
+                        'Compiled registry binding #' . $bindingIndex . ' middleware[' . $middlewareIndex
+                        . '] "' . $middlewareClass . '" must be an autoloadable class implementing '
+                        . HandlerMiddleware::class . '.',
+                    );
+                }
+                $validatedMiddleware[] = $middlewareClass;
+            }
             $bindings[$messageClass][] = new HandlerBinding(
                 self::string($row, 'id'),
                 $messageClass,
@@ -155,6 +169,7 @@ final readonly class RegistryArtifact
                 self::string($row, 'handler_method'),
                 $contextClass,
                 self::nullableString($row, 'subscription_id'),
+                $validatedMiddleware,
             );
         }
 
@@ -168,7 +183,7 @@ final readonly class RegistryArtifact
         }
     }
 
-    /** @param list<array<string, bool|int|string|null>> $bindings */
+    /** @param list<array<string, bool|int|string|list<string>|null>> $bindings */
     private static function canonical(
         string $fingerprint,
         array $bindings,
@@ -206,7 +221,29 @@ final readonly class RegistryArtifact
 
     /**
      * @param array<string, mixed> $data
-     * @return list<array<string, bool|int|string|null>>
+     * @return list<string>
+     */
+    private function stringList(array $data, string $key): array
+    {
+        $value = $data[$key] ?? [];
+        if (!\is_array($value) || !array_is_list($value)) {
+            throw new \UnexpectedValueException('Compiled registry field must be a list of strings: ' . $key);
+        }
+
+        $strings = [];
+        foreach ($value as $item) {
+            if (!\is_string($item)) {
+                throw new \UnexpectedValueException('Compiled registry field must be a list of strings: ' . $key);
+            }
+            $strings[] = $item;
+        }
+
+        return $strings;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return list<array<string, bool|int|string|list<string>|null>>
      */
     private static function bindings(array $data): array
     {
@@ -224,11 +261,18 @@ final readonly class RegistryArtifact
             }
             $binding = [];
             foreach ($row as $key => $field) {
+                $stringList = $key === 'middleware'
+                    && \is_array($field)
+                    && array_is_list($field)
+                    && array_filter($field, \is_string(...)) === $field;
                 if (!\is_string($key)
-                    || (!\is_bool($field) && !\is_int($field) && !\is_string($field) && $field !== null)) {
+                    || (!\is_bool($field) && !\is_int($field) && !\is_string($field)
+                        && !$stringList && $field !== null)) {
                     throw new \UnexpectedValueException(
                         'Compiled registry binding #' . $bindingIndex . ' field ' . self::printable($key)
-                        . ' must use a string key and bool|int|string|null value; got '
+                        . ' must use a string key and '
+                        . ($key === 'middleware' ? 'bool|int|string|list<string>|null' : 'bool|int|string|null')
+                        . ' value; got '
                         . get_debug_type($field) . '.',
                     );
                 }

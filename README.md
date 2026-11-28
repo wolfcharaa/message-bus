@@ -27,6 +27,8 @@ Console, PSR-11 и PSR-3 подключаются только для соотв
 - [Автопоиск handlers через Composer](docs/ru/getting-started/composer-directory-discovery.md) —
   быстрый старт без ручного списка классов, безопасная dev-пересборка и
   production artifact без filesystem scan.
+- [Handler middleware](docs/ru/guides/handler-middleware.md) — global chain,
+  локальные interceptors в `#[Handler]` и reusable middleware durable policy.
 
 После установки проверьте минимальную композицию из поставляемого примера:
 
@@ -85,6 +87,10 @@ composer require --dev composer/class-map-generator:^1.8
   через `#[Handler(bindingId: 'command.name')]`.
 - Event пытается доставить каждый subscription и при partial failure бросает
   `PublicationFailed` с полным `PublicationReceipt`.
+- Handler attempt выполняется в явном порядке global middleware → middleware
+  delivery policy → middleware конкретного `#[Handler]` → handler. Все class
+  references разрешаются через тот же DI scope, а container failures не
+  подменяются.
 - PostgreSQL adapter использует DB time, `SKIP LOCKED` и fenced lease CAS.
 - Production worker — PCNTL parent с fresh child/runtime на одну attempt.
 - Публичны только symbols с `@api`, перечисленные в

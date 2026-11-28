@@ -49,6 +49,15 @@ Compose the bounded registry source/compiler, exact handler service map, routes,
 and only required context factories or middleware. Build the registry artifact
 during release assembly; production startup loads and verifies it.
 
+For interception, read `docs/en/guides/handler-middleware.md`. Pass ready
+process-local objects to `HandlerMiddlewares(global: [...])`, put
+scenario-specific class references in `#[Handler(middleware: [...])]`, and put
+reusable durable-attempt references in `DeliveryPolicy(middleware: [...])`.
+Register every referenced class in the same resolver/container scope as the
+handlers. Preserve the exact global → policy → binding-local → handler order;
+do not recreate a binding-ID middleware map or hide selection inside a
+middleware condition.
+
 When the host exposes PSR-11, use `PsrContainerHandlerServiceResolver` instead
 of copying container services into an application map. Do not catch or replace
 the container's `get()`/`has()` failures; the adapter deliberately preserves
@@ -153,6 +162,10 @@ Route the investigation by prefix:
 
 For `MBD104`, fix the application container registration or factory shown by
 the original container exception; do not wrap it in a generic library error.
+The same rule applies when the requested service is handler middleware: its
+`get()` failure is the primary cause and a durable attempt records
+`handler_resolution`. Use `MBR030` for an invalid class in
+`#[Handler(middleware: [...])]`; rebuild the artifact after correction.
 With `ComposerDirectoryClassSource`, use `MBR026` and its exact `source_path` and
 expected PSR-4 file for a misplaced class; use `MBR025` for duplicate FQCNs and
 `MBR027` for case collisions. Also run

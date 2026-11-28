@@ -1,6 +1,6 @@
 ---
 doc_id: reference.diagnostics
-contract_revision: 6
+contract_revision: 7
 ---
 
 # Diagnostics reference
@@ -66,6 +66,7 @@ A private static handler, for example, produces:
 | `MBR027` | Two discovered path prefixes differ only by ASCII letter case and behave differently on case-insensitive filesystems. | Keep one directory/file spelling and correct namespaces/references. |
 | `MBR028` | The scan completed without any eligible declaration; this is a `warning` and `actual` reports the exact zero result. | Check roots, namespace prefixes, and exclusions. If an empty registry is intended, log the warning without failing. |
 | `MBR029` | A Query, Request, or Event handler declares the Command-only `bindingId`; `symbol` names the exact handler method. | Remove `bindingId`. Use it only on a Command handler; Event handlers keep their identity in `subscriptionId`. |
+| `MBR030` | A class in `#[Handler(middleware: [...])]` is missing, not autoloadable, or does not implement `HandlerMiddleware`; `symbol` names the exact handler method and `actual` identifies the list index and value. | Correct the class reference, implement `HandlerMiddleware`, register it in the same DI scope as handlers, then rebuild the registry artifact. |
 
 ## Runtime configuration (`MBC`)
 
@@ -92,7 +93,7 @@ A private static handler, for example, produces:
 | `MBD101` / `payload_decode` | A persisted payload could not be decoded into its message class. | Codec/name compatibility, payload version, delivery/message IDs, `failure_class`. |
 | `MBD102` / `target_resolution` | A persisted target is absent or incompatible with the compiled registry. | Target ID, registry/build fingerprint, deployment compatibility, `failure_class`. |
 | `MBD103` / `context_creation` | The handler context factory failed. | Handler/context registration, delivery/attempt IDs, `failure_class`. |
-| `MBD104` / `handler_resolution` | The DI container could not resolve the compiled handler service. | Target/handler class and the original container exception; the library does not replace it with a generic handler error. |
+| `MBD104` / `handler_resolution` | The DI container could not resolve the compiled handler or one of its policy/local middleware services. | Target and requested class plus the original container exception; the library does not replace it with a generic resolution error. |
 | `MBD105` / `handler_execution` | The resolved handler threw while processing the message. | Target, message/delivery/attempt IDs, `failure_class`, original handler exception. |
 | `MBD106` / `idempotency` | Identity resolution or the atomic idempotency boundary failed. | Target/attempt IDs, resolver/boundary configuration, `failure_class`. |
 | `MBD107` / `failure_classification` | The application classifier threw while handling another failure. | Classifier `failure_class` and primary `related_failure_class`. |

@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.messages-and-handlers
-contract_revision: 3
+contract_revision: 4
 ---
 
 # Messages и handlers
@@ -19,6 +19,11 @@ contract_revision: 3
   роли.
 
 - Command и durable Event обязаны иметь `#[MessageName]` и versioned `#[Payload]`.
+
+- `#[Handler(middleware: [...])]` объявляет middleware classes только для этого
+  binding. Compiler сохраняет их порядок в registry artifact; `MBR030` точно
+  указывает неверный элемент. Global и policy composition описаны в
+  [руководстве по handler middleware](../guides/handler-middleware.md).
 
 - Runtime не угадывает роль по имени класса или attribute handler-а.
 

@@ -102,7 +102,7 @@ final class IntegrationCompositionTest extends TestCase
 
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage(
-            'PSR-11 container returned stdClass for handler ' . CompositionJsonHandler::class
+            'PSR-11 container returned stdClass for requested service ' . CompositionJsonHandler::class
             . '; expected an instance of ' . CompositionJsonHandler::class . '.',
         );
 

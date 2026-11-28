@@ -16,6 +16,7 @@ use Wolfcharaa\MessageBus\Contract\Query;
 use Wolfcharaa\MessageBus\Contract\Request;
 use Wolfcharaa\MessageBus\Exception\InvalidMessageBusConfiguration;
 use Wolfcharaa\MessageBus\Internal\Registry\RegistryDiagnosticFactory;
+use Wolfcharaa\MessageBus\Middleware\HandlerMiddleware;
 
 /**
  *  Message role derived exclusively from the message class marker.
@@ -41,6 +42,7 @@ final readonly class HandlerBinding
      * @param class-string<Message<mixed>> $messageClass
      * @param class-string $handlerClass
      * @param class-string<MessageContext>|null $contextClass
+     * @param list<class-string<HandlerMiddleware<mixed>>> $middleware
      */
     public function __construct(
         public string $id,
@@ -50,6 +52,7 @@ final readonly class HandlerBinding
         public string $method,
         public ?string $contextClass,
         public ?string $subscriptionId,
+        public array $middleware = [],
     ) {}
 }
 
@@ -473,7 +476,16 @@ final readonly class RegistryCompiler
         $fingerprintData = [];
         foreach ($bindings as $messageClass => $messageBindings) {
             foreach ($messageBindings as $binding) {
-                $fingerprintData[] = [$messageClass, $binding->id, $binding->contextClass];
+                $fingerprintData[] = [
+                    $messageClass,
+                    $binding->id,
+                    $binding->role->value,
+                    $binding->handlerClass,
+                    $binding->method,
+                    $binding->contextClass,
+                    $binding->subscriptionId,
+                    $binding->middleware,
+                ];
             }
         }
         $registry = new CompiledRegistry(
@@ -721,6 +733,23 @@ final readonly class RegistryCompiler
 
             return;
         }
+        foreach ($attribute->middleware as $index => $middlewareClass) {
+            if (!\is_string($middlewareClass)
+                || !is_a($middlewareClass, HandlerMiddleware::class, true)) {
+                $diagnostics[] = $this->error(
+                    'MBR030',
+                    'A handler-local middleware reference is not an autoloadable HandlerMiddleware class.',
+                    $symbol,
+                    expected: 'middleware[' . $index . '] is a class implementing ' . HandlerMiddleware::class,
+                    actual: 'middleware[' . $index . '] is ' . (\is_string($middlewareClass)
+                        ? 'class "' . $middlewareClass . '"'
+                        : get_debug_type($middlewareClass)),
+                    sourcePath: $sourcePath,
+                );
+
+                return;
+            }
+        }
         if (($role === MessageRole::Command || $role === MessageRole::Event)
             && \count((new \ReflectionClass($messageClass))->getAttributes(MessageName::class)) !== 1) {
             $attributeCount = \count((new \ReflectionClass($messageClass))->getAttributes(MessageName::class));
@@ -749,6 +778,7 @@ final readonly class RegistryCompiler
             method: $method->getName(),
             contextClass: $contextClass,
             subscriptionId: $attribute->subscriptionId,
+            middleware: $attribute->middleware,
         );
     }
 

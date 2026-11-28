@@ -6,7 +6,7 @@ namespace Wolfcharaa\MessageBus\Tests;
 
 use PHPUnit\Framework\TestCase;
 use Psr\Clock\ClockInterface;
-use Psr\Log\AbstractLogger;
+use Psr\Log\LoggerInterface;
 use Wolfcharaa\MessageBus\Adapter\InMemoryDeliveryBackend;
 use Wolfcharaa\MessageBus\Attribute\Handler;
 use Wolfcharaa\MessageBus\Attribute\MessageName;
@@ -901,7 +901,23 @@ final class AdditionalRuntimeTest extends TestCase
 
     public function testObserverAndWorkerFailureExposeTypedOutcomes(): void
     {
-        $logger = new RecordingLogger();
+        /** @var list<array{message: string, context: array<string, mixed>}> $records */
+        $records = [];
+        /** @param array<string, mixed> $context */
+        $record = static function (mixed $message, array $context = []) use (&$records): void {
+            if (!\is_string($message) && !$message instanceof \Stringable) {
+                throw new \UnexpectedValueException('PSR-3 test message must be string-compatible.');
+            }
+            $records[] = ['message' => (string) $message, 'context' => $context];
+        };
+        $logger = self::createStub(LoggerInterface::class);
+        $logger->method('log')->willReturnCallback(
+            /** @param array<string, mixed> $context */
+            static function (mixed $level, mixed $message, array $context = []) use ($record): void {
+                $record($message, $context);
+            },
+        );
+        $logger->method('error')->willReturnCallback($record);
         $diagnostic = new FailureDiagnostic(FailureStage::HandlerExecution, \RuntimeException::class);
         $event = new RuntimeEvent(
             RuntimeEventType::AttemptFailed,
@@ -926,12 +942,12 @@ final class AdditionalRuntimeTest extends TestCase
             failureSummary: $diagnostic->summary,
         );
         (new PsrLogRuntimeObserver($logger))->observe($event);
-        self::assertSame('message_bus.attempt_failed', $logger->records[0]['message']);
-        self::assertSame('terminal', $logger->records[0]['context']['failure_category']);
+        self::assertSame('message_bus.attempt_failed', $records[0]['message']);
+        self::assertSame('terminal', $records[0]['context']['failure_category']);
         $loggedFailure = new \RuntimeException('process-local detail');
         (new PsrLogRuntimeFailureSink($logger))->report($loggedFailure, $event);
-        self::assertSame($loggedFailure, $logger->records[1]['context']['exception']);
-        self::assertArrayNotHasKey('exception', $logger->records[0]['context']);
+        self::assertSame($loggedFailure, $records[1]['context']['exception']);
+        self::assertArrayNotHasKey('exception', $records[0]['context']);
         self::assertSame('warning', RuntimeEventType::DeliveryRecovered->severity()->value);
         self::assertSame('debug', RuntimeEventType::DispatchStarted->severity()->value);
         (new NullObserverFailureSink())->report(new \RuntimeException('ignored'), $event);
@@ -1214,24 +1230,6 @@ final readonly class WarningRule implements RegistryValidationRule
     public function validate(CompiledRegistry $registry): array
     {
         return [new RegistryDiagnostic('EXAMPLE001', DiagnosticSeverity::Warning, 'Example warning.')];
-    }
-}
-
-final class RecordingLogger extends AbstractLogger
-{
-    /** @var list<array{message: string, context: array<string, mixed>}> */
-    public array $records = [];
-
-    /** @param string|\Stringable $message */
-    public function log($level, $message, array $context = []): void
-    {
-        $normalized = [];
-        foreach ($context as $key => $value) {
-            if (\is_string($key)) {
-                $normalized[$key] = $value;
-            }
-        }
-        $this->records[] = ['message' => (string) $message, 'context' => $normalized];
     }
 }
 

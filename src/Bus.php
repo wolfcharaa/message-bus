@@ -51,7 +51,8 @@ use Wolfcharaa\MessageBus\Routing\DeliveryMode;
 use Wolfcharaa\MessageBus\Routing\DeliveryRoutes;
 
 /**
- * Resolves one compiler-validated handler from the current application scope.
+ * Resolves one compiler-validated handler or handler middleware from the
+ * current application scope.
  *
  * Implementations must not suppress failures raised by the underlying DI
  * container. A failure from get() remains observable through the dispatch
@@ -83,7 +84,7 @@ final readonly class HandlerServices implements HandlerServiceResolver
     {
         $service = $this->services[$class] ?? null;
         if (!$service instanceof $class) {
-            throw new \LogicException('No compatible handler service is registered for ' . $class . '.');
+            throw new \LogicException('No compatible application service is registered for ' . $class . '.');
         }
 
         return $service;
@@ -395,7 +396,8 @@ final class DefaultMessageBus implements MessageBusContract
             ? static fn(): mixed => $method->invoke($service, $message)
             : static fn(): mixed => $method->invoke($service, $message, $context);
 
-        return (new HandlerPipeline($this->middleware->all()))->invoke($message, $context, $handler);
+        return (new HandlerPipeline($this->middleware->for($binding, $this->handlers)))
+            ->invoke($message, $context, $handler);
     }
 
     /** @param Message<mixed> $message */

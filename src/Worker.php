@@ -374,7 +374,12 @@ final readonly class DeliveryWorkerRuntime
             $handler = $binding->contextClass === null
                 ? static fn(): mixed => $method->invoke($service, $message)
                 : static fn(): mixed => $method->invoke($service, $message, $context);
-            $invoke = fn(): mixed => (new HandlerPipeline($this->middleware->all()))
+            $middleware = $this->middleware->for(
+                $binding,
+                $this->handlers,
+                $claim->delivery->policy,
+            );
+            $invoke = static fn(): mixed => (new HandlerPipeline($middleware))
                 ->invoke($message, $context, $handler);
             $stage = FailureStage::HandlerExecution;
             if ($claim->delivery->policy->idempotent) {

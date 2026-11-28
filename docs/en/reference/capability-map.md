@@ -1,6 +1,6 @@
 ---
 doc_id: reference.capability-map
-contract_revision: 4
+contract_revision: 5
 ---
 
 # Capability map
@@ -16,6 +16,10 @@ This map connects a consumer task to its public boundary and owner.
   service definitions, PDO/process lifetime, routes, policies, and migration timing.
 
 - Extension → only `@api spi`; a custom adapter never imports `Internal`.
+
+- Handler interception → [handler middleware](../guides/handler-middleware.md);
+  the host owns global objects and DI services, the binding owns local class
+  references, and a durable policy owns its persisted attempt-level chain.
 
 - Testing → in-memory semantics plus PostgreSQL/process suites for persistence and fork guarantees.
 

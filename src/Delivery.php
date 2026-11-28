@@ -10,6 +10,7 @@ use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Identity\LeaseToken;
 use Wolfcharaa\MessageBus\Identity\MessageId;
 use Wolfcharaa\MessageBus\Metadata\MessageMetadata;
+use Wolfcharaa\MessageBus\Middleware\HandlerMiddleware;
 use Wolfcharaa\MessageBus\Observability\FailureDiagnostic;
 use Wolfcharaa\MessageBus\Registry\MessageRole;
 
@@ -81,12 +82,19 @@ final readonly class DeliveryAttempt
 }
 
 /**
- *  Fully resolved and persisted retry/deadline/priority policy.
+ * Fully resolved and persisted retry/deadline/priority/attempt policy.
+ *
+ * Middleware class references are an ordered durable snapshot. The worker
+ * resolves them for every attempt after global middleware and before the
+ * binding-local #[Handler] chain.
  *
  * @api application
  */
 final readonly class DeliveryPolicy
 {
+    /**
+     * @param list<class-string<HandlerMiddleware<mixed>>> $middleware
+     */
     public function __construct(
         public string $name,
         public int $maxAttempts = 1,
@@ -99,6 +107,7 @@ final readonly class DeliveryPolicy
         public int $replayWindowSeconds = 0,
         public int $idempotencySafetyMarginSeconds = 60,
         public bool $retryLostAttempts = false,
+        public array $middleware = [],
     ) {
         if ($this->name === '') {
             throw new \InvalidArgumentException('DeliveryPolicy name must not be empty.');
@@ -132,6 +141,17 @@ final readonly class DeliveryPolicy
         }
         if ($this->retryLostAttempts && !$this->idempotent) {
             throw new \InvalidArgumentException('Lost-attempt retry requires an idempotent delivery policy.');
+        }
+        foreach ($this->middleware as $index => $middlewareClass) {
+            if (!\is_string($middlewareClass)
+                || !is_a($middlewareClass, HandlerMiddleware::class, true)) {
+                throw new \InvalidArgumentException(
+                    'DeliveryPolicy "' . $this->name . '" middleware[' . $index . '] must be an autoloadable class'
+                    . ' implementing ' . HandlerMiddleware::class . '; got '
+                    . (\is_string($middlewareClass) ? '"' . $middlewareClass . '"' : get_debug_type($middlewareClass))
+                    . '.',
+                );
+            }
         }
     }
 }

@@ -49,10 +49,11 @@ contract_revision: 2
 является следствием того, что invalid handler не попал в compiled bindings.
 Исправьте раннюю диагностику и только затем проверяйте cardinality.
 
-Если DI-контейнер падает во время dispatch, `MBD104` сохраняет стадию
-`handler_resolution`, а библиотека повторно выбрасывает исходное container
-exception. Исправляйте регистрацию/factory из этого исключения; не ловите его с
-заменой на общий `Handler failed`.
+Если DI-контейнер падает при разрешении handler либо его policy/local
+middleware, `MBD104` сохраняет стадию `handler_resolution`, а библиотека
+повторно выбрасывает исходное container exception. Исправляйте
+регистрацию/factory из этого исключения; не ловите его с заменой на общий
+`Handler failed`.
 
 ### Ошибка `MessageName`
 

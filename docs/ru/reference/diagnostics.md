@@ -1,6 +1,6 @@
 ---
 doc_id: reference.diagnostics
-contract_revision: 6
+contract_revision: 7
 ---
 
 # Справочник диагностик
@@ -66,6 +66,7 @@ contract_revision: 6
 | `MBR027` | Два discovered path prefixes отличаются только ASCII-регистром и по-разному работают на case-insensitive filesystem. | Оставьте одно написание регистра каталога/файла и исправьте namespaces/references. |
 | `MBR028` | Scan завершён без единого eligible declaration; это `warning`, `actual` равно точному нулевому результату. | Проверьте roots, namespace prefixes и excludes; если пустой registry ожидаем, warning можно логировать без отказа. |
 | `MBR029` | Handler роли Query, Request или Event объявляет предназначенный только для Command `bindingId`; `symbol` указывает точный метод handler. | Удалите `bindingId`. Используйте его только у Command handler; Event сохраняет идентичность в `subscriptionId`. |
+| `MBR030` | Класс в `#[Handler(middleware: [...])]` отсутствует, не загружается или не реализует `HandlerMiddleware`; `symbol` указывает точный метод handler, а `actual` — индекс и значение элемента списка. | Исправьте class reference, реализуйте `HandlerMiddleware`, зарегистрируйте его в том же DI scope, что и handlers, затем пересоберите registry artifact. |
 
 ## Runtime-конфигурация (`MBC`)
 
@@ -92,7 +93,7 @@ contract_revision: 6
 | `MBD101` / `payload_decode` | Persisted payload не декодировался в класс сообщения. | Codec/name compatibility, payload version, delivery/message IDs, `failure_class`. |
 | `MBD102` / `target_resolution` | Persisted target отсутствует в compiled registry или несовместим. | Target ID, registry/build fingerprint, deployment compatibility, `failure_class`. |
 | `MBD103` / `context_creation` | Factory контекста handler завершилась ошибкой. | Регистрацию handler/context, delivery/attempt IDs, `failure_class`. |
-| `MBD104` / `handler_resolution` | DI container не смог получить compiled handler service. | Target/handler class и исходное container exception; библиотека не заменяет его общей handler error. |
+| `MBD104` / `handler_resolution` | DI container не смог получить compiled handler либо один из policy/local middleware services. | Target, requested class и исходное container exception; библиотека не заменяет его общей resolution error. |
 | `MBD105` / `handler_execution` | Полученный handler выбросил исключение при обработке. | Target, message/delivery/attempt IDs, `failure_class`, исходное handler exception. |
 | `MBD106` / `idempotency` | Упал identity resolver или atomic idempotency boundary. | Target/attempt IDs, настройки resolver/boundary, `failure_class`. |
 | `MBD107` / `failure_classification` | Application classifier упал при обработке другой ошибки. | `failure_class` classifier и `related_failure_class` исходной ошибки. |

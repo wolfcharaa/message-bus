@@ -1,6 +1,6 @@
 ---
 doc_id: migration.v6-to-v7
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Migrating v6 to v7
@@ -10,6 +10,12 @@ V7 is an intentional breaking redesign with no shims for Envelope, Flow, executi
 - First classify every message as Query, Request, Command, or Event and move handlers to method-level `#[Handler]`.
 
 - Replace runtime discovery with a compiled artifact and all dispatch/publish variants with the single `dispatch()` method.
+
+- Replace v6 flow/binding interceptors with global `HandlerMiddlewares`,
+  `DeliveryPolicy(middleware: [...])`, and binding-local
+  `#[Handler(middleware: [...])]`. The preserved order is global/policy first,
+  binding-local second, then the handler; middleware services resolve from the
+  same application scope as handlers.
 
 - To migrate without a manual class list, enable
   [Composer directory discovery](../getting-started/composer-directory-discovery.md),

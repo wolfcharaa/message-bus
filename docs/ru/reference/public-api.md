@@ -19,10 +19,11 @@ Ready process-local PostgreSQL composition for dispatch, workers and operations.
 
 ### `Wolfcharaa\MessageBus\Attribute\Handler`
 
-Marks one public handler method and its optional stable delivery identity.
+Marks one public handler method, its stable delivery identity, and local
 
 - Вид: `class`
-- `__construct(?string $subscriptionId = NULL, ?string $bindingId = NULL): mixed`
+- `__construct(?string $subscriptionId = NULL, ?string $bindingId = NULL, array $middleware = array (
+)): mixed`
 
 ### `Wolfcharaa\MessageBus\Attribute\MessageName`
 
@@ -236,10 +237,11 @@ Complete named policy map resolved during composition.
 
 ### `Wolfcharaa\MessageBus\Delivery\DeliveryPolicy`
 
-Fully resolved and persisted retry/deadline/priority policy.
+Fully resolved and persisted retry/deadline/priority/attempt policy.
 
 - Вид: `class`
-- `__construct(string $name, int $maxAttempts = 1, int $retryDelaySeconds = 0, int $leaseSeconds = 60, int $maxElapsedSeconds = 300, int $priority = 0, bool $idempotent = false, int $idempotencyRetentionSeconds = 86400, int $replayWindowSeconds = 0, int $idempotencySafetyMarginSeconds = 60, bool $retryLostAttempts = false): mixed`
+- `__construct(string $name, int $maxAttempts = 1, int $retryDelaySeconds = 0, int $leaseSeconds = 60, int $maxElapsedSeconds = 300, int $priority = 0, bool $idempotent = false, int $idempotencyRetentionSeconds = 86400, int $replayWindowSeconds = 0, int $idempotencySafetyMarginSeconds = 60, bool $retryLostAttempts = false, array $middleware = array (
+)): mixed`
 
 ### `Wolfcharaa\MessageBus\Delivery\DeliveryState`
 
@@ -513,12 +515,12 @@ Validates keys allowed in application metadata and rejects system spoofing.
 
 ### `Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares`
 
-Exact fixed middleware list for applications that do not need scoped resolution.
+Composes global, delivery-policy, and handler-local middleware in that order.
 
 - Вид: `class`
-- `__construct(array $middleware = array (
+- `__construct(array $global = array (
 )): mixed`
-- `all(): array`
+- `for(Wolfcharaa\MessageBus\Registry\HandlerBinding $binding, Wolfcharaa\MessageBus\HandlerServiceResolver $services, ?Wolfcharaa\MessageBus\Delivery\DeliveryPolicy $policy = NULL): array`
 
 ### `Wolfcharaa\MessageBus\Observability\FailureDiagnostic`
 
@@ -878,7 +880,7 @@ Classifies a thrown handler/runtime failure in an ordered classifier chain.
 
 ### `Wolfcharaa\MessageBus\HandlerServiceResolver`
 
-Resolves one compiler-validated handler from the current application scope.
+Resolves one compiler-validated handler or handler middleware from the
 
 - Вид: `interface`
 - `get(string $class): object`
@@ -925,10 +927,10 @@ One handler-attempt middleware extension point.
 
 ### `Wolfcharaa\MessageBus\Middleware\HandlerMiddlewareResolver`
 
-Resolves the complete middleware chain for each handler invocation.
+Resolves the complete middleware chain for one exact handler binding.
 
 - Вид: `interface`
-- `all(): array`
+- `for(Wolfcharaa\MessageBus\Registry\HandlerBinding $binding, Wolfcharaa\MessageBus\HandlerServiceResolver $services, ?Wolfcharaa\MessageBus\Delivery\DeliveryPolicy $policy = NULL): array`
 
 ### `Wolfcharaa\MessageBus\Middleware\NextHandler`
 
@@ -1121,7 +1123,7 @@ One immutable package migration plus its verified artifact hash.
 
 ### `Wolfcharaa\MessageBus\Adapter\Psr\Container\PsrContainerHandlerServiceResolver`
 
-Resolves compiled handlers from a PSR-11 container without translating its failures.
+Resolves compiled handlers and their middleware from a PSR-11 container
 
 - Вид: `class`
 - `__construct(Psr\Container\ContainerInterface $container): mixed`
@@ -1306,7 +1308,8 @@ Explicit deterministic class source suitable for production composition.
 One validated method-level handler binding.
 
 - Вид: `class`
-- `__construct(string $id, string $messageClass, Wolfcharaa\MessageBus\Registry\MessageRole $role, string $handlerClass, string $method, ?string $contextClass, ?string $subscriptionId): mixed`
+- `__construct(string $id, string $messageClass, Wolfcharaa\MessageBus\Registry\MessageRole $role, string $handlerClass, string $method, ?string $contextClass, ?string $subscriptionId, array $middleware = array (
+)): mixed`
 
 ### `Wolfcharaa\MessageBus\Registry\MessageRole`
 

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 7.0.0-beta.3 — 2026-11-28
+
+- Restored the handler interceptor model as one deterministic chain: global
+  middleware, persisted durable-policy middleware, handler-local attribute
+  middleware, then the handler.
+- Added `#[Handler(middleware: [...])]`, persisted middleware references in
+  registry artifacts and PostgreSQL delivery-policy snapshots, and diagnostic
+  `MBR030` for an invalid local middleware class.
+- Resolved policy/local middleware through the handler application scope while
+  preserving exact DI container failures; durable resolution failures are
+  settled and reported at `handler_resolution`.
+- Added focused inline, durable, Event-subscription, ordering, artifact,
+  PostgreSQL, and DI-failure tests plus paired RU/EN integration documentation.
+- Replaced the PSR-3 test double with a PHPUnit-generated interface stub so the
+  PHP 8.3 prefer-lowest lane supports `psr/log` 1.x without weakening the
+  `psr/log` 3.x contract.
+
 ## 7.0.0-beta.2 — 2026-11-28
 
 - Added optional `composer/class-map-generator` directory discovery for root
