@@ -1,6 +1,6 @@
 ---
 doc_id: guides.troubleshooting-diagnostics
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Разбор и устранение диагностик
@@ -24,7 +24,7 @@ contract_revision: 1
 
 | Префикс | Где возникает | Источник фактов | Действие |
 | --- | --- | --- | --- |
-| `MBR` | Компиляция реестра | `RegistryDiagnostic`: `symbol`, `expected`, `actual`, `cause_class` | Исправить declaration/autoload, снова скомпилировать реестр. Не запускать runtime. |
+| `MBR` | Discovery/компиляция реестра | `RegistryDiagnostic`: `symbol`, `source_path`, `expected`, `actual`, `cause_class`; исходная причина в `previous` | Исправить mapping/declaration/autoload, снова скомпилировать реестр. Не запускать runtime. |
 | `MBC` | Проверка runtime-конфигурации | Target, route, policy, idempotency/resolver fields | Исправить composition root и повторить preflight. Не retry delivery. |
 | `MBD` | Dispatch или worker attempt | Runtime event/status, IDs, классы ошибок и исходный throwable | Найти упавшую границу, проверить защищённые logs и применять retry только по `FailureCategory`/policy. |
 | `MBCLI` | Operator CLI | `stage`, `subject`, `exception_type`, exit code | Исправить input/state либо перейти к защищённым backend/application logs. |
@@ -71,12 +71,15 @@ exception. Исправляйте регистрацию/factory из этого
 composer dump-autoload --optimize --strict-psr
 ```
 
-Явно переданный невидимый класс даёт `MBR001`; handler с непригодным типом
-message — `MBR004`; видимый Query/Request/Command без discovered handler —
-`MBR014`. Если и message, и handler лежат вне всех PSR-4/classmap mappings,
-реестр не видит ни одного из них и не может создать код. Исправьте mapping или
-расположение, проверьте namespace prefixes `ComposerClassMapSource`, затем
-перестройте artifact.
+`ComposerDirectoryClassSource` проверяет весь выбранный production root:
+неправильный namespace/путь даёт `MBR026` с фактическим `source_path` и ожидаемым
+файлом; duplicate FQCN — `MBR025`; case collision — `MBR027`. Явно переданный
+невидимый класс даёт `MBR001`; handler с непригодным message type — `MBR004`;
+видимый Query/Request/Command без handler — `MBR014`.
+
+Класс вне явно выбранных mappings/directories остаётся вне bounded scan. Для
+нового подключения используйте [Composer directory discovery](../getting-started/composer-directory-discovery.md),
+исправьте mapping/расположение и перестройте artifact.
 
 ## Проверка после исправления
 

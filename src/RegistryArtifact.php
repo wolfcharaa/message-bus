@@ -258,3 +258,194 @@ final readonly class RegistryArtifactStore
         return $artifact;
     }
 }
+
+/**
+ * Controls whether application bootstrap may rebuild a registry artifact.
+ *
+ * @api tooling
+ */
+enum RegistryRefreshPolicy: string
+{
+    /** Load the committed/deployed artifact without touching discovery inputs. */
+    case PrecompiledOnly = 'precompiled_only';
+
+    /** Recompile under a process lock when discovery inputs changed. */
+    case WhenStale = 'when_stale';
+}
+
+/**
+ * Loads production artifacts and performs opt-in development refreshes.
+ *
+ * Refresh checks happen at application bootstrap, never during dispatch. A
+ * failed rebuild is returned as its original exception chain; an older
+ * artifact is not used as a silent fallback.
+ *
+ * @api tooling
+ */
+final readonly class RegistryArtifactLoader
+{
+    private const int META_SCHEMA = 1;
+
+    public function __construct(
+        private RegistryCompiler $compiler = new RegistryCompiler(),
+        private RegistryArtifactStore $store = new RegistryArtifactStore(),
+    ) {}
+
+    public function load(
+        string $artifactPath,
+        RegistryRefreshPolicy $policy = RegistryRefreshPolicy::PrecompiledOnly,
+        ?RefreshableRegistryClassDiscoverySource $source = null,
+        ?string $applicationBuildId = null,
+    ): CompiledRegistry {
+        if ($policy === RegistryRefreshPolicy::PrecompiledOnly) {
+            if ($source instanceof RefreshableRegistryClassDiscoverySource) {
+                throw new \InvalidArgumentException(
+                    'PrecompiledOnly does not accept a discovery source; production loading must not scan source files.',
+                );
+            }
+
+            return $this->store->load($artifactPath, $applicationBuildId)->registry();
+        }
+        if (!$source instanceof RefreshableRegistryClassDiscoverySource) {
+            throw new \InvalidArgumentException('WhenStale requires a refreshable registry class discovery source.');
+        }
+
+        $resources = $source->resources();
+        $resourceFingerprint = $this->resourceFingerprint($resources);
+        $fresh = $this->loadFresh($artifactPath, $resources, $resourceFingerprint, $applicationBuildId);
+        if ($fresh instanceof CompiledRegistry) {
+            return $fresh;
+        }
+
+        $lockPath = $artifactPath . '.lock';
+        $lock = @fopen($lockPath, 'c+');
+        if (!\is_resource($lock)) {
+            throw new \RuntimeException('Unable to open registry refresh lock: ' . $lockPath);
+        }
+
+        try {
+            if (!flock($lock, LOCK_EX)) {
+                throw new \RuntimeException('Unable to acquire registry refresh lock: ' . $lockPath);
+            }
+
+            $resources = $source->resources();
+            $resourceFingerprint = $this->resourceFingerprint($resources);
+            $fresh = $this->loadFresh($artifactPath, $resources, $resourceFingerprint, $applicationBuildId);
+            if ($fresh instanceof CompiledRegistry) {
+                return $fresh;
+            }
+
+            $registry = $this->compiler->compile($source)->requireRegistry();
+            $artifact = RegistryArtifact::fromRegistry($registry, $applicationBuildId);
+            $this->store->write($artifact, $artifactPath);
+            $this->writeMeta($artifactPath . '.meta.json', [
+                'schema' => self::META_SCHEMA,
+                'artifact_content_hash' => $artifact->contentHash,
+                'configuration_fingerprint' => $resources->configurationFingerprint,
+                'resource_fingerprint' => $resourceFingerprint,
+                'application_build_id' => $applicationBuildId,
+            ]);
+
+            return $registry;
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function loadFresh(
+        string $artifactPath,
+        RegistryClassDiscoveryResources $resources,
+        string $resourceFingerprint,
+        ?string $applicationBuildId,
+    ): ?CompiledRegistry {
+        $metaPath = $artifactPath . '.meta.json';
+        if (!is_file($artifactPath) || !is_file($metaPath)) {
+            return null;
+        }
+
+        try {
+            $metaJson = file_get_contents($metaPath);
+            if (!\is_string($metaJson)) {
+                return null;
+            }
+            $meta = json_decode($metaJson, true, 512, JSON_THROW_ON_ERROR);
+            if (!\is_array($meta) || array_is_list($meta)
+                || ($meta['schema'] ?? null) !== self::META_SCHEMA
+                || ($meta['configuration_fingerprint'] ?? null) !== $resources->configurationFingerprint
+                || ($meta['resource_fingerprint'] ?? null) !== $resourceFingerprint
+                || ($meta['application_build_id'] ?? null) !== $applicationBuildId) {
+                return null;
+            }
+            $artifact = $this->store->load($artifactPath, $applicationBuildId);
+            if (($meta['artifact_content_hash'] ?? null) !== $artifact->contentHash) {
+                return null;
+            }
+
+            return $artifact->registry();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function resourceFingerprint(RegistryClassDiscoveryResources $resources): string
+    {
+        $entries = [];
+        foreach ($resources->files as $file) {
+            $entries[] = $this->fileEntry($file);
+        }
+        foreach ($resources->directories as $directory) {
+            if (!is_dir($directory)) {
+                $entries[] = ['missing_directory', $directory];
+
+                continue;
+            }
+
+            try {
+                $iterator = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+                );
+                foreach ($iterator as $file) {
+                    if (!$file instanceof \SplFileInfo || !$file->isFile() || $file->isLink()) {
+                        continue;
+                    }
+                    if (!\in_array(strtolower($file->getExtension()), ['php', 'inc'], true)) {
+                        continue;
+                    }
+                    $entries[] = $this->fileEntry($file->getPathname());
+                }
+            } catch (\Throwable $failure) {
+                $entries[] = ['unreadable_directory', $directory, $failure::class];
+            }
+        }
+        sort($entries, SORT_REGULAR);
+
+        return hash('sha256', json_encode([
+            'configuration' => $resources->configurationFingerprint,
+            'entries' => $entries,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /** @return array{string, string, string|null} */
+    private function fileEntry(string $path): array
+    {
+        if (!is_file($path)) {
+            return ['missing_file', $path, null];
+        }
+        $hash = @hash_file('sha256', $path);
+
+        return ['file', str_replace('\\', '/', $path), $hash === false ? null : $hash];
+    }
+
+    /** @param array<string, int|string|null> $meta */
+    private function writeMeta(string $path, array $meta): void
+    {
+        $temporary = $path . '.tmp.' . bin2hex(random_bytes(6));
+        $json = json_encode($meta, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+        if (file_put_contents($temporary, $json, LOCK_EX) === false || !rename($temporary, $path)) {
+            @unlink($temporary);
+
+            throw new \RuntimeException('Unable to atomically write registry refresh metadata: ' . $path);
+        }
+    }
+}

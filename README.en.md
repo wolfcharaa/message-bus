@@ -23,6 +23,9 @@ JSON, and `psr/clock`.
   Query/Request and inline Event in the caller process.
 - [Durable PostgreSQL](docs/en/getting-started/durable-postgres.md) — Command,
   durable Event, delivery status/control, and worker processes.
+- [Composer-based handler discovery](docs/en/getting-started/composer-directory-discovery.md) —
+  a quick start without a manual class list, safe development refreshes, and a
+  production artifact without filesystem scanning.
 
 After installation, verify the minimal composition with the packaged example:
 
@@ -57,6 +60,15 @@ The complete composition is in
 [`examples/orchestration/run.php`](examples/orchestration/run.php). Production
 compiles the registry during the build and loads a self-hashed artifact; it does
 not scan handlers on every startup.
+
+For automatic production PSR-4/classmap declaration discovery, install the
+optional build/development parser:
+
+```bash
+composer require --dev composer/class-map-generator:^1.8
+```
+
+It is not needed in production after the artifact is built.
 
 ## Contract
 

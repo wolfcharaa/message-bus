@@ -76,6 +76,7 @@ $diagnostics = document('diagnostics');
 $expectedCodes = $diagnostics['codes'] ?? null;
 $expectedRuntimeCodes = $diagnostics['runtime_codes'] ?? null;
 $registrySource = (string) file_get_contents(__DIR__ . '/../src/Registry.php')
+    . (string) file_get_contents(__DIR__ . '/../src/RegistryDiscovery.php')
     . (string) file_get_contents(__DIR__ . '/../src/Routing.php');
 preg_match_all("/'(MB[RC][0-9]{3})'/", $registrySource, $matches);
 $actualCodes = array_values(array_unique($matches[1] ?? []));

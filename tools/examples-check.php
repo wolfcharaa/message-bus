@@ -10,6 +10,7 @@ $expected = [
     'codec-upcast' => 'ada@example.test',
     'idempotency' => 'executed,replayed,1',
     'observer' => 'dispatch_started,dispatch_completed',
+    'composer-discovery' => '1 message, 2 declarations',
 ];
 
 foreach ($expected as $scenario => $output) {

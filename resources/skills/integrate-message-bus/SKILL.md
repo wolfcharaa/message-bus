@@ -1,6 +1,6 @@
 ---
 name: integrate-message-bus
-description: Integrate and troubleshoot romanfedorskij/message-bus 7.x in a PHP 8.3+ application after inspecting message roles, handlers, DI, transaction boundaries, PostgreSQL ownership, codecs, workers, operations, and stable diagnostic codes. Use for orchestration-only or durable PostgreSQL wiring, registry artifacts, migration planning, integration verification, and MBR/MBC/MBD/MBCLI failure triage. Do not use for developing the package itself.
+description: Integrate and troubleshoot romanfedorskij/message-bus 7.x in a PHP 8.3+ application after inspecting message roles, handlers, Composer discovery, DI, transaction boundaries, PostgreSQL ownership, codecs, workers, operations, and stable diagnostic codes. Use for orchestration-only or durable PostgreSQL wiring, registry artifacts and development refreshes, migration planning, integration verification, and MBR/MBC/MBD/MBCLI failure triage. Do not use for developing the package itself.
 ---
 
 # Integrate MessageBus
@@ -48,6 +48,24 @@ For orchestration-only, start from
 Compose the bounded registry source/compiler, exact handler service map, routes,
 and only required context factories or middleware. Build the registry artifact
 during release assembly; production startup loads and verifies it.
+
+Choose the registry source explicitly:
+
+- use `ExplicitClassSource` when the application already owns a small complete
+  class list;
+- for a fast bounded scan, read
+  `docs/en/getting-started/composer-directory-discovery.md`, install
+  `composer/class-map-generator:^1.8` as a build/development dependency, and use
+  `ComposerDirectoryClassSource::fromComposerJson()` with the host's explicit
+  root composer.json path;
+- do not turn `autoload-dev`, `files`, vendor trees, or cwd inference into
+  discovery roots.
+
+Compile the artifact before a runtime `composer install --no-dev`. Use
+`RegistryRefreshPolicy::WhenStale` only at development bootstrap with a
+refreshable source. Use `PrecompiledOnly` in production with no source. Do not
+add a dispatch-time scan, a worker file watcher, or a stale-artifact fallback;
+restart long-running workers through the host's normal mechanism.
 
 For durable PostgreSQL, additionally read
 `docs/en/getting-started/durable-postgres.md` and the database/worker operations
@@ -102,9 +120,10 @@ DI, handler, codec, classifier, or backend exception.
 
 Route the investigation by prefix:
 
-- `MBR` — read `symbol`, `expected`, `actual`, and `cause_class`; correct the
-  message/handler declaration or Composer discovery, then rebuild the registry
-  artifact;
+- `MBR` — read `symbol`, `source_path`, `expected`, `actual`, and `cause_class`,
+  then inspect `InvalidMessageBusConfiguration::getPrevious()` when present;
+  correct the message/handler declaration or Composer discovery and rebuild the
+  registry artifact;
 - `MBC` — correct the exact target route, policy, idempotency runtime, or
   resolver before starting the runtime;
 - `MBD` — correlate `stage`, delivery/message/attempt IDs, `failure_class`,
@@ -116,11 +135,12 @@ Route the investigation by prefix:
 
 For `MBD104`, fix the application container registration or factory shown by
 the original container exception; do not wrap it in a generic library error.
-For a class placed outside every Composer PSR-4/classmap path, run
-`composer dump-autoload --optimize --strict-psr`, correct the mapping or class
-location, verify `ComposerClassMapSource` prefixes, and rebuild the artifact.
-An entirely invisible message/handler pair cannot produce an `MBR` code until
-Composer can discover at least one of those classes.
+With `ComposerDirectoryClassSource`, use `MBR026` and its exact `source_path` and
+expected PSR-4 file for a misplaced class; use `MBR025` for duplicate FQCNs and
+`MBR027` for case collisions. Also run
+`composer dump-autoload --optimize --strict-psr`, correct the mapping/location,
+and rebuild the artifact. A class physically outside every explicitly selected
+mapping/directory remains outside the bounded scan.
 
 Do not retry `MBR` or `MBC` failures. Do not retry an `MBD` failure merely from
 its code; use the configured failure category and delivery policy. Never add

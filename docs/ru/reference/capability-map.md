@@ -1,6 +1,6 @@
 ---
 doc_id: reference.capability-map
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Capability map
@@ -14,6 +14,9 @@ contract_revision: 2
 - Extension → только `@api spi`; custom adapter не импортирует `Internal`.
 
 - Testing → in-memory profile для semantics плюс PostgreSQL/process suites для persistence и fork guarantees.
+
+- Быстрое подключение handlers → [Composer directory discovery](../getting-started/composer-directory-discovery.md);
+  host владеет roots, environment flag, artifact path и worker restart.
 
 - Диагностика → [руководство по разбору](../guides/troubleshooting-diagnostics.md)
   задаёт порядок действий, а [справочник](diagnostics.md) — точное значение и

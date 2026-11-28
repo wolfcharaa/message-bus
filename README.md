@@ -23,6 +23,9 @@ Console и PSR-3 подключаются только для соответст
   Query/Request и inline Event в вызывающем процессе.
 - [Durable PostgreSQL](docs/ru/getting-started/durable-postgres.md) — Command,
   durable Event, delivery status/control и worker processes.
+- [Автопоиск handlers через Composer](docs/ru/getting-started/composer-directory-discovery.md) —
+  быстрый старт без ручного списка классов, безопасная dev-пересборка и
+  production artifact без filesystem scan.
 
 После установки проверьте минимальную композицию из поставляемого примера:
 
@@ -57,6 +60,15 @@ $answer = $bus->dispatch(new Greeting('Ada'));
 [`examples/orchestration/run.php`](examples/orchestration/run.php). Production
 registry компилируется при сборке и загружается как self-hashed artifact; он не
 сканирует handlers на каждом старте.
+
+Для автоматического поиска production PSR-4/classmap declarations установите
+опциональный build/dev parser:
+
+```bash
+composer require --dev composer/class-map-generator:^1.8
+```
+
+Он не нужен в production после сборки artifact.
 
 ## Контракт
 

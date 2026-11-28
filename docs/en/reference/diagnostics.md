@@ -1,6 +1,6 @@
 ---
 doc_id: reference.diagnostics
-contract_revision: 4
+contract_revision: 5
 ---
 
 # Diagnostics reference
@@ -22,7 +22,8 @@ A registry diagnostic contains:
 - `symbol`: class, `Class::method`, message name, context class, or target that failed;
 - `subject_kind`: `symbol` for compiler rules or `target` for runtime configuration;
 - `expected` and `actual`: violated contract and observed declaration/configuration;
-- `cause_class`: exception class when an attribute constructor failed.
+- `cause_class`: original scanner/autoload/attribute exception class;
+- `source_path`: exact declaration/configuration file when the failure is file-bound.
 
 A private static handler, for example, produces:
 
@@ -30,13 +31,13 @@ A private static handler, for example, produces:
 [MBR002] A method marked as a handler has an invalid attribute count, visibility, or static modifier. Subject: App\QueryHandler::handle. Expected: exactly 1 #[Handler] attribute on a public non-static method. Actual: 1 #[Handler] attribute(s), private, static.
 ```
 
-`RegistryCompilationResult::requireRegistry()` includes every error message in `InvalidMessageBusConfiguration::getMessage()` and exposes the typed list through `InvalidMessageBusConfiguration::$diagnostics`.
+`RegistryCompilationResult::requireRegistry()` includes every error message in `InvalidMessageBusConfiguration::getMessage()`, exposes the typed list through `InvalidMessageBusConfiguration::$diagnostics`, and exposes the first throwable through `getPrevious()`. A library exception therefore does not swallow a DI/autoload/scanner error.
 
 ## Registry compiler (`MBR`)
 
 | Code | Exact condition and location | Correction |
 | --- | --- | --- |
-| `MBR001` | A class returned by `RegistryClassSource` is not loadable; `symbol` is the exact class and `actual` reports the failed `class_exists()` check. | Fix Composer autoload or remove the stale explicit entry, then rebuild the autoloader. |
+| `MBR001` | A source class is not loadable or its autoloader/source file threw; `symbol` is the FQCN, discovery adds `source_path`, and `cause_class`/`previous` preserve the original cause. | Correct Composer/DI autoload or the named file. For a thrown cause start with `getPrevious()`, then rebuild autoload/artifact. |
 | `MBR002` | A method has `#[Handler]`, but the attribute count is not one, the method is not public, or it is static; `symbol` is `Class::method` and `actual` lists count, visibility, and modifier. | Leave exactly one `#[Handler]` on one public non-static method. |
 | `MBR003` | A handler has zero or more than two parameters; `actual` is the exact count. | Declare one message parameter and, only when required, one context parameter. |
 | `MBR004` | The first parameter type is missing, built-in, union/intersection, not loadable, or does not implement `Message`; `actual` is the declared reflection type. | Use one named, Composer-loadable class implementing exactly one message role. |
@@ -56,6 +57,14 @@ A private static handler, for example, produces:
 | `MBR018` | A handler parameter is optional or variadic; `actual` identifies the parameter and violation. | Make every parameter required and non-variadic. |
 | `MBR019` | The first parameter implements `Message` but is not instantiable, such as an interface or abstract class; `actual` is that type. | Handle a concrete message class. |
 | `MBR020` | Constructing `#[MessageName]` threw; `symbol` is the durable class and `cause_class` preserves the exception type. | Match `[a-z][a-z0-9._:-]{2,127}`. |
+| `MBR021` | `composer/class-map-generator` is absent or does not match `^1.8`; `symbol` is the package name. | Run `composer require --dev composer/class-map-generator:^1.8` during build/development and compile before `--no-dev`. |
+| `MBR022` | The explicitly supplied root `composer.json` is missing, unreadable, or invalid JSON; `source_path` identifies it and `cause_class` preserves the decode/read failure. | Correct the path, permissions, or JSON. The library intentionally does not search for another composer.json through cwd. |
+| `MBR023` | Production `autoload.psr-4`/`autoload.classmap` is absent, malformed, or references a missing root; `symbol` identifies the mapping. | Correct root `autoload` and make the path exist. `autoload-dev` and `files` do not replace a production mapping. |
+| `MBR024` | Directory traversal or the PHP declaration parser threw; `symbol` lists scan roots, while `cause_class` and `previous` preserve the original type. | Check PHP file permissions/readability and inspect `getPrevious()`. |
+| `MBR025` | One FQCN is declared in multiple discovered files; `actual` lists every path. | Remove/rename the duplicate declaration or exclude the extra directory from production mappings. |
+| `MBR026` | A declaration is below a PSR-4 root but its FQCN does not match the exact expected path; `source_path` is the actual file and `expected` is the correct location. | Move the file or correct namespace/class name, then rebuild autoload and registry. |
+| `MBR027` | Two discovered path prefixes differ only by ASCII letter case and behave differently on case-insensitive filesystems. | Keep one directory/file spelling and correct namespaces/references. |
+| `MBR028` | The scan completed without any eligible declaration; this is a `warning` and `actual` reports the exact zero result. | Check roots, namespace prefixes, and exclusions. If an empty registry is intended, log the warning without failing. |
 
 ## Runtime configuration (`MBC`)
 
@@ -106,12 +115,17 @@ Every error object contains `code`, `type`, `stage`, `message`, `exception_type`
 
 ## Composer discovery and misplaced classes
 
-The registry can diagnose only classes returned by `RegistryClassSource`:
+`ComposerDirectoryClassSource` scans every PHP declaration inside explicitly
+selected production roots, so a misplaced class is now visible as `MBR026`
+instead of disappearing. It also emits `MBR025` for duplicate FQCNs and
+`MBR027` for case collisions.
+
+Other `RegistryClassSource` implementations can diagnose only classes they return:
 
 1. An explicit entry that is not autoloadable produces `MBR001` with the exact class.
 2. A discovered handler whose first parameter is not a loadable message class produces `MBR004` with `Class::method` and the declared type.
 3. A discovered Query, Request, or Command whose handler is missing from the classmap produces `MBR014` with `actual: 0 compiled handler(s)`.
-4. If both message and handler are outside every Composer mapping, neither is visible, so the registry cannot report them.
+4. A class physically outside explicitly selected Composer mappings/directories is deliberately outside the scan boundary and is not diagnosed.
 
 Catch the fourth case at the autoload boundary:
 
@@ -119,7 +133,7 @@ Catch the fourth case at the autoload boundary:
 composer dump-autoload --optimize --strict-psr
 ```
 
-Also verify that `ComposerClassMapSource` receives the generated classmap and intended namespace prefix. Rebuild the registry artifact after correcting autoload metadata.
+Use [Composer directory discovery](../getting-started/composer-directory-discovery.md) for new integrations. `ComposerClassMapSource` remains available for an already generated classmap. Rebuild the registry artifact after correcting autoload metadata.
 
 Diagnostics use deterministic class/method order. Fix an earlier signature or attribute error before a later cardinality error such as `MBR014`: the missing binding can be a consequence of the first rejection.
 

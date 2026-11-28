@@ -1,6 +1,6 @@
 ---
 doc_id: migration.v6-to-v7
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Миграция v6 → v7
@@ -10,6 +10,11 @@ V7 — intentional breaking redesign без shims для Envelope, Flow, executi
 - Сначала классифицируйте каждый message как Query, Request, Command либо Event и перенесите handlers на method `#[Handler]`.
 
 - Замените runtime discovery на compiled artifact, public dispatch/publish paths — на единый `dispatch()`.
+
+- Для перехода без ручного списка классов подключите
+  [Composer directory discovery](../getting-started/composer-directory-discovery.md),
+  устраните `MBR021`–`MBR028` на build stage и используйте
+  `PrecompiledOnly` в production.
 
 - Durable cutover выполняется offline: остановить producers, drain workers, доказать zero running, dry-run importer, применить v7 schema, import/backfill/verify.
 

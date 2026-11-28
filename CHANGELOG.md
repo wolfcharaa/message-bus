@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Added optional `composer/class-map-generator` directory discovery for root
+  production PSR-4/classmap mappings, with exact source paths and diagnostics
+  `MBR021`–`MBR028` for dependency, mapping, parser, duplicate, PSR-4, casing,
+  and empty-scan failures.
+- Preserved scanner, autoload/DI, and attribute failures as the `previous`
+  exception of `InvalidMessageBusConfiguration` instead of replacing their
+  cause with a library-only error.
+- Added opt-in bootstrap refresh policies: locked atomic `WhenStale` for
+  development and scan-free `PrecompiledOnly` for production, with no stale
+  fallback after a failed rebuild.
+- Added paired RU/EN setup and diagnostic documentation, an executable example,
+  and scenario/concurrency tests for every new diagnostic and refresh state.
+
 ## 7.0.0-beta.1 — 2026-11-27
 
 - Made built-in registry, runtime-configuration, runtime-failure, and CLI error

@@ -1,6 +1,6 @@
 ---
 doc_id: reference.capability-map
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Capability map
@@ -14,6 +14,9 @@ This map connects a consumer task to its public boundary and owner.
 - Extension → only `@api spi`; a custom adapter never imports `Internal`.
 
 - Testing → in-memory semantics plus PostgreSQL/process suites for persistence and fork guarantees.
+
+- Quick handler setup → [Composer directory discovery](../getting-started/composer-directory-discovery.md);
+  the host owns roots, the environment flag, artifact path, and worker restart.
 
 - Diagnostics → the [troubleshooting guide](../guides/troubleshooting-diagnostics.md)
   owns the response sequence, while the [reference](diagnostics.md) defines the

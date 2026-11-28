@@ -15,6 +15,7 @@ use Wolfcharaa\MessageBus\Contract\Message;
 use Wolfcharaa\MessageBus\Contract\Query;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicies;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicy;
+use Wolfcharaa\MessageBus\Exception\InvalidMessageBusConfiguration;
 use Wolfcharaa\MessageBus\Idempotency\AtomicIdempotencyBoundary;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyAttempt;
 use Wolfcharaa\MessageBus\Idempotency\IdempotencyIdentity;
@@ -37,6 +38,21 @@ use Wolfcharaa\MessageBus\Routing\RuntimeConfigurationRule;
 
 final class RegistryDiagnosticsTest extends TestCase
 {
+    public function testAttributeConstructionDiagnosticsPreserveTheirOriginalThrowable(): void
+    {
+        foreach ([InvalidAttributeDetailedHandler::class, InvalidDetailedMessageName::class] as $class) {
+            $result = (new RegistryCompiler())->compile(new ExplicitClassSource([$class]));
+            self::assertInstanceOf(\InvalidArgumentException::class, $result->primaryCause);
+
+            try {
+                $result->requireRegistry();
+                self::fail('Invalid attribute unexpectedly compiled.');
+            } catch (InvalidMessageBusConfiguration $failure) {
+                self::assertSame($result->primaryCause, $failure->getPrevious());
+            }
+        }
+    }
+
     public function testPublishedRegistryAndRuntimeCodesExactlyMatchDetailedScenarioProviders(): void
     {
         $catalog = json_decode(
@@ -53,6 +69,7 @@ final class RegistryDiagnosticsTest extends TestCase
         foreach (self::provideEveryRegistryDiagnosticIdentifiesRuleSubjectExpectedAndActualStateCases() as $case) {
             $registryCodes[] = $case[0];
         }
+        array_push($registryCodes, ...ComposerDirectoryClassSourceTest::diagnosticCodes());
         foreach (self::provideEveryRuntimeConfigurationDiagnosticNamesTargetExpectedAndActualConfigurationCases() as $case) {
             $registryCodes[] = $case[0];
         }

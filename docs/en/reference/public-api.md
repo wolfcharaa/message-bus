@@ -948,6 +948,20 @@ One observer extension for metrics, traces and structured logs.
 - Kind: `interface`
 - `observe(Wolfcharaa\MessageBus\Observability\RuntimeEvent $event): void`
 
+### `Wolfcharaa\MessageBus\Registry\RefreshableRegistryClassDiscoverySource`
+
+Rich source which can describe the inputs used by development refreshes.
+
+- Kind: `interface`
+- `resources(): Wolfcharaa\MessageBus\Registry\RegistryClassDiscoveryResources`
+
+### `Wolfcharaa\MessageBus\Registry\RegistryClassDiscoverySource`
+
+A class source which preserves source paths and discovery failures.
+
+- Kind: `interface`
+- `discover(): Wolfcharaa\MessageBus\Registry\RegistryClassDiscoveryResult`
+
 ### `Wolfcharaa\MessageBus\Registry\RegistryClassSource`
 
 Bounded source of candidate handler classes for registry compilation.
@@ -1232,6 +1246,18 @@ Bounded Composer classmap source filtered by explicit namespace prefixes.
 - `__construct(array $classMapFiles, array $namespacePrefixes): mixed`
 - `classes(): iterable`
 
+### `Wolfcharaa\MessageBus\Registry\ComposerDirectoryClassSource`
+
+Discovers production classes in explicit roots or a root composer.json.
+
+- Kind: `class`
+- `__construct(array $directories, array $namespacePrefixes, array $excludedDirectories = array (
+)): mixed`
+- `classes(): iterable`
+- `discover(): Wolfcharaa\MessageBus\Registry\RegistryClassDiscoveryResult`
+- `resources(): Wolfcharaa\MessageBus\Registry\RegistryClassDiscoveryResources`
+- `static fromComposerJson(string $composerJsonPath): Wolfcharaa\MessageBus\Registry\ComposerDirectoryClassSource`
+
 ### `Wolfcharaa\MessageBus\Registry\DiagnosticSeverity`
 
 Severity of a stable compiler diagnostic.
@@ -1283,6 +1309,14 @@ Self-hashed portable compiled-registry artifact.
 - `static fromRegistry(Wolfcharaa\MessageBus\Registry\CompiledRegistry $registry, ?string $applicationBuildId = NULL): Wolfcharaa\MessageBus\Registry\RegistryArtifact`
 - `toJson(): string`
 
+### `Wolfcharaa\MessageBus\Registry\RegistryArtifactLoader`
+
+Loads production artifacts and performs opt-in development refreshes.
+
+- Kind: `class`
+- `__construct(Wolfcharaa\MessageBus\Registry\RegistryCompiler $compiler = new Wolfcharaa\MessageBus\Registry\RegistryCompiler, Wolfcharaa\MessageBus\Registry\RegistryArtifactStore $store = new Wolfcharaa\MessageBus\Registry\RegistryArtifactStore): mixed`
+- `load(string $artifactPath, Wolfcharaa\MessageBus\Registry\RegistryRefreshPolicy $policy = Wolfcharaa\MessageBus\Registry\RegistryRefreshPolicy::PrecompiledOnly, ?Wolfcharaa\MessageBus\Registry\RefreshableRegistryClassDiscoverySource $source = NULL, ?string $applicationBuildId = NULL): Wolfcharaa\MessageBus\Registry\CompiledRegistry`
+
 ### `Wolfcharaa\MessageBus\Registry\RegistryArtifactStore`
 
 Public tooling root for atomic artifact writes and verified loads.
@@ -1291,12 +1325,34 @@ Public tooling root for atomic artifact writes and verified loads.
 - `load(string $path, ?string $expectedApplicationBuildId = NULL): Wolfcharaa\MessageBus\Registry\RegistryArtifact`
 - `write(Wolfcharaa\MessageBus\Registry\RegistryArtifact $artifact, string $path): void`
 
-### `Wolfcharaa\MessageBus\Registry\RegistryCompilationResult`
+### `Wolfcharaa\MessageBus\Registry\RegistryClassCandidate`
 
-Registry compilation outcome with a stable diagnostic catalog.
+One declaration discovered in a concrete source file.
 
 - Kind: `class`
-- `__construct(?Wolfcharaa\MessageBus\Registry\CompiledRegistry $registry, array $diagnostics): mixed`
+- `__construct(string $class, string $sourcePath): mixed`
+
+### `Wolfcharaa\MessageBus\Registry\RegistryClassDiscoveryResources`
+
+Files and directories whose state determines whether an artifact is stale.
+
+- Kind: `class`
+- `__construct(string $configurationFingerprint, array $files, array $directories): mixed`
+
+### `Wolfcharaa\MessageBus\Registry\RegistryClassDiscoveryResult`
+
+Rich discovery outcome consumed by the registry compiler.
+
+- Kind: `class`
+- `__construct(array $candidates, array $diagnostics = array (
+), ?Throwable $primaryCause = NULL): mixed`
+
+### `Wolfcharaa\MessageBus\Registry\RegistryCompilationResult`
+
+Registry compilation outcome with a stable diagnostic catalog and the first
+
+- Kind: `class`
+- `__construct(?Wolfcharaa\MessageBus\Registry\CompiledRegistry $registry, array $diagnostics, ?Throwable $primaryCause = NULL): mixed`
 - `isValid(): bool`
 - `requireRegistry(): Wolfcharaa\MessageBus\Registry\CompiledRegistry`
 
@@ -1314,8 +1370,19 @@ Compiles method attributes and signatures into a deterministic registry.
 Machine-readable registry compiler diagnostic.
 
 - Kind: `class`
-- `__construct(string $code, Wolfcharaa\MessageBus\Registry\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL, ?string $rule = NULL, ?string $subjectKind = NULL, ?string $expected = NULL, ?string $actual = NULL, ?string $causeClass = NULL): mixed`
+- `__construct(string $code, Wolfcharaa\MessageBus\Registry\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL, ?string $rule = NULL, ?string $subjectKind = NULL, ?string $expected = NULL, ?string $actual = NULL, ?string $causeClass = NULL, ?string $sourcePath = NULL): mixed`
 - `normalized(): array`
+
+### `Wolfcharaa\MessageBus\Registry\RegistryRefreshPolicy`
+
+Controls whether application bootstrap may rebuild a registry artifact.
+
+- Kind: `enum`
+- `static cases(): array`
+- `static from(string|int $value): static`
+- `static tryFrom(string|int $value): ?static`
+- `case PrecompiledOnly`
+- `case WhenStale`
 
 ### `Wolfcharaa\MessageBus\Routing\RuntimeConfigurationRule`
 

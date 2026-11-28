@@ -1,6 +1,6 @@
 ---
 doc_id: guides.troubleshooting-diagnostics
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Diagnose and resolve failures
@@ -25,7 +25,7 @@ correction for every code live in the [diagnostics reference](../reference/diagn
 
 | Prefix | Boundary | Source of facts | Action |
 | --- | --- | --- | --- |
-| `MBR` | Registry compilation | `RegistryDiagnostic`: `symbol`, `expected`, `actual`, `cause_class` | Correct the declaration/autoload and compile again. Do not start the runtime. |
+| `MBR` | Registry discovery/compilation | `RegistryDiagnostic`: `symbol`, `source_path`, `expected`, `actual`, `cause_class`; original cause in `previous` | Correct mapping/declaration/autoload and compile again. Do not start the runtime. |
 | `MBC` | Runtime configuration validation | Target, route, policy, idempotency/resolver fields | Correct the composition root and repeat preflight. Do not retry a delivery. |
 | `MBD` | Dispatch or worker attempt | Runtime event/status, IDs, failure classes, and original throwable | Locate the failed boundary, inspect protected logs, and retry only through `FailureCategory`/policy. |
 | `MBCLI` | Operator CLI | `stage`, `subject`, `exception_type`, exit code | Correct input/state or continue in protected backend/application logs. |
@@ -72,12 +72,16 @@ Check the autoload boundary first:
 composer dump-autoload --optimize --strict-psr
 ```
 
+`ComposerDirectoryClassSource` checks the complete selected production root: a
+wrong namespace/path produces `MBR026` with the actual `source_path` and expected
+file; a duplicate FQCN produces `MBR025`; a case collision produces `MBR027`.
 An explicit invisible class produces `MBR001`; a handler with an unusable
 message type produces `MBR004`; a visible Query/Request/Command without a
-discovered handler produces `MBR014`. When both message and handler are outside
-every PSR-4/classmap mapping, the registry sees neither and cannot emit a code.
-Correct the mapping or location, verify `ComposerClassMapSource` namespace
-prefixes, then rebuild the artifact.
+handler produces `MBR014`.
+
+A class outside explicitly selected mappings/directories remains outside the
+bounded scan. For a new integration, use [Composer directory discovery](../getting-started/composer-directory-discovery.md),
+correct the mapping/location, and rebuild the artifact.
 
 ## Verify the correction
 

@@ -15,6 +15,7 @@ use Wolfcharaa\MessageBus\Contract\Message;
 use Wolfcharaa\MessageBus\Contract\Query;
 use Wolfcharaa\MessageBus\Contract\Request;
 use Wolfcharaa\MessageBus\Exception\InvalidMessageBusConfiguration;
+use Wolfcharaa\MessageBus\Internal\Registry\RegistryDiagnosticFactory;
 
 /**
  *  Message role derived exclusively from the message class marker.
@@ -192,8 +193,9 @@ enum DiagnosticSeverity: string
  *
  * `MBRnnn` and `MBCnnn` are reserved for library rules. Those diagnostics
  * require non-empty symbol, expected and actual fields, and repeat all three
- * values plus the code in `message`. Custom validation rules should use their
- * own stable code prefix.
+ * values plus the code in `message`. When `sourcePath` is present, the message
+ * repeats it as well. Custom validation rules should use their own stable code
+ * prefix.
  *
  * @api tooling
  */
@@ -209,6 +211,7 @@ final readonly class RegistryDiagnostic
         public ?string $expected = null,
         public ?string $actual = null,
         public ?string $causeClass = null,
+        public ?string $sourcePath = null,
     ) {
         if (preg_match('/^[A-Z][A-Z0-9._-]{2,31}$/D', $this->code) !== 1) {
             throw new \InvalidArgumentException(
@@ -236,6 +239,11 @@ final readonly class RegistryDiagnostic
                     'Built-in registry diagnostic message must include [' . $this->code . '].',
                 );
             }
+            if ($this->sourcePath !== null && !str_contains($this->message, $this->sourcePath)) {
+                throw new \InvalidArgumentException(
+                    'Built-in registry diagnostic message must include source_path when it is present.',
+                );
+            }
         }
     }
 
@@ -252,12 +260,14 @@ final readonly class RegistryDiagnostic
             'expected' => $this->expected,
             'actual' => $this->actual,
             'cause_class' => $this->causeClass,
+            'source_path' => $this->sourcePath,
         ];
     }
 }
 
 /**
- *  Registry compilation outcome with a stable diagnostic catalog.
+ * Registry compilation outcome with a stable diagnostic catalog and the first
+ * scanner/autoload/attribute cause, when one was raised.
  *
  * @api tooling
  */
@@ -267,6 +277,7 @@ final readonly class RegistryCompilationResult
     public function __construct(
         public ?CompiledRegistry $registry,
         public array $diagnostics,
+        public ?\Throwable $primaryCause = null,
     ) {}
 
     public function isValid(): bool
@@ -295,6 +306,7 @@ final readonly class RegistryCompilationResult
                         $errors,
                     )),
                 $this->diagnostics,
+                $this->primaryCause,
             );
         }
 
@@ -321,17 +333,57 @@ final readonly class RegistryCompiler
         $diagnostics = $this->emptyDiagnostics();
         $messageRoles = $this->emptyRoles();
         $messageNames = [];
-        $classes = iterator_to_array($source->classes(), false);
+        $primaryCause = null;
+        $sourcePaths = [];
+        if ($source instanceof RegistryClassDiscoverySource) {
+            $discovery = $source->discover();
+            $diagnostics = $discovery->diagnostics;
+            $primaryCause = $discovery->primaryCause;
+            $classes = [];
+            foreach ($discovery->candidates as $candidate) {
+                $classes[] = $candidate->class;
+                $sourcePaths[$candidate->class] = $candidate->sourcePath;
+            }
+        } else {
+            $classes = iterator_to_array($source->classes(), false);
+        }
         sort($classes, SORT_STRING);
 
         foreach (array_values(array_unique($classes)) as $class) {
-            if (!class_exists($class)) {
+            $sourcePath = $sourcePaths[$class] ?? null;
+
+            try {
+                $symbolExists = $this->symbolExists($class);
+                if ($sourcePath !== null && !$symbolExists) {
+                    require_once $sourcePath;
+                    $symbolExists = $this->symbolExists($class);
+                }
+            } catch (\Throwable $failure) {
+                $primaryCause ??= $failure;
+                $diagnostics[] = $this->error(
+                    'MBR001',
+                    $sourcePath === null
+                        ? 'The configured autoloader threw while loading a registry symbol.'
+                        : 'A discovered registry symbol could not be loaded from its source file.',
+                    $class,
+                    expected: $sourcePath === null
+                        ? 'the configured autoloader resolves the registry symbol without throwing'
+                        : 'loading the discovered source file defines the declared symbol without throwing',
+                    actual: 'loading threw ' . $failure::class . ': ' . $failure->getMessage(),
+                    causeClass: $failure::class,
+                    sourcePath: $sourcePath,
+                );
+
+                continue;
+            }
+            if (!$symbolExists) {
                 $diagnostics[] = $this->error(
                     'MBR001',
                     'A registry class supplied by the class source is not autoloadable.',
                     $class,
                     expected: 'class_exists(subject) returns true through the configured Composer autoloader',
                     actual: 'class_exists(subject) returned false',
+                    sourcePath: $sourcePath,
                 );
 
                 continue;
@@ -340,7 +392,7 @@ final readonly class RegistryCompiler
             $reflection = new \ReflectionClass($class);
             $messageClass = $this->messageClass($class);
             if (!$reflection->isInterface() && $messageClass !== null) {
-                $role = $this->role($messageClass, $diagnostics, $class);
+                $role = $this->role($messageClass, $diagnostics, $class, $sourcePath);
                 if ($role instanceof MessageRole) {
                     $messageRoles[$messageClass] = $role;
                     $bindings[$messageClass] ??= [];
@@ -353,11 +405,13 @@ final readonly class RegistryCompiler
                                 $class,
                                 expected: 'exactly 1 #[MessageName] attribute',
                                 actual: \count($attributes) . ' #[MessageName] attribute(s)',
+                                sourcePath: $sourcePath,
                             );
                         } else {
                             try {
                                 $name = $attributes[0]->newInstance()->value;
                             } catch (\Throwable $failure) {
+                                $primaryCause ??= $failure;
                                 $diagnostics[] = $this->error(
                                     'MBR020',
                                     'The #[MessageName] attribute could not be constructed for a durable message.',
@@ -365,6 +419,7 @@ final readonly class RegistryCompiler
                                     expected: 'a #[MessageName] value matching [a-z][a-z0-9._:-]{2,127}',
                                     actual: 'attribute construction threw ' . $failure::class,
                                     causeClass: $failure::class,
+                                    sourcePath: $sourcePath,
                                 );
 
                                 continue;
@@ -376,6 +431,7 @@ final readonly class RegistryCompiler
                                     $name,
                                     expected: 'one message class owns this MessageName value',
                                     actual: $messageNames[$name] . ' and ' . $class,
+                                    sourcePath: $sourcePath,
                                 );
                             }
                             $messageNames[$name] = $class;
@@ -389,11 +445,21 @@ final readonly class RegistryCompiler
                     continue;
                 }
 
-                $this->compileMethod($reflection, $method, $attributes, $bindings, $messageRoles, $diagnostics);
+                $this->compileMethod(
+                    $reflection,
+                    $method,
+                    $attributes,
+                    $bindings,
+                    $messageRoles,
+                    $diagnostics,
+                    $primaryCause,
+                    $sourcePath,
+                    $sourcePaths,
+                );
             }
         }
 
-        $this->validateCardinality($bindings, $messageRoles, $diagnostics);
+        $this->validateCardinality($bindings, $messageRoles, $diagnostics, $sourcePaths);
         ksort($bindings, SORT_STRING);
         foreach ($bindings as &$messageBindings) {
             usort($messageBindings, static fn(HandlerBinding $a, HandlerBinding $b): int => $a->id <=> $b->id);
@@ -401,7 +467,7 @@ final readonly class RegistryCompiler
         unset($messageBindings);
 
         if ($this->hasErrors($diagnostics)) {
-            return new RegistryCompilationResult(null, $diagnostics);
+            return new RegistryCompilationResult(null, $diagnostics, $primaryCause);
         }
 
         $fingerprintData = [];
@@ -422,6 +488,7 @@ final readonly class RegistryCompiler
         return new RegistryCompilationResult(
             $this->hasErrors($diagnostics) ? null : $registry,
             $diagnostics,
+            $primaryCause,
         );
     }
 
@@ -434,6 +501,7 @@ final readonly class RegistryCompiler
      * @param-out array<class-string<Message<mixed>>, MessageRole> $messageRoles
      * @param list<RegistryDiagnostic> $diagnostics
      * @param-out list<RegistryDiagnostic> $diagnostics
+     * @param array<class-string, string> $sourcePaths
      */
     private function compileMethod(
         \ReflectionClass $class,
@@ -442,6 +510,9 @@ final readonly class RegistryCompiler
         array &$bindings,
         array &$messageRoles,
         array &$diagnostics,
+        ?\Throwable &$primaryCause,
+        ?string $sourcePath,
+        array $sourcePaths,
     ): void {
         $symbol = $class->getName() . '::' . $method->getName();
         if (\count($attributes) !== 1 || !$method->isPublic() || $method->isStatic()) {
@@ -453,6 +524,7 @@ final readonly class RegistryCompiler
                 expected: 'exactly 1 #[Handler] attribute on a public non-static method',
                 actual: \count($attributes) . ' #[Handler] attribute(s), ' . $visibility . ', '
                     . ($method->isStatic() ? 'static' : 'non-static'),
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -466,6 +538,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: '1 message parameter and optionally 1 MessageContext parameter',
                 actual: \count($parameters) . ' parameter(s)',
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -485,6 +558,7 @@ final readonly class RegistryCompiler
                     $symbol,
                     expected: 'required non-variadic parameter',
                     actual: '$' . $parameter->getName() . ' is ' . implode(' and ', $violations),
+                    sourcePath: $sourcePath,
                 );
 
                 return;
@@ -500,6 +574,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'one named, autoloadable class implementing Message',
                 actual: 'declared first-parameter type is ' . $this->typeName($parameters[0]->getType()),
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -511,12 +586,14 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'concrete instantiable Message class',
                 actual: $messageClass,
+                sourcePath: $sourcePaths[$messageClass] ?? $sourcePath,
             );
 
             return;
         }
 
-        $role = $this->role($messageClass, $diagnostics, $symbol);
+        $messageSourcePath = $sourcePaths[$messageClass] ?? $sourcePath;
+        $role = $this->role($messageClass, $diagnostics, $symbol, $messageSourcePath);
         if (!$role instanceof MessageRole) {
             return;
         }
@@ -532,6 +609,7 @@ final readonly class RegistryCompiler
                     $symbol,
                     expected: 'one named, autoloadable class extending MessageContext',
                     actual: 'declared second-parameter type is ' . $this->typeName($parameters[1]->getType()),
+                    sourcePath: $sourcePath,
                 );
 
                 return;
@@ -543,6 +621,7 @@ final readonly class RegistryCompiler
                     $contextClass,
                     expected: 'a MessageContextFactory registered for this exact context class',
                     actual: 'no exact factory is registered',
+                    sourcePath: $sourcePath,
                 );
 
                 return;
@@ -558,6 +637,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'an explicit void return type',
                 actual: 'declared return type is ' . $this->typeName($return),
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -570,6 +650,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'an explicit return type',
                 actual: 'no return type is declared',
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -582,6 +663,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'a non-void return type matching Query<TResult>',
                 actual: 'declared return type is void',
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -590,6 +672,7 @@ final readonly class RegistryCompiler
         try {
             $attribute = $attributes[0]->newInstance();
         } catch (\Throwable $failure) {
+            $primaryCause ??= $failure;
             $diagnostics[] = $this->error(
                 'MBR017',
                 'The #[Handler] attribute could not be constructed for a handler method.',
@@ -597,6 +680,7 @@ final readonly class RegistryCompiler
                 expected: 'a valid #[Handler] attribute; Event subscriptionId matches [a-z0-9][a-z0-9._:-]{2,127}',
                 actual: 'attribute construction threw ' . $failure::class,
                 causeClass: $failure::class,
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -608,6 +692,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'a non-empty #[Handler(subscriptionId: ...)] value',
                 actual: $attribute->subscriptionId === null ? 'subscriptionId is null' : 'subscriptionId is empty',
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -619,6 +704,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'subscriptionId is null for ' . $role->value . ' handlers',
                 actual: 'subscriptionId is "' . $attribute->subscriptionId . '"',
+                sourcePath: $sourcePath,
             );
 
             return;
@@ -632,6 +718,7 @@ final readonly class RegistryCompiler
                 $messageClass,
                 expected: 'exactly 1 #[MessageName] attribute',
                 actual: $attributeCount . ' #[MessageName] attribute(s)',
+                sourcePath: $messageSourcePath,
             );
 
             return;
@@ -656,8 +743,12 @@ final readonly class RegistryCompiler
      * @param list<RegistryDiagnostic> $diagnostics
      * @param-out list<RegistryDiagnostic> $diagnostics
      */
-    private function role(string $messageClass, array &$diagnostics, string $symbol): ?MessageRole
-    {
+    private function role(
+        string $messageClass,
+        array &$diagnostics,
+        string $symbol,
+        ?string $sourcePath = null,
+    ): ?MessageRole {
         $roles = array_filter([
             MessageRole::Query->value => is_a($messageClass, Query::class, true),
             MessageRole::Request->value => is_a($messageClass, Request::class, true),
@@ -672,6 +763,7 @@ final readonly class RegistryCompiler
                 $symbol,
                 expected: 'exactly one of Query, Request, Command, or Event',
                 actual: $actualRoles === [] ? 'no message role' : implode(', ', $actualRoles),
+                sourcePath: $sourcePath,
             );
 
             return null;
@@ -685,9 +777,14 @@ final readonly class RegistryCompiler
      * @param array<class-string<Message<mixed>>, MessageRole> $messageRoles
      * @param list<RegistryDiagnostic> $diagnostics
      * @param-out list<RegistryDiagnostic> $diagnostics
+     * @param array<class-string, string> $sourcePaths
      */
-    private function validateCardinality(array $bindings, array $messageRoles, array &$diagnostics): void
-    {
+    private function validateCardinality(
+        array $bindings,
+        array $messageRoles,
+        array &$diagnostics,
+        array $sourcePaths,
+    ): void {
         foreach ($bindings as $messageClass => $messageBindings) {
             $role = $messageRoles[$messageClass];
             if ($role !== MessageRole::Event && \count($messageBindings) !== 1) {
@@ -697,6 +794,7 @@ final readonly class RegistryCompiler
                     $messageClass,
                     expected: 'exactly 1 compiled handler for role ' . $role->value,
                     actual: \count($messageBindings) . ' compiled handler(s)',
+                    sourcePath: $sourcePaths[$messageClass] ?? null,
                 );
             }
 
@@ -710,6 +808,7 @@ final readonly class RegistryCompiler
                     $messageClass,
                     expected: 'every handler binding ID is unique for this message',
                     actual: 'duplicate binding ID(s): ' . implode(', ', $duplicates),
+                    sourcePath: $sourcePaths[$messageClass] ?? null,
                 );
             }
         }
@@ -752,46 +851,25 @@ final readonly class RegistryCompiler
         ?string $expected = null,
         ?string $actual = null,
         ?string $causeClass = null,
+        ?string $sourcePath = null,
     ): RegistryDiagnostic {
-        return new RegistryDiagnostic(
+        return RegistryDiagnosticFactory::error(
             $code,
-            DiagnosticSeverity::Error,
-            $this->detailedMessage($code, $message, $symbol, $expected, $actual, $causeClass),
-            $symbol,
-            $code,
-            'symbol',
-            $expected,
-            $actual,
+            $message,
+            $symbol ?? 'unknown symbol',
+            $expected ?? 'a valid registry declaration',
+            $actual ?? 'the declaration was rejected',
             $causeClass,
+            $sourcePath,
         );
     }
 
-    private function detailedMessage(
-        string $code,
-        string $summary,
-        ?string $symbol,
-        ?string $expected,
-        ?string $actual,
-        ?string $causeClass,
-    ): string {
-        $parts = ['[' . $code . '] ' . $summary];
-        if ($symbol !== null) {
-            $parts[] = 'Subject: ' . $symbol;
-        }
-        if ($expected !== null) {
-            $parts[] = 'Expected: ' . $expected;
-        }
-        if ($actual !== null) {
-            $parts[] = 'Actual: ' . $actual;
-        }
-        if ($causeClass !== null) {
-            $parts[] = 'Cause class: ' . $causeClass;
-        }
-
-        return implode(' ', array_map(
-            static fn(string $part): string => rtrim($part, ". \t\n\r\0\x0B") . '.',
-            $parts,
-        ));
+    private function symbolExists(string $symbol): bool
+    {
+        return class_exists($symbol)
+            || interface_exists($symbol)
+            || trait_exists($symbol)
+            || (\function_exists('enum_exists') && enum_exists($symbol));
     }
 
     /** @param list<RegistryDiagnostic> $diagnostics */

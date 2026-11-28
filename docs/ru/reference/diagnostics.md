@@ -1,6 +1,6 @@
 ---
 doc_id: reference.diagnostics
-contract_revision: 4
+contract_revision: 5
 ---
 
 # Справочник диагностик
@@ -22,7 +22,8 @@ contract_revision: 4
 - `symbol` — класс, `Class::method`, имя сообщения, класс контекста или target с ошибкой;
 - `subject_kind` — `symbol` для правил компилятора или `target` для runtime-конфигурации;
 - `expected` и `actual` — нарушенный контракт и обнаруженная декларация/настройка;
-- `cause_class` — класс исключения, если упал конструктор атрибута.
+- `cause_class` — класс исходного scanner/autoload/attribute исключения;
+- `source_path` — точный файл declaration/configuration, если ошибка привязана к файлу.
 
 Например, приватный статический handler даёт сообщение такого вида:
 
@@ -30,13 +31,13 @@ contract_revision: 4
 [MBR002] A method marked as a handler has an invalid attribute count, visibility, or static modifier. Subject: App\QueryHandler::handle. Expected: exactly 1 #[Handler] attribute on a public non-static method. Actual: 1 #[Handler] attribute(s), private, static.
 ```
 
-`RegistryCompilationResult::requireRegistry()` включает сообщения всех ошибок в `InvalidMessageBusConfiguration::getMessage()`, а исходный типизированный список доступен через `InvalidMessageBusConfiguration::$diagnostics`.
+`RegistryCompilationResult::requireRegistry()` включает сообщения всех ошибок в `InvalidMessageBusConfiguration::getMessage()`, исходный типизированный список доступен через `InvalidMessageBusConfiguration::$diagnostics`, а первый throwable — через `getPrevious()`. Поэтому ошибка DI/autoload/scanner не поглощается library exception.
 
 ## Компилятор реестра (`MBR`)
 
 | Код | Точное условие и место | Исправление |
 | --- | --- | --- |
-| `MBR001` | Класс, возвращённый `RegistryClassSource`, не загружается; `symbol` содержит точное имя, `actual` — результат неуспешного `class_exists()`. | Исправьте Composer autoload или удалите устаревшую explicit-запись, затем перестройте autoloader. |
+| `MBR001` | Класс из source не загружается либо autoloader/исходный файл выбросил исключение; `symbol` содержит FQCN, `source_path` — файл при discovery, `cause_class` и `previous` — исходную причину. | Исправьте Composer/DI autoload или код указанного файла; для thrown cause начните с `getPrevious()`, затем перестройте autoloader/artifact. |
 | `MBR002` | Метод помечен `#[Handler]`, но атрибут не один, метод не public или является static; `symbol` равен `Class::method`, `actual` перечисляет количество, visibility и modifier. | Оставьте ровно один `#[Handler]` на одном public non-static методе. |
 | `MBR003` | Handler имеет ноль или больше двух параметров; в `actual` указано точное количество. | Объявите один параметр сообщения и, только если нужен, один параметр контекста. |
 | `MBR004` | Тип первого параметра отсутствует, является built-in/union/intersection, не загружается или не реализует `Message`; в `actual` указан объявленный reflection type. | Используйте один именованный, загружаемый Composer класс ровно одной роли сообщения. |
@@ -56,6 +57,14 @@ contract_revision: 4
 | `MBR018` | Параметр handler является optional или variadic; `actual` называет параметр и нарушение. | Сделайте все параметры обязательными и не variadic. |
 | `MBR019` | Первый параметр реализует `Message`, но тип нельзя инстанцировать, например interface/abstract class; `actual` содержит тип. | Обрабатывайте конкретный класс сообщения. |
 | `MBR020` | Конструктор `#[MessageName]` выбросил исключение; `symbol` содержит durable-класс, `cause_class` — тип. | Соблюдайте `[a-z][a-z0-9._:-]{2,127}`. |
+| `MBR021` | `composer/class-map-generator` отсутствует либо его версия не соответствует `^1.8`; `symbol` содержит имя package. | Выполните `composer require --dev composer/class-map-generator:^1.8` на build/dev-стадии и повторите компиляцию до `--no-dev`. |
+| `MBR022` | Явно переданный root `composer.json` отсутствует, не читается или содержит невалидный JSON; `source_path` указывает этот файл, `cause_class` сохраняет decode/read failure. | Исправьте путь, permissions или JSON; библиотека намеренно не ищет другой composer.json через cwd. |
+| `MBR023` | Production `autoload.psr-4`/`autoload.classmap` отсутствует, имеет неверную форму либо ссылается на отсутствующий root; `symbol` называет mapping. | Исправьте root `autoload` и существование пути. `autoload-dev` и `files` не заменяют production mapping. |
+| `MBR024` | Обход каталога либо PHP declaration parser выбросил исключение; `symbol` перечисляет scan roots, `cause_class` и `previous` сохраняют исходный тип. | Проверьте permissions/читаемость PHP files и исходное исключение через `getPrevious()`. |
+| `MBR025` | Один FQCN объявлен в нескольких discovered files; `actual` перечисляет все пути. | Удалите/переименуйте duplicate declaration либо исключите лишний каталог из production mapping. |
+| `MBR026` | Declaration находится под PSR-4 root, но FQCN не соответствует точному ожидаемому пути; `source_path` показывает фактический файл, `expected` — правильный. | Переместите файл или исправьте namespace/class name, затем пересоберите autoload и registry. |
+| `MBR027` | Два discovered path prefixes отличаются только ASCII-регистром и по-разному работают на case-insensitive filesystem. | Оставьте одно написание регистра каталога/файла и исправьте namespaces/references. |
+| `MBR028` | Scan завершён без единого eligible declaration; это `warning`, `actual` равно точному нулевому результату. | Проверьте roots, namespace prefixes и excludes; если пустой registry ожидаем, warning можно логировать без отказа. |
 
 ## Runtime-конфигурация (`MBC`)
 
@@ -106,12 +115,17 @@ Descriptors schema 1, записанные до расширения summary, о
 
 ## Composer discovery и неправильно размещённые классы
 
-Реестр может диагностировать только классы, которые вернул `RegistryClassSource`:
+`ComposerDirectoryClassSource` сканирует все PHP declarations внутри явно
+переданных production roots, поэтому неправильно размещённый класс теперь
+виден как `MBR026`, а не исчезает из реестра. Он также выдаёт `MBR025` для
+duplicate FQCN и `MBR027` для case collision.
+
+Другие `RegistryClassSource` могут диагностировать только классы, которые они вернули:
 
 1. Явно переданный, но не autoloadable класс даёт `MBR001` с точным именем.
 2. Discovered handler с первым параметром, который не является loadable message class, даёт `MBR004` с `Class::method` и declared type.
 3. Discovered Query, Request или Command, handler которого отсутствует в classmap, даёт `MBR014` и `actual: 0 compiled handler(s)`.
-4. Если и message, и handler находятся вне всех Composer mappings, источник не видит ни одного класса и реестр не может сообщить о них.
+4. Если класс физически находится вне явно выбранных Composer mappings/directories, он намеренно вне границы scan и не диагностируется.
 
 Четвёртый случай нужно ловить на границе autoload:
 
@@ -119,7 +133,7 @@ Descriptors schema 1, записанные до расширения summary, о
 composer dump-autoload --optimize --strict-psr
 ```
 
-Также проверьте, что `ComposerClassMapSource` получает созданный classmap и нужный namespace prefix. После исправления autoload metadata перестройте registry artifact.
+Для нового проекта используйте [Composer directory discovery](../getting-started/composer-directory-discovery.md). `ComposerClassMapSource` остаётся вариантом для уже созданного classmap. После исправления autoload metadata перестройте registry artifact.
 
 Diagnostics выдаются в детерминированном порядке классов и методов. Исправляйте раннюю ошибку signature/attribute до последующей cardinality error вроде `MBR014`: отсутствие binding может быть следствием первого отказа.
 

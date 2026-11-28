@@ -1,6 +1,6 @@
 ---
 doc_id: reference.configuration
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Configuration reference
@@ -12,5 +12,15 @@ The library reads no environment variables. The host explicitly composes registr
 - Durable adds a backend, codecs, policies, worker profile/control, and observer as required.
 
 - An unknown handler, context factory, route, codec, or policy blocks construction or bootstrap.
+
+- For a quick start, `ComposerDirectoryClassSource::fromComposerJson()` reads
+  only root production `psr-4`, `classmap`, and `exclude-from-classmap`.
+  Setup and the required explicit path are documented in
+  [Composer discovery](../getting-started/composer-directory-discovery.md).
+
+- The host explicitly selects `RegistryRefreshPolicy`: `PrecompiledOnly` for
+  production without a source and `WhenStale` for development with a
+  refreshable source. The library does not read `APP_ENV` or rebuild inside
+  dispatch.
 
 Exact signatures are listed in the [public API](../reference/public-api.md); if they conflict, the source manifest is normative.

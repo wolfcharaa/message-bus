@@ -2334,6 +2334,30 @@
             "enum_cases": []
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\ComposerDirectoryClassSource",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Discovers production classes in explicit roots or a root composer.json.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Registry\\RefreshableRegistryClassDiscoverySource",
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource",
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoverySource"
+            ],
+            "methods": [
+                "__construct(array $directories, array $namespacePrefixes, array $excludedDirectories = array (\n)): mixed",
+                "classes(): iterable",
+                "discover(): Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoveryResult",
+                "resources(): Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoveryResources",
+                "static fromComposerJson(string $composerJsonPath): Wolfcharaa\\MessageBus\\Registry\\ComposerDirectoryClassSource"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity",
             "kind": "enum",
             "role": "tooling",
@@ -2433,6 +2457,25 @@
             ]
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RefreshableRegistryClassDiscoverySource",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "Rich source which can describe the inputs used by development refreshes.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoverySource",
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource"
+            ],
+            "methods": [
+                "resources(): Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoveryResources"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact",
             "kind": "class",
             "role": "tooling",
@@ -2459,6 +2502,23 @@
             "enum_cases": []
         },
         {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryArtifactLoader",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Loads production artifacts and performs opt-in development refreshes.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(Wolfcharaa\\MessageBus\\Registry\\RegistryCompiler $compiler = new Wolfcharaa\\MessageBus\\Registry\\RegistryCompiler, Wolfcharaa\\MessageBus\\Registry\\RegistryArtifactStore $store = new Wolfcharaa\\MessageBus\\Registry\\RegistryArtifactStore): mixed",
+                "load(string $artifactPath, Wolfcharaa\\MessageBus\\Registry\\RegistryRefreshPolicy $policy = Wolfcharaa\\MessageBus\\Registry\\RegistryRefreshPolicy::PrecompiledOnly, ?Wolfcharaa\\MessageBus\\Registry\\RefreshableRegistryClassDiscoverySource $source = NULL, ?string $applicationBuildId = NULL): Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
             "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryArtifactStore",
             "kind": "class",
             "role": "tooling",
@@ -2470,6 +2530,83 @@
             "methods": [
                 "load(string $path, ?string $expectedApplicationBuildId = NULL): Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact",
                 "write(Wolfcharaa\\MessageBus\\Registry\\RegistryArtifact $artifact, string $path): void"
+            ],
+            "properties": [],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryClassCandidate",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "One declaration discovered in a concrete source file.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $class, string $sourcePath): mixed"
+            ],
+            "properties": [
+                "readonly string $class",
+                "readonly string $sourcePath"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoveryResources",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Files and directories whose state determines whether an artifact is stale.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(string $configurationFingerprint, array $files, array $directories): mixed"
+            ],
+            "properties": [
+                "readonly array $directories",
+                "readonly array $files",
+                "readonly string $configurationFingerprint"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoveryResult",
+            "kind": "class",
+            "role": "tooling",
+            "summary": "Rich discovery outcome consumed by the registry compiler.",
+            "final": true,
+            "readonly": true,
+            "parent": null,
+            "interfaces": [],
+            "methods": [
+                "__construct(array $candidates, array $diagnostics = array (\n), ?Throwable $primaryCause = NULL): mixed"
+            ],
+            "properties": [
+                "readonly ?Throwable $primaryCause",
+                "readonly array $candidates",
+                "readonly array $diagnostics"
+            ],
+            "constants": [],
+            "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoverySource",
+            "kind": "interface",
+            "role": "spi",
+            "summary": "A class source which preserves source paths and discovery failures.",
+            "final": false,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "Wolfcharaa\\MessageBus\\Registry\\RegistryClassSource"
+            ],
+            "methods": [
+                "discover(): Wolfcharaa\\MessageBus\\Registry\\RegistryClassDiscoveryResult"
             ],
             "properties": [],
             "constants": [],
@@ -2495,17 +2632,18 @@
             "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryCompilationResult",
             "kind": "class",
             "role": "tooling",
-            "summary": "Registry compilation outcome with a stable diagnostic catalog.",
+            "summary": "Registry compilation outcome with a stable diagnostic catalog and the first",
             "final": true,
             "readonly": true,
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(?Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, array $diagnostics): mixed",
+                "__construct(?Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry, array $diagnostics, ?Throwable $primaryCause = NULL): mixed",
                 "isValid(): bool",
                 "requireRegistry(): Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry"
             ],
             "properties": [
+                "readonly ?Throwable $primaryCause",
                 "readonly ?Wolfcharaa\\MessageBus\\Registry\\CompiledRegistry $registry",
                 "readonly array $diagnostics"
             ],
@@ -2539,7 +2677,7 @@
             "parent": null,
             "interfaces": [],
             "methods": [
-                "__construct(string $code, Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL, ?string $rule = NULL, ?string $subjectKind = NULL, ?string $expected = NULL, ?string $actual = NULL, ?string $causeClass = NULL): mixed",
+                "__construct(string $code, Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity, string $message, ?string $symbol = NULL, ?string $rule = NULL, ?string $subjectKind = NULL, ?string $expected = NULL, ?string $actual = NULL, ?string $causeClass = NULL, ?string $sourcePath = NULL): mixed",
                 "normalized(): array"
             ],
             "properties": [
@@ -2547,6 +2685,7 @@
                 "readonly ?string $causeClass",
                 "readonly ?string $expected",
                 "readonly ?string $rule",
+                "readonly ?string $sourcePath",
                 "readonly ?string $subjectKind",
                 "readonly ?string $symbol",
                 "readonly Wolfcharaa\\MessageBus\\Registry\\DiagnosticSeverity $severity",
@@ -2555,6 +2694,33 @@
             ],
             "constants": [],
             "enum_cases": []
+        },
+        {
+            "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryRefreshPolicy",
+            "kind": "enum",
+            "role": "tooling",
+            "summary": "Controls whether application bootstrap may rebuild a registry artifact.",
+            "final": true,
+            "readonly": false,
+            "parent": null,
+            "interfaces": [
+                "UnitEnum",
+                "BackedEnum"
+            ],
+            "methods": [
+                "static cases(): array",
+                "static from(string|int $value): static",
+                "static tryFrom(string|int $value): ?static"
+            ],
+            "properties": [
+                "readonly string $name",
+                "readonly string $value"
+            ],
+            "constants": [],
+            "enum_cases": [
+                "PrecompiledOnly",
+                "WhenStale"
+            ]
         },
         {
             "name": "Wolfcharaa\\MessageBus\\Registry\\RegistryValidationRule",

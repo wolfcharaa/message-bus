@@ -53,18 +53,20 @@
     ],
     "minimum-stability": "stable",
     "require-dev": {
+        "composer/class-map-generator": "^1.8",
         "friendsofphp/php-cs-fixer": "^3.95",
         "llm/skills": "^1.20",
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-deprecation-rules": "^2.0",
         "phpstan/phpstan-strict-rules": "^2.0",
-        "phpyh/coding-standard": "^2.6.3",
         "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0",
+        "phpyh/coding-standard": "^2.6.3",
         "psr/log": "^1.0 || ^2.0 || ^3.0",
         "rector/rector": "^2.7",
         "symfony/console": "^6.4 || ^7.0"
     },
     "suggest": {
+        "composer/class-map-generator": "Enables optional source-directory discovery and development registry refreshes.",
         "ext-pcntl": "Required by the production PCNTL worker supervisor.",
         "ext-posix": "Required for worker child signalling.",
         "ext-pdo_pgsql": "Required by the PostgreSQL durable runtime.",
