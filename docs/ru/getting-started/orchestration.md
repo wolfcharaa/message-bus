@@ -1,6 +1,6 @@
 ---
 doc_id: getting-started.orchestration
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Оркестрация без очереди
@@ -14,6 +14,12 @@ contract_revision: 2
 - Inline handler выполняется в вызывающем процессе; исключение возвращается вызывающему коду.
 
 - Начните с `examples/orchestration/run.php` и не подключайте PostgreSQL/worker без durable-сценария.
+
+- В host с PSR-11 передавайте `new PsrContainerHandlerServiceResolver($container)`
+  вместо копирования сервисов в `HandlerServices`. Adapter делегирует `has()` и
+  `get()`: исключение container/autowiring выходит без замены, а успешно
+  возвращённый несовместимый объект отклоняется с указанием запрошенного
+  handler class и фактического типа.
 
 - Если компиляция или dispatch завершились ошибкой, не заменяйте исходное
   исключение: следуйте [руководству по диагностике](../guides/troubleshooting-diagnostics.md).

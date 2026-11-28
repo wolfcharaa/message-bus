@@ -9,12 +9,20 @@ contract_revision: 1
 
 ## Application
 
-### `Wolfcharaa\MessageBus\Attribute\Handler`
+### `Wolfcharaa\MessageBus\Adapter\Postgres\PostgresRuntime`
 
-Marks one public handler method; Event subscriptions require a stable ID.
+Ready process-local PostgreSQL composition for dispatch, workers and operations.
 
 - Вид: `class`
-- `__construct(?string $subscriptionId = NULL): mixed`
+- `static create(PDO $pdo, Wolfcharaa\MessageBus\Registry\CompiledRegistry $registry, Wolfcharaa\MessageBus\HandlerServiceResolver $handlers, Wolfcharaa\MessageBus\Routing\DeliveryRoutes $routes, Wolfcharaa\MessageBus\Delivery\DeliveryPolicies $policies, ?Wolfcharaa\MessageBus\Codec\MessageCodecs $codecs = NULL, array $nativeConcretePaths = array (
+), string $schema = 'public', Wolfcharaa\MessageBus\Context\MessageContextFactoryResolver $contextFactories = new Wolfcharaa\MessageBus\Context\MessageContextFactories, Wolfcharaa\MessageBus\Middleware\HandlerMiddlewareResolver $middleware = new Wolfcharaa\MessageBus\Middleware\HandlerMiddlewares, Wolfcharaa\MessageBus\Delivery\FailureClassifiers $failureClassifiers = new Wolfcharaa\MessageBus\Delivery\FailureClassifiers, Psr\Clock\ClockInterface $clock = new Wolfcharaa\MessageBus\SystemClock, Wolfcharaa\MessageBus\Identity\IdentityGenerator $identities = new Wolfcharaa\MessageBus\Identity\RandomIdentityGenerator, Wolfcharaa\MessageBus\Metadata\MetadataSchema $metadataSchema = new Wolfcharaa\MessageBus\Metadata\MetadataSchema, ?Wolfcharaa\MessageBus\Metadata\MetadataEnricher $metadataEnricher = NULL, Wolfcharaa\MessageBus\Observability\RuntimeObserver $observer = new Wolfcharaa\MessageBus\Observability\NullRuntimeObserver, Wolfcharaa\MessageBus\Observability\ObserverFailureSink $observerFailureSink = new Wolfcharaa\MessageBus\Observability\NullObserverFailureSink, ?Wolfcharaa\MessageBus\Idempotency\IdempotencyRuntime $idempotency = NULL, Wolfcharaa\MessageBus\Observability\RuntimeFailureSink $runtimeFailureSink = new Wolfcharaa\MessageBus\Observability\NullRuntimeFailureSink): Wolfcharaa\MessageBus\Adapter\Postgres\PostgresRuntime`
+
+### `Wolfcharaa\MessageBus\Attribute\Handler`
+
+Marks one public handler method and its optional stable delivery identity.
+
+- Вид: `class`
+- `__construct(?string $subscriptionId = NULL, ?string $bindingId = NULL): mixed`
 
 ### `Wolfcharaa\MessageBus\Attribute\MessageName`
 
@@ -47,6 +55,8 @@ Exact per-message/per-version codec registry.
 - `canEncode(string $messageClass): bool`
 - `decode(Wolfcharaa\MessageBus\Codec\EncodedPayload $payload): Wolfcharaa\MessageBus\Contract\Message`
 - `encode(Wolfcharaa\MessageBus\Contract\Message $message): Wolfcharaa\MessageBus\Codec\EncodedPayload`
+- `static fromRegistry(Wolfcharaa\MessageBus\Registry\CompiledRegistry $registry, array $nativeConcretePaths = array (
+), Wolfcharaa\MessageBus\Codec\PhpNativeTypeGraphCompiler $nativeGraphCompiler = new Wolfcharaa\MessageBus\Codec\PhpNativeTypeGraphCompiler): Wolfcharaa\MessageBus\Codec\MessageCodecs`
 
 ### `Wolfcharaa\MessageBus\Codec\PhpNativeTypeGraph`
 
@@ -1109,13 +1119,27 @@ One immutable package migration plus its verified artifact hash.
 - `__construct(string $component, string $migrationId, string $sql, string $checksum): mixed`
 - `key(): string`
 
+### `Wolfcharaa\MessageBus\Adapter\Psr\Container\PsrContainerHandlerServiceResolver`
+
+Resolves compiled handlers from a PSR-11 container without translating its failures.
+
+- Вид: `class`
+- `__construct(Psr\Container\ContainerInterface $container): mixed`
+- `get(string $class): object`
+- `has(string $class): bool`
+
 ### `Wolfcharaa\MessageBus\Adapter\Symfony\Console`
 
-Optional Symfony Console ready composition; core does not require Symfony.
+Optional Symfony Console composition; core does not require Symfony.
 
 - Вид: `class`
 - `static delivery(Wolfcharaa\MessageBus\Delivery\DeliveryOperations $operations, Wolfcharaa\MessageBus\Delivery\DeliveryMaintenance $maintenance, Wolfcharaa\MessageBus\Delivery\DeliveryPolicies $policies): Symfony\Component\Console\Application`
 - `static idempotency(Wolfcharaa\MessageBus\Idempotency\IdempotencyMaintenance $maintenance): Symfony\Component\Console\Application`
+- `static registerDelivery(Symfony\Component\Console\Application $application, Wolfcharaa\MessageBus\Delivery\DeliveryOperations $operations, Wolfcharaa\MessageBus\Delivery\DeliveryMaintenance $maintenance, Wolfcharaa\MessageBus\Delivery\DeliveryPolicies $policies): void`
+- `static registerIdempotency(Symfony\Component\Console\Application $application, Wolfcharaa\MessageBus\Idempotency\IdempotencyMaintenance $maintenance): void`
+- `static registerRegistry(Symfony\Component\Console\Application $application, Wolfcharaa\MessageBus\Registry\RegistryCompiler $compiler, Wolfcharaa\MessageBus\Registry\RegistryClassSource $source, string $artifactPath, ?string $applicationBuildId = NULL): void`
+- `static registerSchema(Symfony\Component\Console\Application $application, Wolfcharaa\MessageBus\Adapter\Postgres\PostgresSchemaManager $schema): void`
+- `static registerWorker(Symfony\Component\Console\Application $application, Wolfcharaa\MessageBus\Worker\PcntlWorkerSupervisor $supervisor, Wolfcharaa\MessageBus\Worker\WorkerProfile $profile, Wolfcharaa\MessageBus\Worker\WorkerControlOperations $control): void`
 - `static registry(Wolfcharaa\MessageBus\Registry\RegistryCompiler $compiler, Wolfcharaa\MessageBus\Registry\RegistryClassSource $source, string $artifactPath, ?string $applicationBuildId = NULL): Symfony\Component\Console\Application`
 - `static schema(Wolfcharaa\MessageBus\Adapter\Postgres\PostgresSchemaManager $schema): Symfony\Component\Console\Application`
 - `static worker(Wolfcharaa\MessageBus\Worker\PcntlWorkerSupervisor $supervisor, Wolfcharaa\MessageBus\Worker\WorkerProfile $profile, Wolfcharaa\MessageBus\Worker\WorkerControlOperations $control): Symfony\Component\Console\Application`

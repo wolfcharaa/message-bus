@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.metadata-and-codecs
-contract_revision: 1
+contract_revision: 2
 ---
 
 # Metadata and codecs
@@ -14,5 +14,15 @@ Message metadata is separate from payload: the library owns identity, causality,
 - Upcasters form a continuous path from the stored version to the current version; a missing step blocks decoding.
 
 - `php-native` requires a source-derived allowlist graph with a matching fingerprint.
+
+- `MessageCodecs::fromRegistry($registry)` creates the standard `json` and
+  `php-native` encoder/decoder pairs for every compiled durable message. Pass
+  concrete property-path mappings as its second argument only when a native
+  graph contains an interface or abstract type.
+
+- A custom codec ID or historical upcast chain remains application-owned:
+  construct `MessageCodecs` explicitly. The automatic factory fails before
+  runtime and names the message class, wire name, version, and unsupported
+  codec instead of silently selecting a fallback.
 
 Exact signatures are listed in the [public API](../reference/public-api.md); if they conflict, the source manifest is normative.

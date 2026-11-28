@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.messages-and-handlers
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Messages and handlers
@@ -10,6 +10,12 @@ contract_revision: 2
 - Put `#[Handler]` on a public method; its first parameter is the concrete message and its optional second parameter is a concrete `MessageContext`.
 
 - Query/Request/Command require exactly one handler; Event allows zero or more stable subscription IDs.
+
+- `#[Handler(bindingId: 'command.name')]` gives a Command a stable route and
+  persisted target ID independent of its PHP class. Omitting it keeps the class
+  name for backward compatibility. Event identity remains
+  `#[Handler(subscriptionId: '...')]`; Query and Request accept neither durable
+  identity. `MBR029` identifies an identity placed on the wrong role.
 
 - Command and durable Event require `#[MessageName]` and a versioned `#[Payload]`.
 

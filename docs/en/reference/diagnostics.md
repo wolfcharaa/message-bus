@@ -1,6 +1,6 @@
 ---
 doc_id: reference.diagnostics
-contract_revision: 5
+contract_revision: 6
 ---
 
 # Diagnostics reference
@@ -53,7 +53,7 @@ A private static handler, for example, produces:
 | `MBR014` | A Query, Request, or Command has zero or multiple compiled handlers; `symbol` is the message class and `actual` is the count. | Make exactly one valid handler discoverable. Fix earlier handler diagnostics before adding another handler. |
 | `MBR015` | Two bindings for one message have the same ID; `actual` lists duplicates. | Give Event subscriptions unique IDs; non-Event messages must retain one handler. |
 | `MBR016` | Two durable message classes use the same `MessageName`; `symbol` is the wire name and `actual` names both classes. | Assign a unique stable wire name to each durable message. |
-| `MBR017` | Constructing `#[Handler]` threw, normally because `subscriptionId` violates its grammar; `cause_class` preserves the exception type. | Match `[a-z0-9][a-z0-9._:-]{2,127}`. |
+| `MBR017` | Constructing `#[Handler]` threw, normally because `subscriptionId` or `bindingId` violates its grammar; `cause_class` preserves the exception type. | Make both IDs match `[a-z0-9][a-z0-9._:-]{2,127}`. |
 | `MBR018` | A handler parameter is optional or variadic; `actual` identifies the parameter and violation. | Make every parameter required and non-variadic. |
 | `MBR019` | The first parameter implements `Message` but is not instantiable, such as an interface or abstract class; `actual` is that type. | Handle a concrete message class. |
 | `MBR020` | Constructing `#[MessageName]` threw; `symbol` is the durable class and `cause_class` preserves the exception type. | Match `[a-z][a-z0-9._:-]{2,127}`. |
@@ -65,6 +65,7 @@ A private static handler, for example, produces:
 | `MBR026` | A declaration is below a PSR-4 root but its FQCN does not match the exact expected path; `source_path` is the actual file and `expected` is the correct location. | Move the file or correct namespace/class name, then rebuild autoload and registry. |
 | `MBR027` | Two discovered path prefixes differ only by ASCII letter case and behave differently on case-insensitive filesystems. | Keep one directory/file spelling and correct namespaces/references. |
 | `MBR028` | The scan completed without any eligible declaration; this is a `warning` and `actual` reports the exact zero result. | Check roots, namespace prefixes, and exclusions. If an empty registry is intended, log the warning without failing. |
+| `MBR029` | A Query, Request, or Event handler declares the Command-only `bindingId`; `symbol` names the exact handler method. | Remove `bindingId`. Use it only on a Command handler; Event handlers keep their identity in `subscriptionId`. |
 
 ## Runtime configuration (`MBC`)
 

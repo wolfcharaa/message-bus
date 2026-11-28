@@ -61,6 +61,7 @@
         "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^10.5 || ^11.0 || ^12.0",
         "phpyh/coding-standard": "^2.6.3",
+        "psr/container": "^1.1 || ^2.0",
         "psr/log": "^1.0 || ^2.0 || ^3.0",
         "rector/rector": "^2.7",
         "symfony/console": "^6.4 || ^7.0"
@@ -71,6 +72,7 @@
         "ext-posix": "Required for worker child signalling.",
         "ext-pdo_pgsql": "Required by the PostgreSQL durable runtime.",
         "llm/skills": "Synchronizes the bundled MessageBus integration skill into consumer projects.",
+        "psr/container": "Enables the optional PSR-11 handler resolver adapter.",
         "psr/log": "Required only by the optional PSR-3 runtime observer.",
         "symfony/console": "Required only by optional operator commands."
     },

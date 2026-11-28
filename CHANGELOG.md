@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 7.0.0-beta.2 — 2026-11-28
+
 - Added optional `composer/class-map-generator` directory discovery for root
   production PSR-4/classmap mappings, with exact source paths and diagnostics
   `MBR021`–`MBR028` for dependency, mapping, parser, duplicate, PSR-4, casing,
@@ -14,6 +16,16 @@
   fallback after a failed rebuild.
 - Added paired RU/EN setup and diagnostic documentation, an executable example,
   and scenario/concurrency tests for every new diagnostic and refresh state.
+- Added optional stable Command `bindingId` values so applications can own
+  durable target names without rewriting the compiled registry; invalid role
+  placement is reported as `MBR029`.
+- Added a PSR-11 handler resolver that preserves container/autowiring
+  exceptions, plus registry-derived JSON/PHP-native codec construction.
+- Added `PostgresRuntime::create()` as the cohesive process-local PostgreSQL
+  composition and methods for registering MessageBus commands in an existing
+  Symfony Console application.
+- Updated the packaged durable example, paired integration/reference docs,
+  public API manifest, and consumer integration skill for the shorter path.
 
 ## 7.0.0-beta.1 — 2026-11-27
 

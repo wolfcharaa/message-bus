@@ -1,6 +1,6 @@
 ---
 doc_id: reference.cli
-contract_revision: 6
+contract_revision: 7
 ---
 
 # CLI reference
@@ -14,6 +14,14 @@ The optional Symfony Console adapter provides versioned text/JSON commands; bina
 - `idempotency:prune` plans or deletes only completed records past `retainUntil`; it is also dry-run by default.
 
 - `worker:run`, `worker:status`, `worker:pause`, `worker:resume`, and `worker:prune` are runtime operations. Status accepts `--profile` or an exact `--instance` and exposes convergence/stale/drained; prune deletes only terminal worker history and remains a dry-run without `--execute`.
+
+- Standalone entry points remain available through `Console::registry()`,
+  `schema()`, `delivery()`, `idempotency()`, and `worker()`. A framework with
+  one existing Symfony `Application` should call the matching
+  `Console::registerRegistry()`, `registerSchema()`, `registerDelivery()`,
+  `registerIdempotency()`, or `registerWorker()` method. Registration adds only
+  MessageBus commands and does not replace the host application's name,
+  version, helpers, or other commands.
 
 - Every JSON document uses output `schema: 2` and includes `command`. A caught command failure uses one stable `error` object with `code`, `type`, `stage`, safe `message`, `exception_type`, and optional `{type,id}` subject. Raw exception messages are not emitted.
 

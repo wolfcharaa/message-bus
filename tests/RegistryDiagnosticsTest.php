@@ -108,6 +108,12 @@ final class RegistryDiagnosticsTest extends TestCase
         foreach (self::provideEveryRuntimeConfigurationDiagnosticNamesTargetExpectedAndActualConfigurationCases() as $case) {
             $registryCodes[] = $case[0];
         }
+        usort($registryCodes, static function (string $left, string $right): int {
+            $leftGroup = str_starts_with($left, 'MBR') ? 0 : 1;
+            $rightGroup = str_starts_with($right, 'MBR') ? 0 : 1;
+
+            return [$leftGroup, (int) substr($left, 3)] <=> [$rightGroup, (int) substr($right, 3)];
+        });
 
         $runtimeCodes = [];
         foreach (self::provideEveryRuntimeFailureStageHasAnExactStableCodeAndActionableSummaryCases() as $case) {
@@ -283,7 +289,7 @@ final class RegistryDiagnosticsTest extends TestCase
             'MBR017',
             self::compile([InvalidAttributeDetailedHandler::class]),
             InvalidAttributeDetailedHandler::class . '::__invoke',
-            'a valid #[Handler] attribute; Event subscriptionId matches [a-z0-9][a-z0-9._:-]{2,127}',
+            'a valid #[Handler] attribute; subscriptionId and bindingId match [a-z0-9][a-z0-9._:-]{2,127}',
             'attribute construction threw InvalidArgumentException',
             \InvalidArgumentException::class,
         ];
@@ -308,6 +314,13 @@ final class RegistryDiagnosticsTest extends TestCase
             'a #[MessageName] value matching [a-z][a-z0-9._:-]{2,127}',
             'attribute construction threw InvalidArgumentException',
             \InvalidArgumentException::class,
+        ];
+        yield 'MBR029 binding ID on non-command handler' => [
+            'MBR029',
+            self::compile([UnexpectedBindingIdDetailedHandler::class]),
+            UnexpectedBindingIdDetailedHandler::class . '::__invoke',
+            'bindingId is null for query handlers',
+            'bindingId is "query.binding"',
         ];
     }
 
@@ -654,6 +667,15 @@ final readonly class MissingSubscriptionDetailedHandler
 final readonly class UnexpectedSubscriptionDetailedHandler
 {
     #[Handler('query.subscription')]
+    public function __invoke(DetailedHandlerQuery $query): string
+    {
+        return $query::class;
+    }
+}
+
+final readonly class UnexpectedBindingIdDetailedHandler
+{
+    #[Handler(bindingId: 'query.binding')]
     public function __invoke(DetailedHandlerQuery $query): string
     {
         return $query::class;

@@ -1,6 +1,6 @@
 ---
 doc_id: reference.capability-map
-contract_revision: 3
+contract_revision: 4
 ---
 
 # Capability map
@@ -10,6 +10,10 @@ This map connects a consumer task to its public boundary and owner.
 - Sync orchestration → `MessageBus`, compiler/artifact; the host owns DI and handler services.
 
 - Durable PostgreSQL → backend/schema/worker/control; the host owns credentials, deployment, and process supervision.
+
+- Framework composition → PSR-11 handler resolver, registry-derived codecs,
+  `PostgresRuntime`, and embeddable Symfony commands; the host still owns
+  service definitions, PDO/process lifetime, routes, policies, and migration timing.
 
 - Extension → only `@api spi`; a custom adapter never imports `Internal`.
 

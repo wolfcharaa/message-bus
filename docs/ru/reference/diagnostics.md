@@ -1,6 +1,6 @@
 ---
 doc_id: reference.diagnostics
-contract_revision: 5
+contract_revision: 6
 ---
 
 # Справочник диагностик
@@ -53,7 +53,7 @@ contract_revision: 5
 | `MBR014` | У Query, Request или Command нет ровно одного compiled handler; `symbol` содержит класс, `actual` — количество. | Сделайте доступным ровно один корректный handler. Сначала исправьте более ранние diagnostics handler. |
 | `MBR015` | У двух bindings одного сообщения совпал ID; `actual` перечисляет дубли. | Задайте Event subscriptions уникальные ID; у остальных сообщений должен остаться один handler. |
 | `MBR016` | Два durable-класса используют один `MessageName`; `symbol` содержит wire name, `actual` — оба класса. | Назначьте каждому durable message уникальное стабильное wire name. |
-| `MBR017` | Конструктор `#[Handler]` выбросил исключение, обычно из-за grammar `subscriptionId`; `cause_class` сохраняет тип. | Соблюдайте `[a-z0-9][a-z0-9._:-]{2,127}`. |
+| `MBR017` | Конструктор `#[Handler]` выбросил исключение, обычно из-за grammar `subscriptionId` или `bindingId`; `cause_class` сохраняет тип. | Оба ID должны соответствовать `[a-z0-9][a-z0-9._:-]{2,127}`. |
 | `MBR018` | Параметр handler является optional или variadic; `actual` называет параметр и нарушение. | Сделайте все параметры обязательными и не variadic. |
 | `MBR019` | Первый параметр реализует `Message`, но тип нельзя инстанцировать, например interface/abstract class; `actual` содержит тип. | Обрабатывайте конкретный класс сообщения. |
 | `MBR020` | Конструктор `#[MessageName]` выбросил исключение; `symbol` содержит durable-класс, `cause_class` — тип. | Соблюдайте `[a-z][a-z0-9._:-]{2,127}`. |
@@ -65,6 +65,7 @@ contract_revision: 5
 | `MBR026` | Declaration находится под PSR-4 root, но FQCN не соответствует точному ожидаемому пути; `source_path` показывает фактический файл, `expected` — правильный. | Переместите файл или исправьте namespace/class name, затем пересоберите autoload и registry. |
 | `MBR027` | Два discovered path prefixes отличаются только ASCII-регистром и по-разному работают на case-insensitive filesystem. | Оставьте одно написание регистра каталога/файла и исправьте namespaces/references. |
 | `MBR028` | Scan завершён без единого eligible declaration; это `warning`, `actual` равно точному нулевому результату. | Проверьте roots, namespace prefixes и excludes; если пустой registry ожидаем, warning можно логировать без отказа. |
+| `MBR029` | Handler роли Query, Request или Event объявляет предназначенный только для Command `bindingId`; `symbol` указывает точный метод handler. | Удалите `bindingId`. Используйте его только у Command handler; Event сохраняет идентичность в `subscriptionId`. |
 
 ## Runtime-конфигурация (`MBC`)
 

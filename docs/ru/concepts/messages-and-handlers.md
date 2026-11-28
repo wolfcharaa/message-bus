@@ -1,6 +1,6 @@
 ---
 doc_id: concepts.messages-and-handlers
-contract_revision: 2
+contract_revision: 3
 ---
 
 # Messages и handlers
@@ -10,6 +10,13 @@ contract_revision: 2
 - `#[Handler]` ставится на public method; первый параметр — конкретный message, второй опционально — concrete `MessageContext`.
 
 - Query/Request/Command требуют ровно один handler; Event допускает ноль или несколько stable subscription IDs.
+
+- `#[Handler(bindingId: 'command.name')]` задаёт Command стабильный route и
+  persisted target ID, не зависящий от PHP class. Если параметр не указан, для
+  обратной совместимости остаётся имя класса. Идентичность Event по-прежнему
+  задаётся через `#[Handler(subscriptionId: '...')]`; Query и Request не
+  принимают durable identity. Код `MBR029` точно указывает identity у неверной
+  роли.
 
 - Command и durable Event обязаны иметь `#[MessageName]` и versioned `#[Payload]`.
 

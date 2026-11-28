@@ -1,6 +1,6 @@
 ---
 doc_id: reference.capability-map
-contract_revision: 3
+contract_revision: 4
 ---
 
 # Capability map
@@ -10,6 +10,10 @@ contract_revision: 3
 - Sync orchestration → `MessageBus`, compiler/artifact; host владеет DI и handler services.
 
 - Durable PostgreSQL → backend/schema/worker/control; host владеет credentials, deploy и process supervisor.
+
+- Framework composition → PSR-11 handler resolver, codecs из registry,
+  `PostgresRuntime` и встраиваемые Symfony commands; host по-прежнему владеет
+  service definitions, lifetime PDO/process, routes, policies и моментом migrations.
 
 - Extension → только `@api spi`; custom adapter не импортирует `Internal`.
 

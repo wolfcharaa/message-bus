@@ -7,6 +7,8 @@ namespace Wolfcharaa\MessageBus\Codec;
 use Wolfcharaa\MessageBus\Attribute\MessageName;
 use Wolfcharaa\MessageBus\Attribute\Payload;
 use Wolfcharaa\MessageBus\Contract\Message;
+use Wolfcharaa\MessageBus\Registry\CompiledRegistry;
+use Wolfcharaa\MessageBus\Registry\MessageRole;
 
 /**
  *  Canonical versioned payload at the durable boundary.
@@ -137,7 +139,11 @@ final readonly class UpcastingJsonMessageCodec implements MessageCodec
 }
 
 /**
- *  Exact per-message/per-version codec registry.
+ * Exact per-message/per-version codec registry.
+ *
+ * `fromRegistry()` builds the standard JSON and bounded PHP-native codecs for
+ * every compiled Command/Event. Applications only need manual construction
+ * when they use a custom codec or historical upcasters.
  *
  * @api application
  */
@@ -151,6 +157,86 @@ final readonly class MessageCodecs
         private array $encoders,
         private array $decoders,
     ) {}
+
+    /**
+     * Builds codecs for every durable message in one compiled registry.
+     *
+     * `nativeConcretePaths` is only used by messages declaring
+     * `#[Payload(codec: 'php-native')]`; its inner keys are property paths
+     * accepted by PhpNativeTypeGraphCompiler.
+     *
+     * @param array<class-string<Message<mixed>>, array<string, list<class-string>>> $nativeConcretePaths
+     */
+    public static function fromRegistry(
+        CompiledRegistry $registry,
+        array $nativeConcretePaths = [],
+        PhpNativeTypeGraphCompiler $nativeGraphCompiler = new PhpNativeTypeGraphCompiler(),
+    ): self {
+        $encoders = [];
+        $decoders = [];
+
+        foreach ($registry->bindings() as $messageClass => $bindings) {
+            $binding = $bindings[0] ?? null;
+            if ($binding === null
+                || ($binding->role !== MessageRole::Command && $binding->role !== MessageRole::Event)) {
+                continue;
+            }
+
+            $reflection = new \ReflectionClass($messageClass);
+            $nameAttributes = $reflection->getAttributes(MessageName::class);
+            if (\count($nameAttributes) !== 1) {
+                throw new \LogicException(
+                    'Cannot build a codec for durable message ' . $messageClass
+                    . ': expected exactly one #[MessageName] attribute, found '
+                    . \count($nameAttributes) . '.',
+                );
+            }
+            $payloadAttributes = $reflection->getAttributes(Payload::class);
+            if (\count($payloadAttributes) > 1) {
+                throw new \LogicException(
+                    'Cannot build a codec for durable message ' . $messageClass
+                    . ': expected at most one #[Payload] attribute, found '
+                    . \count($payloadAttributes) . '.',
+                );
+            }
+
+            try {
+                $messageName = $nameAttributes[0]->newInstance()->value;
+                $payload = ($payloadAttributes[0] ?? null)?->newInstance() ?? new Payload();
+            } catch (\Throwable $failure) {
+                throw new \LogicException(
+                    'Cannot build a codec for durable message ' . $messageClass
+                    . ': its #[MessageName] or #[Payload] attribute is invalid.',
+                    0,
+                    $failure,
+                );
+            }
+
+            $codec = match ($payload->codec) {
+                'json' => new JsonMessageCodec($messageClass),
+                'php-native' => new PhpNativeMessageCodec(
+                    $messageClass,
+                    $nativeGraphCompiler->compile($messageClass, $nativeConcretePaths[$messageClass] ?? []),
+                ),
+                default => throw new \LogicException(
+                    'Cannot automatically build codec "' . $payload->codec . '" for durable message '
+                    . $messageClass . ' (' . $messageName . ' v' . $payload->version
+                    . '); construct MessageCodecs explicitly for custom codecs.',
+                ),
+            };
+            if (isset($decoders[$messageName][$payload->version])) {
+                throw new \LogicException(
+                    'Cannot build MessageCodecs: duplicate decoder identity '
+                    . $messageName . ' v' . $payload->version . '.',
+                );
+            }
+
+            $encoders[$messageClass] = $codec;
+            $decoders[$messageName][$payload->version] = $codec;
+        }
+
+        return new self($encoders, $decoders);
+    }
 
     /** @param Message<mixed> $message */
     public function encode(Message $message): EncodedPayload

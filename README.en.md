@@ -14,15 +14,16 @@ composer require romanfedorskij/message-bus:^7.0@beta
 ```
 
 The durable profile requires `ext-pdo_pgsql`, `ext-pcntl`, and `ext-posix`.
-Symfony Console and PSR-3 are only needed by their adapters; core requires PHP,
-JSON, and `psr/clock`.
+Symfony Console, PSR-11, and PSR-3 are only needed by their adapters; core
+requires PHP, JSON, and `psr/clock`.
 
 ## Choose a path
 
 - [Orchestration without a queue](docs/en/getting-started/orchestration.md) —
   Query/Request and inline Event in the caller process.
 - [Durable PostgreSQL](docs/en/getting-started/durable-postgres.md) — Command,
-  durable Event, delivery status/control, and worker processes.
+  durable Event, ready `PostgresRuntime` composition, delivery status/control,
+  and worker processes.
 - [Composer-based handler discovery](docs/en/getting-started/composer-directory-discovery.md) —
   a quick start without a manual class list, safe development refreshes, and a
   production artifact without filesystem scanning.
@@ -70,11 +71,18 @@ composer require --dev composer/class-map-generator:^1.8
 
 It is not needed in production after the artifact is built.
 
+In a PSR-11 framework, pass the container through
+`PsrContainerHandlerServiceResolver`; original autowiring exceptions are not
+replaced by a library error. Standard durable codecs can be built with
+`MessageCodecs::fromRegistry($registry)`, and MessageBus commands can be added
+to an existing Symfony `Application` through the `Console::register*()` methods.
+
 ## Contract
 
 - Query/Request execute immediately and have exactly one handler.
 - Command is always durable and returns `CommandReceipt` after `staged` or
-  `accepted`, not after handler completion.
+  `accepted`, not after handler completion. A target independent of the PHP
+  class is declared with `#[Handler(bindingId: 'command.name')]`.
 - Event attempts every subscription and throws `PublicationFailed` with the
   complete `PublicationReceipt` on partial failure.
 - The PostgreSQL adapter uses database time, `SKIP LOCKED`, and fenced lease CAS.

@@ -677,7 +677,7 @@ final readonly class RegistryCompiler
                 'MBR017',
                 'The #[Handler] attribute could not be constructed for a handler method.',
                 $symbol,
-                expected: 'a valid #[Handler] attribute; Event subscriptionId matches [a-z0-9][a-z0-9._:-]{2,127}',
+                expected: 'a valid #[Handler] attribute; subscriptionId and bindingId match [a-z0-9][a-z0-9._:-]{2,127}',
                 actual: 'attribute construction threw ' . $failure::class,
                 causeClass: $failure::class,
                 sourcePath: $sourcePath,
@@ -709,6 +709,18 @@ final readonly class RegistryCompiler
 
             return;
         }
+        if ($role !== MessageRole::Command && $attribute->bindingId !== null) {
+            $diagnostics[] = $this->error(
+                'MBR029',
+                'A non-Command handler declares a Command-only bindingId.',
+                $symbol,
+                expected: 'bindingId is null for ' . $role->value . ' handlers',
+                actual: 'bindingId is "' . $attribute->bindingId . '"',
+                sourcePath: $sourcePath,
+            );
+
+            return;
+        }
         if (($role === MessageRole::Command || $role === MessageRole::Event)
             && \count((new \ReflectionClass($messageClass))->getAttributes(MessageName::class)) !== 1) {
             $attributeCount = \count((new \ReflectionClass($messageClass))->getAttributes(MessageName::class));
@@ -724,9 +736,11 @@ final readonly class RegistryCompiler
             return;
         }
 
-        $id = $role === MessageRole::Event
-            ? $attribute->subscriptionId
-            : $messageClass;
+        $id = match ($role) {
+            MessageRole::Event => $attribute->subscriptionId,
+            MessageRole::Command => $attribute->bindingId ?? $messageClass,
+            default => $messageClass,
+        };
         $bindings[$messageClass][] = new HandlerBinding(
             id: (string) $id,
             messageClass: $messageClass,

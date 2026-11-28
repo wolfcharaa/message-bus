@@ -1222,7 +1222,8 @@ final class RecordingLogger extends AbstractLogger
     /** @var list<array{message: string, context: array<string, mixed>}> */
     public array $records = [];
 
-    public function log($level, \Stringable|string $message, array $context = []): void
+    /** @param string|\Stringable $message */
+    public function log($level, $message, array $context = []): void
     {
         $normalized = [];
         foreach ($context as $key => $value) {

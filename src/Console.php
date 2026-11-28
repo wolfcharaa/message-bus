@@ -32,20 +32,40 @@ use Wolfcharaa\MessageBus\Worker\WorkerControlOperations;
 use Wolfcharaa\MessageBus\Worker\WorkerProfile;
 
 /**
- *  Optional Symfony Console ready composition; core does not require Symfony.
+ * Optional Symfony Console composition; core does not require Symfony.
+ *
+ * `registry()`, `schema()`, `delivery()`, `idempotency()`, and `worker()`
+ * create focused standalone applications. Their matching `register*()` methods
+ * add the same commands to an existing host Application without replacing its
+ * name, version, helpers, or unrelated commands.
  *
  * @api adapter
  */
 final readonly class Console
 {
+    private const string VERSION = '7.0.0-beta.2';
+
     public static function registry(
         RegistryCompiler $compiler,
         RegistryClassSource $source,
         string $artifactPath,
         ?string $applicationBuildId = null,
     ): Application {
+        $application = self::application();
+        self::registerRegistry($application, $compiler, $source, $artifactPath, $applicationBuildId);
+
+        return $application;
+    }
+
+    /** Registers registry commands in an existing host Symfony application. */
+    public static function registerRegistry(
+        Application $application,
+        RegistryCompiler $compiler,
+        RegistryClassSource $source,
+        string $artifactPath,
+        ?string $applicationBuildId = null,
+    ): void {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-beta.1');
         $application->addCommands([
             new RegistryCheckCommand($compiler, $source),
             new RegistryCompileCommand(
@@ -56,17 +76,21 @@ final readonly class Console
                 $applicationBuildId,
             ),
         ]);
-
-        return $application;
     }
 
     public static function schema(PostgresSchemaManager $schema): Application
     {
-        self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-beta.1');
-        $application->addCommands([new SchemaValidateCommand($schema)]);
+        $application = self::application();
+        self::registerSchema($application, $schema);
 
         return $application;
+    }
+
+    /** Registers schema commands in an existing host Symfony application. */
+    public static function registerSchema(Application $application, PostgresSchemaManager $schema): void
+    {
+        self::requireSymfony();
+        $application->addCommands([new SchemaValidateCommand($schema)]);
     }
 
     public static function delivery(
@@ -74,8 +98,20 @@ final readonly class Console
         DeliveryMaintenance $maintenance,
         DeliveryPolicies $policies,
     ): Application {
+        $application = self::application();
+        self::registerDelivery($application, $operations, $maintenance, $policies);
+
+        return $application;
+    }
+
+    /** Registers delivery control commands in an existing host Symfony application. */
+    public static function registerDelivery(
+        Application $application,
+        DeliveryOperations $operations,
+        DeliveryMaintenance $maintenance,
+        DeliveryPolicies $policies,
+    ): void {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-beta.1');
         $application->addCommands([
             new DeliveryStatusCommand($operations),
             new DeliveryCancelCommand($operations),
@@ -83,17 +119,23 @@ final readonly class Console
             new DeliveryRecoverCommand($maintenance),
             new DeliveryPruneCommand($maintenance),
         ]);
-
-        return $application;
     }
 
     public static function idempotency(IdempotencyMaintenance $maintenance): Application
     {
-        self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-beta.1');
-        $application->addCommands([new IdempotencyPruneCommand($maintenance)]);
+        $application = self::application();
+        self::registerIdempotency($application, $maintenance);
 
         return $application;
+    }
+
+    /** Registers idempotency maintenance commands in an existing host Symfony application. */
+    public static function registerIdempotency(
+        Application $application,
+        IdempotencyMaintenance $maintenance,
+    ): void {
+        self::requireSymfony();
+        $application->addCommands([new IdempotencyPruneCommand($maintenance)]);
     }
 
     public static function worker(
@@ -101,8 +143,20 @@ final readonly class Console
         WorkerProfile $profile,
         WorkerControlOperations $control,
     ): Application {
+        $application = self::application();
+        self::registerWorker($application, $supervisor, $profile, $control);
+
+        return $application;
+    }
+
+    /** Registers worker lifecycle commands in an existing host Symfony application. */
+    public static function registerWorker(
+        Application $application,
+        PcntlWorkerSupervisor $supervisor,
+        WorkerProfile $profile,
+        WorkerControlOperations $control,
+    ): void {
         self::requireSymfony();
-        $application = new Application('message-bus', '7.0.0-beta.1');
         $application->addCommands([
             new WorkerRunCommand($supervisor, $profile),
             new WorkerStatusCommand($control),
@@ -110,8 +164,13 @@ final readonly class Console
             new WorkerResumeCommand($control),
             new WorkerPruneCommand($control),
         ]);
+    }
 
-        return $application;
+    private static function application(): Application
+    {
+        self::requireSymfony();
+
+        return new Application('message-bus', self::VERSION);
     }
 
     private static function requireSymfony(): void

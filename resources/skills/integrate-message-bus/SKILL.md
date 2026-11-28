@@ -49,6 +49,12 @@ Compose the bounded registry source/compiler, exact handler service map, routes,
 and only required context factories or middleware. Build the registry artifact
 during release assembly; production startup loads and verifies it.
 
+When the host exposes PSR-11, use `PsrContainerHandlerServiceResolver` instead
+of copying container services into an application map. Do not catch or replace
+the container's `get()`/`has()` failures; the adapter deliberately preserves
+their exact type and chain. Use `HandlerServices` only for a small fixed object
+map or tests.
+
 Choose the registry source explicitly:
 
 - use `ExplicitClassSource` when the application already owns a small complete
@@ -70,22 +76,34 @@ restart long-running workers through the host's normal mechanism.
 For durable PostgreSQL, additionally read
 `docs/en/getting-started/durable-postgres.md` and the database/worker operations
 references. Apply packaged immutable SQL through the host migration system.
-Use public PostgreSQL backend/schema/control roots and a child-runtime factory
-that creates fresh process-local connections after fork. Keep credentials,
-deployment supervision, business transactions and durable business history in
-the host application.
+Prefer `PostgresRuntime::create()` for package-owned backend/bus/worker/schema/
+control composition. A child-runtime factory still creates a fresh host-owned
+PDO and a fresh `PostgresRuntime` after fork. Keep credentials, connection
+lifetime, deployment supervision, business transactions and durable business
+history in the host application.
+
+For a host that already owns one Symfony Console `Application`, register only
+the needed command groups through `Console::registerRegistry()`,
+`registerSchema()`, `registerDelivery()`, `registerIdempotency()`, and
+`registerWorker()`. Do not create a second application or import internal
+command classes.
 
 ## Preserve role and wire contracts
 
 Every message implements exactly one role. Query and Request have one immediate
 result handler. Command has one durable target and returns acceptance, not the
-handler result. Event has stable subscription IDs and returns aggregate
-publication evidence.
+handler result. Prefer `#[Handler(bindingId: 'command.name')]` when its target
+must remain stable across PHP class renames; omitting it retains the class-name
+target for compatibility. Event identity remains `subscriptionId`; never put
+`bindingId` on Query, Request, or Event. Event returns aggregate publication
+evidence.
 
 Durable Command/Event classes have stable `MessageName`, payload version and
-registered codecs. Inventory retained payload versions before changing a codec
-or removing an upcaster. Use `php-native` only with the generated allowlist
-graph and an explicit compatibility reason.
+registered codecs. Use `MessageCodecs::fromRegistry()` for standard JSON and
+bounded PHP-native payloads; construct `MessageCodecs` explicitly for a custom
+codec or historical upcasters. Inventory retained payload versions before
+changing a codec or removing an upcaster. Use `php-native` only with the
+generated allowlist graph and an explicit compatibility reason.
 
 Metadata is schema-bounded scalar/null data. Never persist secrets, containers,
 PDO objects or arbitrary headers. Application effects requiring retry safety

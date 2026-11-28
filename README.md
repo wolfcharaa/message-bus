@@ -14,15 +14,16 @@ composer require romanfedorskij/message-bus:^7.0@beta
 ```
 
 Для durable profile нужны `ext-pdo_pgsql`, `ext-pcntl` и `ext-posix`. Symfony
-Console и PSR-3 подключаются только для соответствующих adapters; core требует
-лишь PHP, JSON и `psr/clock`.
+Console, PSR-11 и PSR-3 подключаются только для соответствующих adapters; core
+требует лишь PHP, JSON и `psr/clock`.
 
 ## Выберите путь
 
 - [Оркестрация без очереди](docs/ru/getting-started/orchestration.md) —
   Query/Request и inline Event в вызывающем процессе.
 - [Durable PostgreSQL](docs/ru/getting-started/durable-postgres.md) — Command,
-  durable Event, delivery status/control и worker processes.
+  durable Event, готовая `PostgresRuntime` composition, delivery status/control
+  и worker processes.
 - [Автопоиск handlers через Composer](docs/ru/getting-started/composer-directory-discovery.md) —
   быстрый старт без ручного списка классов, безопасная dev-пересборка и
   production artifact без filesystem scan.
@@ -70,11 +71,18 @@ composer require --dev composer/class-map-generator:^1.8
 
 Он не нужен в production после сборки artifact.
 
+В framework с PSR-11 передайте контейнер через
+`PsrContainerHandlerServiceResolver`: исходные autowiring exceptions не
+заменяются ошибкой библиотеки. Для стандартных durable messages codecs можно
+получить через `MessageCodecs::fromRegistry($registry)`, а команды MessageBus —
+зарегистрировать в существующем Symfony `Application` методами `Console::register*()`.
+
 ## Контракт
 
 - Query/Request выполняются сразу и имеют ровно один handler.
 - Command всегда durable и возвращает `CommandReceipt` после `staged` либо
-  `accepted`, а не после исполнения.
+  `accepted`, а не после исполнения. Не зависящий от PHP class target задаётся
+  через `#[Handler(bindingId: 'command.name')]`.
 - Event пытается доставить каждый subscription и при partial failure бросает
   `PublicationFailed` с полным `PublicationReceipt`.
 - PostgreSQL adapter использует DB time, `SKIP LOCKED` и fenced lease CAS.

@@ -1,6 +1,6 @@
 ---
 doc_id: reference.cli
-contract_revision: 6
+contract_revision: 7
 ---
 
 # CLI reference
@@ -14,6 +14,14 @@ Optional Symfony Console adapter предоставляет versioned text/JSON 
 - `idempotency:prune` планирует или удаляет только completed records после `retainUntil`; эта команда также dry-run по умолчанию.
 
 - `worker:run`, `worker:status`, `worker:pause`, `worker:resume`, `worker:prune` — runtime operations. Status принимает `--profile` либо exact `--instance`, показывает convergence/stale/drained; prune удаляет только terminal worker history и остаётся dry-run без `--execute`.
+
+- Standalone entry points остаются доступны через `Console::registry()`,
+  `schema()`, `delivery()`, `idempotency()` и `worker()`. Framework с одним уже
+  существующим Symfony `Application` вызывает соответствующий метод
+  `Console::registerRegistry()`, `registerSchema()`, `registerDelivery()`,
+  `registerIdempotency()` или `registerWorker()`. Регистрация добавляет только
+  команды MessageBus и не заменяет имя, версию, helpers или другие команды host
+  application.
 
 - Каждый JSON document использует output `schema: 2` и содержит `command`. Перехваченная ошибка команды возвращается единым объектом `error` с полями `code`, `type`, `stage`, безопасным `message`, `exception_type` и необязательным subject `{type,id}`. Raw exception message не выводится.
 

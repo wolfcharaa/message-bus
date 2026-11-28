@@ -66,20 +66,28 @@ interface MessageBus
 namespace Wolfcharaa\MessageBus\Attribute;
 
 /**
- *  Marks one public handler method; Event subscriptions require a stable ID.
+ * Marks one public handler method and its optional stable delivery identity.
+ *
+ * Events require `subscriptionId`. Commands may declare `bindingId` when the
+ * application needs a stable route/target key independent of the PHP class;
+ * omitting it preserves the message class as the binding ID. Query and Request
+ * handlers do not accept either durable identity.
  *
  * @api application
  */
 #[\Attribute(\Attribute::TARGET_METHOD)]
 final readonly class Handler
 {
-    public function __construct(public ?string $subscriptionId = null)
-    {
-        if ($this->subscriptionId !== null
-            && preg_match('/^[a-z0-9][a-z0-9._:-]{2,127}$/D', $this->subscriptionId) !== 1) {
-            throw new \InvalidArgumentException(
-                'Handler subscriptionId must match [a-z0-9][a-z0-9._:-]{2,127}.',
-            );
+    public function __construct(
+        public ?string $subscriptionId = null,
+        public ?string $bindingId = null,
+    ) {
+        foreach (['subscriptionId' => $this->subscriptionId, 'bindingId' => $this->bindingId] as $name => $value) {
+            if ($value !== null && preg_match('/^[a-z0-9][a-z0-9._:-]{2,127}$/D', $value) !== 1) {
+                throw new \InvalidArgumentException(
+                    'Handler ' . $name . ' must match [a-z0-9][a-z0-9._:-]{2,127}.',
+                );
+            }
         }
     }
 }

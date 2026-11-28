@@ -4,18 +4,13 @@ declare(strict_types=1);
 
 namespace MessageBusDurableExample;
 
-use Wolfcharaa\MessageBus\Adapter\Postgres\PostgresDeliveryBackend;
-use Wolfcharaa\MessageBus\Adapter\Postgres\PostgresSchemaManager;
+use Wolfcharaa\MessageBus\Adapter\Postgres\PostgresRuntime;
 use Wolfcharaa\MessageBus\Attribute\Handler;
 use Wolfcharaa\MessageBus\Attribute\MessageName;
 use Wolfcharaa\MessageBus\Attribute\Payload;
-use Wolfcharaa\MessageBus\Codec\JsonMessageCodec;
-use Wolfcharaa\MessageBus\Codec\MessageCodecs;
 use Wolfcharaa\MessageBus\Contract\Command;
-use Wolfcharaa\MessageBus\DefaultMessageBus;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicies;
 use Wolfcharaa\MessageBus\Delivery\DeliveryPolicy;
-use Wolfcharaa\MessageBus\DurableRuntime;
 use Wolfcharaa\MessageBus\HandlerServices;
 use Wolfcharaa\MessageBus\Identity\DeliveryId;
 use Wolfcharaa\MessageBus\Receipt\CommandReceipt;
@@ -25,7 +20,6 @@ use Wolfcharaa\MessageBus\Routing\DeliveryMode;
 use Wolfcharaa\MessageBus\Routing\DeliveryRoute;
 use Wolfcharaa\MessageBus\Routing\DeliveryRoutes;
 use Wolfcharaa\MessageBus\Routing\RuntimeConfigurationRule;
-use Wolfcharaa\MessageBus\Worker\DeliveryWorkerRuntime;
 use Wolfcharaa\MessageBus\Worker\WorkerProfile;
 
 require dirname(__DIR__) . '/autoload.php';
@@ -41,7 +35,7 @@ final class SendWelcomeHandler
 {
     public int $calls = 0;
 
-    #[Handler]
+    #[Handler(bindingId: 'command.send-welcome')]
     public function __invoke(SendWelcome $command): void
     {
         ++$this->calls;
@@ -64,14 +58,9 @@ $pdo = new \PDO(
     [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION],
 );
 $pdo->exec('CREATE SCHEMA IF NOT EXISTS "' . $schema . '"');
-$schemaManager = new PostgresSchemaManager($pdo, $schema);
-$schemaManager->migrate();
-$schemaManager->validate();
-$schemaManager->validateCatalog();
-
 $handler = new SendWelcomeHandler();
 $routes = new DeliveryRoutes([
-    SendWelcome::class => new DeliveryRoute(DeliveryMode::Durable),
+    'command.send-welcome' => new DeliveryRoute(DeliveryMode::Durable),
 ]);
 $policies = new DeliveryPolicies(['default' => new DeliveryPolicy('default')]);
 $registry = (new RegistryCompiler(rules: [
@@ -81,28 +70,24 @@ $registry = (new RegistryCompiler(rules: [
     SendWelcomeHandler::class,
 ]))->requireRegistry();
 $services = new HandlerServices([SendWelcomeHandler::class => $handler]);
-$backend = new PostgresDeliveryBackend($pdo, schema: $schema);
-$codecs = new MessageCodecs(
-    [SendWelcome::class => new JsonMessageCodec(SendWelcome::class)],
-    ['example.send-welcome' => [1 => new JsonMessageCodec(SendWelcome::class)]],
+$runtime = PostgresRuntime::create(
+    pdo: $pdo,
+    registry: $registry,
+    handlers: $services,
+    routes: $routes,
+    policies: $policies,
+    schema: $schema,
 );
-$bus = new DefaultMessageBus(
-    $registry,
-    $services,
-    $routes,
-    durable: new DurableRuntime(
-        $backend,
-        $codecs,
-        $policies,
-    ),
-);
-$receipt = $bus->dispatch(new SendWelcome('ada@example.test'));
+$runtime->schemaManager->migrate();
+$runtime->schemaManager->validate();
+$runtime->schemaManager->validateCatalog();
+
+$receipt = $runtime->bus->dispatch(new SendWelcome('ada@example.test'));
 if (!$receipt instanceof CommandReceipt || !$receipt->entry->deliveryId instanceof DeliveryId) {
     throw new \RuntimeException('Command did not reach durable acceptance.');
 }
-$worker = new DeliveryWorkerRuntime($backend, $codecs, $registry, $services, $bus);
-$iteration = $worker->runOnce(new WorkerProfile('example', 'default'), 'example:' . getmypid());
-$status = $backend->status($receipt->entry->deliveryId);
+$iteration = $runtime->worker->runOnce(new WorkerProfile('example', 'default'), 'example:' . getmypid());
+$status = $runtime->backend->status($receipt->entry->deliveryId);
 
 echo json_encode([
     'receipt' => $receipt->entry->outcome->value,
