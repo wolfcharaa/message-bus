@@ -74,11 +74,17 @@ final readonly class RegistryArtifact
     {
         $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         if (!\is_array($decoded) || array_is_list($decoded)) {
-            throw new \UnexpectedValueException('Compiled registry artifact has an unsupported shape.');
+            throw new \UnexpectedValueException(
+                'Compiled registry artifact root must be a JSON object; got '
+                . (\is_array($decoded) ? 'list' : get_debug_type($decoded)) . '.',
+            );
         }
         $data = self::object($decoded);
         if (($data['schema'] ?? null) !== self::SCHEMA) {
-            throw new \UnexpectedValueException('Compiled registry artifact has an unsupported schema.');
+            throw new \UnexpectedValueException(
+                'Compiled registry artifact schema must be ' . self::SCHEMA . '; got '
+                . self::printable($data['schema'] ?? null) . '.',
+            );
         }
         $artifact = new self(
             self::string($data, 'registry_fingerprint'),
@@ -101,26 +107,50 @@ final readonly class RegistryArtifact
     public function registry(): CompiledRegistry
     {
         $bindings = [];
-        foreach ($this->bindings as $row) {
+        foreach ($this->bindings as $bindingIndex => $row) {
             foreach ([
                 'id', 'message_class', 'role', 'handler_class', 'handler_method',
             ] as $required) {
                 if (!\is_string($row[$required] ?? null)) {
-                    throw new \UnexpectedValueException('Compiled registry binding is incomplete.');
+                    throw new \UnexpectedValueException(
+                        'Compiled registry binding #' . $bindingIndex . ' field "' . $required
+                        . '" must be a string; got ' . get_debug_type($row[$required] ?? null) . '.',
+                    );
                 }
             }
             $messageClass = self::string($row, 'message_class');
             $handlerClass = self::string($row, 'handler_class');
             $contextClass = self::nullableString($row, 'context_class');
-            if (!class_exists($messageClass) || !is_a($messageClass, Message::class, true)
-                || !class_exists($handlerClass)
-                || ($contextClass !== null && !is_a($contextClass, MessageContext::class, true))) {
-                throw new \UnexpectedValueException('Compiled registry artifact references an unavailable symbol.');
+            if (!class_exists($messageClass) || !is_a($messageClass, Message::class, true)) {
+                throw new \UnexpectedValueException(
+                    'Compiled registry binding #' . $bindingIndex . ' message_class "' . $messageClass
+                    . '" must be an autoloadable class implementing ' . Message::class . '.',
+                );
+            }
+            if (!class_exists($handlerClass)) {
+                throw new \UnexpectedValueException(
+                    'Compiled registry binding #' . $bindingIndex . ' handler_class "' . $handlerClass
+                    . '" must be an autoloadable class.',
+                );
+            }
+            if ($contextClass !== null && !is_a($contextClass, MessageContext::class, true)) {
+                throw new \UnexpectedValueException(
+                    'Compiled registry binding #' . $bindingIndex . ' context_class "' . $contextClass
+                    . '" must be an autoloadable class implementing ' . MessageContext::class . '.',
+                );
+            }
+            $roleValue = self::string($row, 'role');
+            $role = MessageRole::tryFrom($roleValue);
+            if (!$role instanceof MessageRole) {
+                throw new \UnexpectedValueException(
+                    'Compiled registry binding #' . $bindingIndex . ' role "' . $roleValue
+                    . '" must be one of: ' . implode(', ', array_column(MessageRole::cases(), 'value')) . '.',
+                );
             }
             $bindings[$messageClass][] = new HandlerBinding(
                 self::string($row, 'id'),
                 $messageClass,
-                MessageRole::from(self::string($row, 'role')),
+                $role,
                 $handlerClass,
                 self::string($row, 'handler_method'),
                 $contextClass,
@@ -185,15 +215,22 @@ final readonly class RegistryArtifact
             throw new \UnexpectedValueException('Compiled registry bindings must be a list.');
         }
         $bindings = [];
-        foreach ($value as $row) {
+        foreach ($value as $bindingIndex => $row) {
             if (!\is_array($row) || array_is_list($row)) {
-                throw new \UnexpectedValueException('Compiled registry binding must be an object.');
+                throw new \UnexpectedValueException(
+                    'Compiled registry binding #' . $bindingIndex . ' must be a JSON object; got '
+                    . (\is_array($row) ? 'list' : get_debug_type($row)) . '.',
+                );
             }
             $binding = [];
             foreach ($row as $key => $field) {
                 if (!\is_string($key)
                     || (!\is_bool($field) && !\is_int($field) && !\is_string($field) && $field !== null)) {
-                    throw new \UnexpectedValueException('Compiled registry binding contains a non-scalar field.');
+                    throw new \UnexpectedValueException(
+                        'Compiled registry binding #' . $bindingIndex . ' field ' . self::printable($key)
+                        . ' must use a string key and bool|int|string|null value; got '
+                        . get_debug_type($field) . '.',
+                    );
                 }
                 $binding[$key] = $field;
             }
@@ -212,12 +249,19 @@ final readonly class RegistryArtifact
         $object = [];
         foreach ($value as $key => $field) {
             if (!\is_string($key)) {
-                throw new \UnexpectedValueException('Compiled registry object has a non-string key.');
+                throw new \UnexpectedValueException(
+                    'Compiled registry artifact root key must be a string; got ' . self::printable($key) . '.',
+                );
             }
             $object[$key] = $field;
         }
 
         return $object;
+    }
+
+    private static function printable(mixed $value): string
+    {
+        return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     }
 }
 

@@ -29,6 +29,39 @@ final class RegistryArtifactLoaderTest extends TestCase
         $this->remove($this->directory);
     }
 
+    public function testWhenStaleRequiresARefreshableSource(): void
+    {
+        $artifactPath = $this->directory . '/var/registry.json';
+
+        try {
+            (new RegistryArtifactLoader())->load($artifactPath, RegistryRefreshPolicy::WhenStale);
+            self::fail('WhenStale accepted an absent discovery source.');
+        } catch (\InvalidArgumentException $failure) {
+            self::assertSame(
+                'WhenStale requires a refreshable registry class discovery source.',
+                $failure->getMessage(),
+            );
+        }
+    }
+
+    public function testRefreshLockFailureNamesTheExactUnusablePath(): void
+    {
+        $namespace = 'RefreshLockFixture' . bin2hex(random_bytes(5));
+        $this->write('src/Ping.php', $this->queryAndHandler($namespace, 'Ping'));
+        $source = new ComposerDirectoryClassSource([$this->directory . '/src'], [$namespace . '\\']);
+        $artifactPath = $this->directory . '/missing/registry.json';
+
+        try {
+            (new RegistryArtifactLoader())->load($artifactPath, RegistryRefreshPolicy::WhenStale, $source);
+            self::fail('Refresh opened a lock below a missing directory.');
+        } catch (\RuntimeException $failure) {
+            self::assertSame(
+                'Unable to open registry refresh lock: ' . $artifactPath . '.lock',
+                $failure->getMessage(),
+            );
+        }
+    }
+
     public function testWhenStaleRechecksResourcesButCompilesOnlyChangedInputs(): void
     {
         $namespace = 'RefreshFixture' . bin2hex(random_bytes(5));
@@ -82,6 +115,81 @@ final class RegistryArtifactLoaderTest extends TestCase
 
         self::assertSame($goodContents, file_get_contents($artifactPath));
         self::assertSame($good->fingerprint, (new RegistryArtifactLoader())->load($artifactPath)->fingerprint);
+    }
+
+    public function testInvalidComposerRefreshPreservesDecodeCauseAndNeverReturnsStaleArtifact(): void
+    {
+        $namespace = 'RefreshComposerFailureFixture' . bin2hex(random_bytes(5));
+        $this->write('src/Ping.php', $this->queryAndHandler($namespace, 'Ping'));
+        $composer = $this->write('composer.json', json_encode([
+            'autoload' => ['classmap' => ['src/']],
+        ], JSON_THROW_ON_ERROR));
+        $source = ComposerDirectoryClassSource::fromComposerJson($composer);
+        $artifactPath = $this->directory . '/var/registry.json';
+        $loader = new RegistryArtifactLoader();
+        $loader->load($artifactPath, RegistryRefreshPolicy::WhenStale, $source);
+        $goodContents = file_get_contents($artifactPath);
+        file_put_contents($composer, '{invalid');
+
+        try {
+            $loader->load($artifactPath, RegistryRefreshPolicy::WhenStale, $source);
+            self::fail('Invalid composer.json silently fell back to the previous artifact.');
+        } catch (InvalidMessageBusConfiguration $failure) {
+            self::assertContains('MBR022', array_column($failure->diagnostics, 'code'));
+            self::assertInstanceOf(\JsonException::class, $failure->getPrevious());
+            self::assertStringContainsString($composer, $failure->getMessage());
+        }
+
+        self::assertSame($goodContents, file_get_contents($artifactPath));
+    }
+
+    public function testCorruptRefreshMetadataForcesARecompileInsteadOfTrustingTheArtifact(): void
+    {
+        $namespace = 'RefreshMetadataFixture' . bin2hex(random_bytes(5));
+        $this->write('src/Ping.php', $this->queryAndHandler($namespace, 'Ping'));
+        $composer = $this->write('composer.json', json_encode([
+            'autoload' => ['classmap' => ['src/']],
+        ], JSON_THROW_ON_ERROR));
+        $source = new CountingRefreshableSource(ComposerDirectoryClassSource::fromComposerJson($composer));
+        $artifactPath = $this->directory . '/var/registry.json';
+        $loader = new RegistryArtifactLoader();
+        $first = $loader->load($artifactPath, RegistryRefreshPolicy::WhenStale, $source);
+        self::assertSame(1, $source->discoverCalls);
+        file_put_contents($artifactPath . '.meta.json', '{invalid');
+
+        $second = $loader->load($artifactPath, RegistryRefreshPolicy::WhenStale, $source);
+
+        self::assertSame($first->fingerprint, $second->fingerprint);
+        self::assertSame(2, $source->discoverCalls);
+        self::assertIsArray(json_decode(
+            (string) file_get_contents($artifactPath . '.meta.json'),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        ));
+    }
+
+    public function testMetadataWriteFailureNamesTheExactArtifactSidecarPath(): void
+    {
+        $namespace = 'RefreshMetadataFailureFixture' . bin2hex(random_bytes(5));
+        $this->write('src/Ping.php', $this->queryAndHandler($namespace, 'Ping'));
+        $source = new ComposerDirectoryClassSource([$this->directory . '/src'], [$namespace . '\\']);
+        $artifactPath = $this->directory . '/var/registry.json';
+        $metaPath = $artifactPath . '.meta.json';
+        mkdir($metaPath);
+        set_error_handler(static fn(): bool => true);
+
+        try {
+            (new RegistryArtifactLoader())->load($artifactPath, RegistryRefreshPolicy::WhenStale, $source);
+            self::fail('Refresh metadata replaced an existing directory.');
+        } catch (\RuntimeException $failure) {
+            self::assertSame(
+                'Unable to atomically write registry refresh metadata: ' . $metaPath,
+                $failure->getMessage(),
+            );
+        } finally {
+            restore_error_handler();
+        }
     }
 
     public function testPrecompiledOnlyRejectsDiscoveryAndLoadsAfterSourceTreeIsGone(): void

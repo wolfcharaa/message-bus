@@ -38,6 +38,41 @@ use Wolfcharaa\MessageBus\Routing\RuntimeConfigurationRule;
 
 final class RegistryDiagnosticsTest extends TestCase
 {
+    public function testConfiguredAutoloaderFailureIsThePreviousCompilerException(): void
+    {
+        $class = 'Application\Container\BrokenHandler' . bin2hex(random_bytes(5));
+        $source = (new \ReflectionClass(ExplicitClassSource::class))->newInstance([$class]);
+        self::assertInstanceOf(ExplicitClassSource::class, $source);
+        $containerFailure = new \RuntimeException('DI container failed while resolving a handler dependency.');
+        $autoloader = static function (string $requested) use ($class, $containerFailure): void {
+            if ($requested === $class) {
+                throw $containerFailure;
+            }
+        };
+        spl_autoload_register($autoloader, true, true);
+
+        try {
+            $result = (new RegistryCompiler())->compile($source);
+        } finally {
+            spl_autoload_unregister($autoloader);
+        }
+
+        $diagnostic = $this->diagnostic($result, 'MBR001');
+        self::assertSame($class, $diagnostic->symbol);
+        self::assertNull($diagnostic->sourcePath);
+        self::assertSame(\RuntimeException::class, $diagnostic->causeClass);
+        self::assertStringContainsString('configured autoloader threw', $diagnostic->message);
+        self::assertStringContainsString($containerFailure->getMessage(), $diagnostic->message);
+        self::assertSame($containerFailure, $result->primaryCause);
+
+        try {
+            $result->requireRegistry();
+            self::fail('Autoloader failure was swallowed by the registry compiler.');
+        } catch (InvalidMessageBusConfiguration $failure) {
+            self::assertSame($containerFailure, $failure->getPrevious());
+        }
+    }
+
     public function testAttributeConstructionDiagnosticsPreserveTheirOriginalThrowable(): void
     {
         foreach ([InvalidAttributeDetailedHandler::class, InvalidDetailedMessageName::class] as $class) {

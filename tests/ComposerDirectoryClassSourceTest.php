@@ -32,6 +32,42 @@ final class ComposerDirectoryClassSourceTest extends TestCase
         return ['MBR021', 'MBR022', 'MBR023', 'MBR024', 'MBR025', 'MBR026', 'MBR027', 'MBR028'];
     }
 
+    public function testPublicConfigurationRejectsIncompleteOrAmbiguousValuesWithExactMessages(): void
+    {
+        $reflection = new \ReflectionClass(ComposerDirectoryClassSource::class);
+        $invalidCases = [
+            'missing roots' => [
+                static fn(): object => $reflection->newInstance([], ['Application\\']),
+                'Composer directory source requires directories and namespace prefixes.',
+            ],
+            'empty root' => [
+                static fn(): object => $reflection->newInstance([''], ['Application\\']),
+                'Every Composer directory source directory must be a non-empty string.',
+            ],
+            'empty excluded root' => [
+                static fn(): object => $reflection->newInstance(['/application/src'], ['Application\\'], ['']),
+                'Every Composer directory source excluded directory must be a non-empty string.',
+            ],
+            'non-string namespace prefix' => [
+                static fn(): object => $reflection->newInstance(['/application/src'], [42]),
+                'Every Composer directory source namespace prefix must be a string; use an empty string to allow all namespaces.',
+            ],
+            'empty composer path' => [
+                static fn(): object => ComposerDirectoryClassSource::fromComposerJson(''),
+                'composer.json path must not be empty.',
+            ],
+        ];
+
+        foreach ($invalidCases as $case => [$operation, $message]) {
+            try {
+                $operation();
+                self::fail('Invalid discovery configuration was accepted: ' . $case);
+            } catch (\InvalidArgumentException $failure) {
+                self::assertSame($message, $failure->getMessage(), $case);
+            }
+        }
+    }
+
     public function testComposerProductionMappingsDiscoverAndCompileHandlersWithoutDevFilesOrExcludedTrees(): void
     {
         $namespace = $this->namespace();
@@ -100,6 +136,21 @@ final class ComposerDirectoryClassSourceTest extends TestCase
         self::assertInstanceOf(\JsonException::class, $result->primaryCause);
     }
 
+    public function testMBR022NamesAComposerFileThatDisappearedBeforeDiscovery(): void
+    {
+        $path = $this->write('composer.json', '{"autoload":{"classmap":["src/"]}}');
+        $source = ComposerDirectoryClassSource::fromComposerJson($path);
+        unlink($path);
+        $result = $source->discover();
+        $diagnostic = $this->diagnostic($result->diagnostics, 'MBR022');
+
+        self::assertSame($path, $diagnostic->symbol);
+        self::assertSame($path, $diagnostic->sourcePath);
+        self::assertSame(\RuntimeException::class, $diagnostic->causeClass);
+        self::assertSame('read/decode failed: file is missing or unreadable', $diagnostic->actual);
+        self::assertInstanceOf(\RuntimeException::class, $result->primaryCause);
+    }
+
     public function testMBR023IdentifiesTheInvalidProductionMapping(): void
     {
         $composer = $this->composer(['psr-4' => ['Broken\\' => 'missing/']]);
@@ -111,6 +162,100 @@ final class ComposerDirectoryClassSourceTest extends TestCase
         self::assertSame('autoload.psr-4.Broken\\', $diagnostic->symbol);
         self::assertStringContainsString('/missing', (string) $diagnostic->expected);
         self::assertSame('autoload_mapping', $diagnostic->subjectKind);
+    }
+
+    public function testMBR023IdentifiesEveryInvalidProductionMappingShape(): void
+    {
+        $cases = [
+            'autoload is not an object' => [
+                ['autoload' => 'src/'],
+                'autoload',
+                'production autoload must be a JSON object',
+            ],
+            'psr-4 is not an object' => [
+                ['autoload' => ['psr-4' => ['src/']]],
+                'autoload.psr-4',
+                'mapping must be a JSON object',
+            ],
+            'psr-4 prefix has no separator' => [
+                ['autoload' => ['psr-4' => ['Application' => 'src/']]],
+                'autoload.psr-4.Application',
+                'a non-empty PSR-4 namespace prefix ending in a namespace separator',
+            ],
+            'psr-4 value has an invalid type' => [
+                ['autoload' => ['psr-4' => ['Application\\' => false]]],
+                'autoload.psr-4',
+                'every prefix maps to a string or list of strings',
+            ],
+            'psr-4 path is not a string' => [
+                ['autoload' => ['psr-4' => ['Application\\' => [false]]]],
+                'autoload.psr-4.Application\\',
+                'every mapped path is a non-empty string',
+            ],
+            'classmap is not a string or list' => [
+                ['autoload' => ['classmap' => false]],
+                'autoload.classmap',
+                'mapping must be a string or list of strings',
+            ],
+            'classmap entry is empty' => [
+                ['autoload' => ['classmap' => ['']]],
+                'autoload.classmap',
+                'every mapped path is a non-empty string',
+            ],
+            'classmap path is missing' => [
+                ['autoload' => ['classmap' => ['missing/']]],
+                'autoload.classmap',
+                'mapped path exists: ' . $this->directory . '/missing/',
+            ],
+            'production roots are absent' => [
+                ['autoload' => ['files' => ['bootstrap.php']]],
+                'autoload',
+                'at least one production psr-4 or classmap root',
+            ],
+            'exclude mapping is not a string or list' => [
+                ['autoload' => ['classmap' => ['src/'], 'exclude-from-classmap' => false]],
+                'autoload.exclude-from-classmap',
+                'value must be a string or list of strings',
+            ],
+            'exclude pattern is empty' => [
+                ['autoload' => ['classmap' => ['src/'], 'exclude-from-classmap' => ['']]],
+                'autoload.exclude-from-classmap',
+                'every pattern is a non-empty string',
+            ],
+        ];
+        mkdir($this->directory . '/src');
+
+        foreach ($cases as $case => [$document, $symbol, $expected]) {
+            $composer = $this->write(
+                'composer-' . hash('sha256', $case) . '.json',
+                json_encode($document, JSON_THROW_ON_ERROR),
+            );
+            $diagnostic = $this->diagnostic(
+                ComposerDirectoryClassSource::fromComposerJson($composer)->discover()->diagnostics,
+                'MBR023',
+            );
+
+            self::assertSame($symbol, $diagnostic->symbol, $case);
+            self::assertSame($expected, $diagnostic->expected, $case);
+            self::assertSame(
+                $case === 'classmap path is missing' ? $this->directory . '/missing/' : $composer,
+                $diagnostic->sourcePath,
+                $case,
+            );
+        }
+    }
+
+    public function testMBR023NamesAMissingExplicitDiscoveryRoot(): void
+    {
+        $missing = $this->directory . '/missing-root';
+        $diagnostic = $this->diagnostic(
+            (new ComposerDirectoryClassSource([$missing], ['Application\\']))->discover()->diagnostics,
+            'MBR023',
+        );
+
+        self::assertSame($missing, $diagnostic->symbol);
+        self::assertSame($missing, $diagnostic->sourcePath);
+        self::assertSame('path does not exist', $diagnostic->actual);
     }
 
     public function testMBR024PreservesScannerFailureAsCompilerPreviousException(): void

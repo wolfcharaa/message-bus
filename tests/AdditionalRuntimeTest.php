@@ -307,6 +307,61 @@ final class AdditionalRuntimeTest extends TestCase
                 'Built-in registry diagnostic MBR999 requires non-empty symbol.',
             ],
             [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'MBR999',
+                    DiagnosticSeverity::Error,
+                    '[MBR999] Subject. Actual state.',
+                    'Subject',
+                    actual: 'Actual state',
+                ),
+                'Built-in registry diagnostic MBR999 requires non-empty expected.',
+            ],
+            [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'MBR999',
+                    DiagnosticSeverity::Error,
+                    '[MBR999] Subject. Expected state.',
+                    'Subject',
+                    expected: 'Expected state',
+                    actual: '',
+                ),
+                'Built-in registry diagnostic MBR999 requires non-empty actual.',
+            ],
+            [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'MBR999',
+                    DiagnosticSeverity::Error,
+                    '[MBR999] Expected state. Actual state.',
+                    'Subject',
+                    expected: 'Expected state',
+                    actual: 'Actual state',
+                ),
+                'Built-in registry diagnostic MBR999 message must include symbol.',
+            ],
+            [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'MBR999',
+                    DiagnosticSeverity::Error,
+                    'Subject. Expected state. Actual state.',
+                    'Subject',
+                    expected: 'Expected state',
+                    actual: 'Actual state',
+                ),
+                'Built-in registry diagnostic message must include [MBR999].',
+            ],
+            [
+                static fn(): RegistryDiagnostic => new RegistryDiagnostic(
+                    'MBR999',
+                    DiagnosticSeverity::Error,
+                    '[MBR999] Subject. Expected state. Actual state.',
+                    'Subject',
+                    expected: 'Expected state',
+                    actual: 'Actual state',
+                    sourcePath: '/application/src/BrokenHandler.php',
+                ),
+                'Built-in registry diagnostic message must include source_path when it is present.',
+            ],
+            [
                 static fn(): FailureDiagnostic => new FailureDiagnostic(FailureStage::Dispatch, ''),
                 'Failure diagnostic field failureClass must contain 1..255 bytes.',
             ],
